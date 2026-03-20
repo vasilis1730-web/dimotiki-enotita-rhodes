@@ -4408,8 +4408,9 @@ function saveOrder(andPrint){
     if(!ok) return;
   }
 
-  // Admin reset: if moving away from Παραλήφθηκε → reset all locks
-  const _adminReset = isAdmin && oldStatus === 'Παραλήφθηκε' && newStatus !== 'Παραλήφθηκε';
+  // Admin reset: whenever admin edits an existing locked order (penalty or Παραλήφθηκε)
+  const _hasLocks = _existingWo && (_existingWo.penaltyApplied || oldStatus === 'Παραλήφθηκε');
+  const _adminReset = isAdmin && !!id && _hasLocks;
   const items=collectItems();
   const data={
     id:id||genId(),
