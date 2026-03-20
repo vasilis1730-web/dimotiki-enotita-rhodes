@@ -3069,7 +3069,7 @@ function renderOrders(){
         btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
         btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
         if(currentUser && currentUser.id==='admin') btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN: Επεξεργασία">✎</button>';
-        if(!w.penaltyApplied) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
+        if(!w.penaltyApplied && !(currentUser && currentUser.id==='admin')) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
       }
     } // end contractor block
     // Delete button — admin always gets red 🗑, others get normal or disabled
