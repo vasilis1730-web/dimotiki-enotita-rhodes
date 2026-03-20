@@ -4395,6 +4395,8 @@ function saveOrder(andPrint){
     : (document.getElementById('wo_status')?.value||'');
   const oldStatus = _existingWo?.status || '';
   const isAdmin = currentUser?.id === 'admin';
+
+  // Warn non-admin when setting to Παραλήφθηκε
   if(!isAdmin && newStatus === 'Παραλήφθηκε' && oldStatus !== 'Παραλήφθηκε'){
     const ok = confirm(
       '⚠️ ΠΡΟΣΟΧΗ — Κατάσταση: Παραλήφθηκε\n\n'
@@ -4405,6 +4407,9 @@ function saveOrder(andPrint){
     );
     if(!ok) return;
   }
+
+  // Admin reset: if moving away from Παραλήφθηκε → reset all locks
+  const _adminReset = isAdmin && oldStatus === 'Παραλήφθηκε' && newStatus !== 'Παραλήφθηκε';
   const items=collectItems();
   const data={
     id:id||genId(),
@@ -4447,14 +4452,29 @@ function saveOrder(andPrint){
     alert('⚠ Η εντολή δεν μπορεί να αποθηκευτεί.\n\nΣυμπληρώστε τα παρακάτω υποχρεωτικά πεδία:\n\n'+errs.join('\n'));
     return;
   }
-  // Keep existing penalty data if editing
+  // Keep existing penalty data if editing (unless admin is resetting)
   if(id){
     const existing=workOrders.find(w=>w.id===id);
     if(existing){
-      data.penaltyApplied=existing.penaltyApplied||false;
-      data.penaltyAmount=existing.penaltyAmount||0;
-      data.penaltyNote=existing.penaltyNote||'';
-      data.penaltyDate=existing.penaltyDate||'';
+      if(_adminReset){
+        // Admin reset: clear penalty, locks, restart countdown
+        data.penaltyApplied = false;
+        data.penaltyAmount  = 0;
+        data.penaltyNote    = '';
+        data.penaltyDate    = '';
+        data.sentAt         = new Date().toISOString(); // restart countdown
+        // Keep signed PDF files (don't clear signedPdfData/signedPdfUrl)
+        data.signedPdfData  = existing.signedPdfData  || null;
+        data.signedPdfUrl   = existing.signedPdfUrl   || null;
+        data.signedPdfName  = existing.signedPdfName  || '';
+        data.signedPdfPath  = existing.signedPdfPath  || '';
+        toast('🔄 Εντολή επαναφέρθηκε — ρήτρα διαγράφηκε, χρονόμετρο επανεκκίνηση');
+      } else {
+        data.penaltyApplied=existing.penaltyApplied||false;
+        data.penaltyAmount=existing.penaltyAmount||0;
+        data.penaltyNote=existing.penaltyNote||'';
+        data.penaltyDate=existing.penaltyDate||'';
+      }
     }
     const idx=workOrders.findIndex(w=>w.id===id);
     if(idx>=0)workOrders[idx]=data;
@@ -4465,6 +4485,15 @@ function saveOrder(andPrint){
       data.sentAt = new Date().toISOString();
     }
     workOrders.push(data);
+  }
+
+  // Admin reset: also delete related penalty payments to fix balance
+  if(_adminReset && id){
+    const penBefore = payments.filter(p=>p.orderId===id && p.isPenalty).length;
+    if(penBefore > 0){
+      payments = payments.filter(p=>!(p.orderId===id && p.isPenalty));
+      toast('🔄 Επαναφορά: '+penBefore+' ρήτρα/ες διαγράφηκαν — ισοζύγιο ενημερώθηκε');
+    }
   }
 
   // ── PAYMENT is created ONLY via finalizeAcceptance (signed PDF upload) ──
