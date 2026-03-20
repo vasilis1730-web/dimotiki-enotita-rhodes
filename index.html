@@ -4488,12 +4488,19 @@ function saveOrder(andPrint){
     workOrders.push(data);
   }
 
-  // Admin reset: also delete related penalty payments to fix balance
+  // Admin reset: delete ALL related payments (penalty + regular) to reset balance
   if(_adminReset && id){
-    const penBefore = payments.filter(p=>p.orderId===id && p.isPenalty).length;
-    if(penBefore > 0){
-      payments = payments.filter(p=>!(p.orderId===id && p.isPenalty));
-      toast('🔄 Επαναφορά: '+penBefore+' ρήτρα/ες διαγράφηκαν — ισοζύγιο ενημερώθηκε');
+    const allRelated = payments.filter(p=>p.orderId===id);
+    const penPayments = allRelated.filter(p=>p.isPenalty);
+    const regPayments = allRelated.filter(p=>!p.isPenalty);
+    if(allRelated.length > 0){
+      payments = payments.filter(p=>p.orderId!==id);
+      let msg = '🔄 Επαναφορά εντολής — ';
+      if(penPayments.length) msg += penPayments.length+' ρήτρα/ες';
+      if(penPayments.length && regPayments.length) msg += ' και ';
+      if(regPayments.length) msg += regPayments.length+' πληρωμή/ές';
+      msg += ' διαγράφηκαν — ισοζύγιο ενημερώθηκε';
+      toast(msg);
     }
   }
 
