@@ -4253,7 +4253,7 @@ function viewOrder(id){
 function editOrder(id){
   if(currentUser && currentUser.canOrders===false){toast('⛔ Δεν έχετε δικαίωμα επεξεργασίας εντολών εργασίας.');return;}
   const woCheck=workOrders.find(w=>w.id===id);
-  if(woCheck && woCheck.signedPdfData && currentUser?.id!=='admin'){toast('🔒 Η εντολή έχει ψηφιακά υπογεγραμμένο πρωτόκολλο — δεν επιτρέπεται τροποποίηση.');return;}
+  if(woCheck && (woCheck.signedPdfData||woCheck.signedPdfUrl) && currentUser?.id!=='admin'){toast('🔒 Η εντολή έχει ψηφιακά υπογεγραμμένο πρωτόκολλο — δεν επιτρέπεται τροποποίηση.');return;}
   const wo=workOrders.find(w=>w.id===id);
   if(!wo)return;
   document.getElementById('orderModalTitle').textContent='Εντολή '+wo.orderNum;
@@ -4386,7 +4386,7 @@ function saveOrder(andPrint){
   if(currentUser && currentUser.canOrders===false){toast('⛔ Δεν έχετε δικαίωμα επεξεργασίας εντολών εργασίας.');return;}
   const id=document.getElementById('wo_id').value;
   const _existingWo = id ? workOrders.find(w=>w.id===id) : null;
-  if(_existingWo && _existingWo.signedPdfData && currentUser?.id!=='admin'){toast('🔒 Η εντολή έχει ψηφιακά υπογεγραμμένο πρωτόκολλο — δεν επιτρέπεται τροποποίηση.');closeM('orderModal');return;}
+  if(_existingWo && (_existingWo.signedPdfData||_existingWo.signedPdfUrl) && currentUser?.id!=='admin'){toast('🔒 Η εντολή έχει ψηφιακά υπογεγραμμένο πρωτόκολλο — δεν επιτρέπεται τροποποίηση.');closeM('orderModal');return;}
   const orderType = document.getElementById('wo_orderType')?.value || 'contractor';
   const isService = orderType === 'service';
   // Warn non-admin users when setting status to Παραλήφθηκε
