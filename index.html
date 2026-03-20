@@ -3058,14 +3058,17 @@ function renderOrders(){
       if(w.status==='Παραλήφθηκε' && w.signedPdfData){
         btnHtml+='<button style="background:#198754;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="downloadSignedPdf(\''+w.id+'\')">📄 Πρωτόκολλο</button>';
         btnHtml+='<button class="ab-done" onclick="emailProtocol(\''+w.id+'\')">✉ Αποστολή</button>';
+        if(currentUser && currentUser.id==='admin') btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN: Επεξεργασία">✎</button>';
       } else if(w.status==='Παραλήφθηκε'){
         btnHtml+='<button style="background:#ffc107;color:#000;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:700;" onclick="openSigModal(\''+w.id+'\')">✍ Υπογραφή</button>';
         btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
         btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
+        if(currentUser && currentUser.id==='admin') btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN: Επεξεργασία">✎</button>';
       } else {
         btnHtml+='<button style="background:#1a3a5c;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:700;" onclick="openSigModal(\''+w.id+'\')">✍ Υπογραφή</button>';
         btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
         btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
+        if(currentUser && currentUser.id==='admin') btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN: Επεξεργασία">✎</button>';
         if(!w.penaltyApplied) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
       }
     } // end contractor block
@@ -4383,9 +4386,25 @@ function saveOrder(andPrint){
   if(currentUser && currentUser.canOrders===false){toast('⛔ Δεν έχετε δικαίωμα επεξεργασίας εντολών εργασίας.');return;}
   const id=document.getElementById('wo_id').value;
   const _existingWo = id ? workOrders.find(w=>w.id===id) : null;
-  if(_existingWo && _existingWo.signedPdfData){toast('🔒 Η εντολή έχει ψηφιακά υπογεγραμμένο πρωτόκολλο — δεν επιτρέπεται τροποποίηση.');closeM('orderModal');return;}
+  if(_existingWo && _existingWo.signedPdfData && currentUser?.id!=='admin'){toast('🔒 Η εντολή έχει ψηφιακά υπογεγραμμένο πρωτόκολλο — δεν επιτρέπεται τροποποίηση.');closeM('orderModal');return;}
   const orderType = document.getElementById('wo_orderType')?.value || 'contractor';
   const isService = orderType === 'service';
+  // Warn non-admin users when setting status to Παραλήφθηκε
+  const newStatus = isService
+    ? (document.getElementById('wo_svc_status')?.value||'')
+    : (document.getElementById('wo_status')?.value||'');
+  const oldStatus = _existingWo?.status || '';
+  const isAdmin = currentUser?.id === 'admin';
+  if(!isAdmin && newStatus === 'Παραλήφθηκε' && oldStatus !== 'Παραλήφθηκε'){
+    const ok = confirm(
+      '⚠️ ΠΡΟΣΟΧΗ — Κατάσταση: Παραλήφθηκε\n\n'
+      +'Μόλις αποθηκευτεί η εντολή ως «Παραλήφθηκε»:\n'
+      +'• Δεν θα είναι δυνατή η επεξεργασία της\n'
+      +'• Θα απαιτείται ψηφιακό πρωτόκολλο παραλαβής\n\n'
+      +'Είστε σίγουροι ότι θέλετε να συνεχίσετε;'
+    );
+    if(!ok) return;
+  }
   const items=collectItems();
   const data={
     id:id||genId(),
