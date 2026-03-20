@@ -4253,7 +4253,7 @@ function viewOrder(id){
 function editOrder(id){
   if(currentUser && currentUser.canOrders===false){toast('⛔ Δεν έχετε δικαίωμα επεξεργασίας εντολών εργασίας.');return;}
   const woCheck=workOrders.find(w=>w.id===id);
-  if(woCheck && woCheck.signedPdfData){toast('🔒 Η εντολή έχει ψηφιακά υπογεγραμμένο πρωτόκολλο — δεν επιτρέπεται τροποποίηση.');return;}
+  if(woCheck && woCheck.signedPdfData && currentUser?.id!=='admin'){toast('🔒 Η εντολή έχει ψηφιακά υπογεγραμμένο πρωτόκολλο — δεν επιτρέπεται τροποποίηση.');return;}
   const wo=workOrders.find(w=>w.id===id);
   if(!wo)return;
   document.getElementById('orderModalTitle').textContent='Εντολή '+wo.orderNum;
