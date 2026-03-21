@@ -2676,7 +2676,10 @@ function validatePdfSigners(dataUrl, woRef){
       const en = n.toUpperCase();
       // Match if name parts overlap (handle different name orderings)
       const mParts = mName.split(/\s+/);
-      return mParts.every(part => part.length > 2 && en.includes(part));
+      return mParts.every(part => {
+        if(part.length <= 2) return true; // ignore initials
+        return en.includes(part);
+      });
     });
     if(found) matched.push(member.name);
     else missing.push(member.name + ' ('+member.role+')');
@@ -2883,12 +2886,22 @@ function resetSignedPdf(id){
 function finalizeAcceptance(){
   const wo = workOrders.find(w=>w.id===_sigOrderId);
   if(!wo) return;
-  if(!wo.signedPdfData){alert('Εισάγετε πρώτα το υπογεγραμμένο PDF.');return;}
-  const sigs = countPdfSignatures(wo.signedPdfData);
+  if(!wo.signedPdfData && !wo.signedPdfUrl){alert('Εισάγετε πρώτα το υπογεγραμμένο PDF.');return;}
+  const sigs = countPdfSignatures(wo.signedPdfData||'');
   const req = Math.max(1, (settings.eSignUsers||[]).filter(u=>u.name).length||3);
+
+  // Check count
   if(sigs < req){
-    if(!confirm('Ανιχνεύθηκαν '+sigs+'/'+req+' ψηφιακές υπογραφές. Θέλετε να ολοκληρώσετε παρ\'όλα αυτά;'))return;
+    if(!confirm('Ανιχνεύθηκαν '+sigs+'/'+req+' ψηφιακές υπογραφές. Θέλετε να ολοκληρώσετε;'))return;
   }
+
+  // Check signer names
+  const validation = validatePdfSigners(wo.signedPdfData||'', wo);
+  if(!validation.valid && validation.missing && validation.missing.length > 0){
+    const msg = 'Μη επαληθευμένοι υπογράφοντες. Λείπουν: '+validation.missing.join(', ')+'. Να ολοκληρωθεί παρόλα αυτά;';
+    if(!confirm(msg)) return;
+  }
+
   closeSigModal();
   wo.status = 'Παραλήφθηκε';
   wo.completionDate = todayStr();
