@@ -2802,11 +2802,15 @@ async function importSignedPdf(input){
   toast('🔍 Έλεγχος ψηφιακών υπογραφών...');
   let _extractedNames = [];
   try{
-    const _edgeUrl = settings.edgeFnUrl || '';
-    if(_edgeUrl){
-      // Call Edge Function for reliable name extraction
-      const _sb = getSupabase();
-      const _anonKey = localStorage.getItem('sb_key') || SUPABASE_KEY || '';
+    const _edgeUrl = (settings.edgeFnUrl||'').trim();
+    if(!_edgeUrl){
+      // No Edge Function configured — fallback
+      _extractedNames = extractPdfSignerNames(wo.signedPdfData||'');
+      wo._sigExtractedNames = _extractedNames;
+    } else {
+      const _anonKey = (localStorage.getItem('sb_key')||'').trim();
+      if(!_anonKey){ alert('Δεν βρέθηκε Supabase Anon Key. Ελέγξτε τις Ρυθμίσεις → Supabase.'); return; }
+      toast('📡 Επικοινωνία με Edge Function...');
       const _resp = await fetch(_edgeUrl, {
         method: 'POST',
         headers: {
@@ -2816,22 +2820,21 @@ async function importSignedPdf(input){
         },
         body: JSON.stringify({ pdfBase64: wo.signedPdfData||'' })
       });
-      if(_resp.ok){
-        const _result = await _resp.json();
-        _extractedNames = _result.signers || [];
-        // Update signature count from edge function if more reliable
-        if(_result.count > 0) wo._edgeSigCount = _result.count;
-        toast('🔍 Edge Function: βρέθηκαν '+_extractedNames.length+' υπογράφοντες');
+      const _respText = await _resp.text();
+      if(!_resp.ok){
+        alert('Edge Function σφάλμα HTTP '+_resp.status+': '+_respText.slice(0,200));
+        _extractedNames = extractPdfSignerNames(wo.signedPdfData||'');
       } else {
-        throw new Error('Edge Function HTTP '+_resp.status);
+        const _result = JSON.parse(_respText);
+        _extractedNames = _result.signers || [];
+        if(_result.count > 0) wo._edgeSigCount = _result.count;
+        toast('🔍 Βρέθηκαν '+_extractedNames.length+' υπογράφοντες: '+_extractedNames.join(', '));
       }
-    } else {
-      // Fallback: client-side extraction
-      _extractedNames = extractPdfSignerNames(wo.signedPdfData||'');
+      wo._sigExtractedNames = _extractedNames;
     }
-    wo._sigExtractedNames = _extractedNames;
   }catch(e){
     console.warn('Signature extraction failed:', e);
+    alert('Edge Function σφάλμα: '+e.message);
     wo._sigExtractedNames = extractPdfSignerNames(wo.signedPdfData||'');
     _extractedNames = wo._sigExtractedNames;
   }
