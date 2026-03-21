@@ -515,9 +515,9 @@ tr:hover td{background:#faf9f7;}
         <p style="font-size:10px;color:var(--muted);margin-bottom:12px;">Ορίστε τα 3 μέλη της επιτροπής παραλαβής. Το username χρησιμοποιείται ως υπόμνηση στη διαδικασία υπογραφής.</p>
         <div id="committeeMembersList"></div>
         <div style="margin-top:12px;">
-          <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Edge Function URL (προαιρετικό — για αυτόματο έλεγχο ονομάτων)</label>
+          <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Edge Function URL (απαιτείται για επαλήθευση ψηφιακών υπογραφών)</label>
           <input type="url" id="sEdgeFnUrl" onchange="saveSett()" placeholder="https://xxx.supabase.co/functions/v1/verify-pdf-signatures" style="font-family:monospace;font-size:10px;width:100%;">
-          <p style="font-size:10px;color:var(--muted);margin:4px 0 0;">Αναπτύξτε την Edge Function από το αρχείο edge_function.zip</p>
+          <p style="font-size:10px;color:var(--muted);margin:4px 0 0;">Η παραλαβή ολοκληρώνεται μόνο μετά από επιτυχή κρυπτογραφική επαλήθευση PDF/CMS.</p>
         </div>
       </div>
 
@@ -2659,44 +2659,89 @@ function extractPdfSignerNames(dataUrl){
 }
 
 function validatePdfSigners(dataUrl, woRef){
-  const committee = (settings.eSignUsers||[]).filter(u=>u.name && u.name.trim());
-  if(!committee.length) return {valid:false, msg:'Δεν έχουν οριστεί μέλη επιτροπής στις Ρυθμίσεις.'};
+  const committee = (settings.eSignUsers || []).filter(u => u.name && u.name.trim());
 
-  const sigCount = countPdfSignatures(dataUrl);
-  const extractedNames = extractPdfSignerNames(dataUrl);
+  if(!committee.length){
+    return {
+      valid: false,
+      sigCount: 0,
+      required: 0,
+      matched: [],
+      missing: [],
+      extractedNames: [],
+      source: 'none',
+      edgeOk: false,
+      integrityOk: false,
+      certificatesOk: false,
+      msg: 'Δεν έχουν οριστεί μέλη επιτροπής στις Ρυθμίσεις.'
+    };
+  }
 
-  // Check each committee member if their name appears in extracted names
+  const normalize = (txt='') => txt
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^\p{L}\p{N}\s]/gu,' ')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toUpperCase();
+
+  const signerMatchesMember = (signerName='', memberName='') => {
+    const s = normalize(signerName);
+    const m = normalize(memberName);
+    if(!s || !m) return false;
+
+    const mParts = m.split(' ').filter(p => p.length >= 3);
+    if(!mParts.length) return s === m;
+
+    return mParts.every(part => s.includes(part));
+  };
+
+  const ver = woRef?._sigVerification;
+  const signers = Array.isArray(ver?.signers) ? ver.signers.filter(Boolean) : [];
+
   const matched = [];
   const missing = [];
 
   committee.forEach(member=>{
-    const mName = member.name.trim().toUpperCase();
-    // Check if any extracted name contains the committee member name (partial match)
-    const found = extractedNames.some(n=>{
-      const en = n.toUpperCase();
-      // Match if name parts overlap (handle different name orderings)
-      const mParts = mName.split(/\s+/);
-      return mParts.every(part => {
-        if(part.length <= 2) return true; // ignore initials
-        return en.includes(part);
-      });
-    });
+    const found = signers.some(signer => signerMatchesMember(signer, member.name));
     if(found) matched.push(member.name);
-    else missing.push(member.name + ' ('+member.role+')');
+    else missing.push(member.name + ' (' + (member.role || 'Μέλος') + ')');
   });
 
-  const allPresent = matched.length >= committee.length;
+  const sigCount =
+    Number.isFinite(Number(ver?.sigCount))
+      ? Number(ver.sigCount)
+      : countPdfSignatures(dataUrl);
+
+  const edgeOk = ver?.edgeOk === true;
+  const integrityOk = ver?.integrityOk === true;
+  const certificatesOk = ver?.certificatesOk === true;
+  const source = ver?.source || 'none';
+
+  const valid =
+    source === 'edge' &&
+    edgeOk === true &&
+    integrityOk === true &&
+    certificatesOk === true &&
+    sigCount >= committee.length &&
+    missing.length === 0;
 
   return {
-    valid: allPresent && sigCount >= committee.length,
+    valid,
     sigCount,
     required: committee.length,
     matched,
     missing,
-    extractedNames,
-    msg: allPresent
-      ? '✅ Όλα τα μέλη της επιτροπής υπέγραψαν'
-      : '⚠ Λείπουν υπογραφές από: ' + missing.join(', ')
+    extractedNames: signers,
+    source,
+    edgeOk,
+    integrityOk,
+    certificatesOk,
+    checkedAt: ver?.checkedAt || null,
+    msg: valid
+      ? '✅ Οι ψηφιακές υπογραφές επαληθεύτηκαν επιτυχώς.'
+      : (ver?.message || 'Δεν υπάρχει επιτυχές αποτέλεσμα επαλήθευσης από Edge Function.')
   };
 }
 
@@ -2758,105 +2803,239 @@ function sigClickFileInput(){document.getElementById("sigPdfInput").click();}
 function sigDownloadProtocol(){const wo=workOrders.find(w=>w.id===_sigOrderId);if(wo)downloadProtocolPdf(_sigOrderId,"ΠρωτοκολλοΤμηματικηςΠαραλαβης_"+wo.orderNum+".pdf");}
 
 async function importSignedPdf(input){
-  const file = input.files[0];
+  const file = input?.files?.[0];
   if(!file) return;
-  if(!file.name.toLowerCase().endsWith('.pdf')){alert('Επιλέξτε αρχείο PDF.');return;}
+
+  if(!file.name.toLowerCase().endsWith('.pdf')){
+    alert('Επιλέξτε αρχείο PDF.');
+    input.value = '';
+    return;
+  }
+
   const wo = workOrders.find(w=>w.id===_sigOrderId);
-  if(!wo) return;
+  if(!wo){
+    input.value = '';
+    return;
+  }
+
+  const committee = (settings.eSignUsers || []).filter(u => u.name && u.name.trim());
+  if(!committee.length){
+    alert('Δεν έχουν οριστεί μέλη επιτροπής στις Ρυθμίσεις.');
+    input.value = '';
+    return;
+  }
+
+  const normalize = (txt='') => txt
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^\p{L}\p{N}\s]/gu,' ')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toUpperCase();
+
+  const signerMatchesMember = (signerName='', memberName='') => {
+    const s = normalize(signerName);
+    const m = normalize(memberName);
+    if(!s || !m) return false;
+
+    const mParts = m.split(' ').filter(p => p.length >= 3);
+    if(!mParts.length) return s === m;
+
+    return mParts.every(part => s.includes(part));
+  };
 
   toast('⏳ Ανέβασμα υπογεγραμμένου πρωτοκόλλου...');
 
-  const sb = getSupabase();
-  if(sb && isSupabaseConfigured()){
-    // Upload to Supabase Storage
-    try{
-      const path = 'protocols/' + wo.orderNum.replace(/[^a-zA-Z0-9]/g,'_') + '_' + Date.now() + '.pdf';
-      const {data, error} = await sb.storage.from('attachments').upload(path, file, {
-        cacheControl:'3600', upsert:true
-      });
-      if(error) throw error;
-      const {data:{publicUrl}} = sb.storage.from('attachments').getPublicUrl(path);
-      wo.signedPdfUrl = publicUrl;
-      wo.signedPdfPath = path;
-      wo.signedPdfName = file.name;
-      wo.signedAt = new Date().toISOString();
-      // Also store base64 for signature counting
-      const b64 = await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file);});
-      wo.signedPdfData = b64;
-    }catch(err){
-      console.warn('Storage upload failed, using base64:', err);
-      const b64 = await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file);});
-      wo.signedPdfData = b64;
-      wo.signedPdfName = file.name;
-      wo.signedAt = new Date().toISOString();
+  try{
+    const sb = getSupabase();
+
+    delete wo._sigVerification;
+    delete wo._sigExtractedNames;
+    delete wo._edgeSigCount;
+
+    if(sb && isSupabaseConfigured()){
+      try{
+        const path = 'protocols/' + wo.orderNum.replace(/[^a-zA-Z0-9]/g,'_') + '_' + Date.now() + '.pdf';
+        const { error } = await sb.storage.from('attachments').upload(path, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+        if(error) throw error;
+
+        const { data:{ publicUrl } } = sb.storage.from('attachments').getPublicUrl(path);
+        wo.signedPdfUrl = publicUrl;
+        wo.signedPdfPath = path;
+      }catch(err){
+        console.warn('Storage upload failed, fallback to local base64:', err);
+      }
     }
-  } else {
-    const b64 = await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file);});
-    wo.signedPdfData = b64;
+
+    wo.signedPdfData = await fileToBase64(file);
     wo.signedPdfName = file.name;
     wo.signedAt = new Date().toISOString();
-  }
 
-  // Use pdf.js to extract signer names from text content
-  const _sigs = countPdfSignatures(wo.signedPdfData||'');
-  const _committee = (settings.eSignUsers||[]).filter(u=>u.name);
-  const _req = _committee.length || 3;
+    const edgeUrl = (settings.edgeFnUrl || '').trim();
+    const anonKey = (localStorage.getItem('sb_key') || '').trim();
+    const heuristicCount = countPdfSignatures(wo.signedPdfData || '');
 
-  toast('🔍 Έλεγχος ψηφιακών υπογραφών...');
-  let _extractedNames = [];
-  try{
-    const _edgeUrl = (settings.edgeFnUrl||'').trim();
-    if(!_edgeUrl){
-      // No Edge Function configured — fallback
-      _extractedNames = extractPdfSignerNames(wo.signedPdfData||'');
-      wo._sigExtractedNames = _extractedNames;
-    } else {
-      const _anonKey = (localStorage.getItem('sb_key')||'').trim();
-      if(!_anonKey){ alert('Δεν βρέθηκε Supabase Anon Key. Ελέγξτε τις Ρυθμίσεις → Supabase.'); return; }
-      toast('📡 Επικοινωνία με Edge Function...');
-      const _resp = await fetch(_edgeUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer '+_anonKey,
-          'apikey': _anonKey
-        },
-        body: JSON.stringify({ pdfBase64: wo.signedPdfData||'' })
-      });
-      const _respText = await _resp.text();
-      if(!_resp.ok){
-        alert('Edge Function σφάλμα HTTP '+_resp.status+': '+_respText.slice(0,200));
-        _extractedNames = extractPdfSignerNames(wo.signedPdfData||'');
-      } else {
-        const _result = JSON.parse(_respText);
-        _extractedNames = _result.signers || [];
-        if(_result.count > 0) wo._edgeSigCount = _result.count;
-        toast('🔍 Βρέθηκαν '+_extractedNames.length+' υπογράφοντες: '+_extractedNames.join(', '));
-      }
-      wo._sigExtractedNames = _extractedNames;
+    if(!edgeUrl){
+      wo._sigExtractedNames = [];
+      wo._sigVerification = {
+        valid: false,
+        source: 'none',
+        checkedAt: new Date().toISOString(),
+        edgeOk: false,
+        integrityOk: false,
+        certificatesOk: false,
+        sigCount: heuristicCount,
+        required: committee.length,
+        signers: [],
+        matched: [],
+        missing: committee.map(m => m.name + ' (' + (m.role || 'Μέλος') + ')'),
+        message: 'Δεν έχει οριστεί Edge Function επαλήθευσης ψηφιακών υπογραφών.'
+      };
+      save();
+      renderSigModal();
+      alert('Το PDF ανέβηκε, αλλά δεν μπορεί να ολοκληρωθεί παραλαβή χωρίς Edge Function επαλήθευσης.');
+      input.value = '';
+      return;
     }
-  }catch(e){
-    console.warn('Signature extraction failed:', e);
-    alert('Edge Function σφάλμα: '+e.message);
-    wo._sigExtractedNames = extractPdfSignerNames(wo.signedPdfData||'');
-    _extractedNames = wo._sigExtractedNames;
-  }
 
-  save();
-  renderSigModal();
+    if(!anonKey){
+      wo._sigExtractedNames = [];
+      wo._sigVerification = {
+        valid: false,
+        source: 'none',
+        checkedAt: new Date().toISOString(),
+        edgeOk: false,
+        integrityOk: false,
+        certificatesOk: false,
+        sigCount: heuristicCount,
+        required: committee.length,
+        signers: [],
+        matched: [],
+        missing: committee.map(m => m.name + ' (' + (m.role || 'Μέλος') + ')'),
+        message: 'Δεν βρέθηκε Supabase Anon Key.'
+      };
+      save();
+      renderSigModal();
+      alert('Το PDF ανέβηκε, αλλά λείπει το Supabase Anon Key. Ελέγξτε Ρυθμίσεις → Supabase.');
+      input.value = '';
+      return;
+    }
 
-  // Also try sync extraction
-  const _syncNames = extractPdfSignerNames(wo.signedPdfData||'');
-  const _allNames = [...new Set([..._extractedNames, ..._syncNames])];
-  wo._sigExtractedNames = _allNames;
-  save();
+    toast('📡 Επικοινωνία με Edge Function για επαλήθευση...');
 
-  if(_sigs >= _req && _allNames.length > 0){
-    toast('✅ '+_sigs+' υπογραφές — εντοπίστηκαν: '+_allNames.slice(0,4).join(', '));
-  } else if(_sigs >= _req){
-    toast('✅ '+_sigs+'/'+_req+' ψηφιακές υπογραφές — ονόματα δεν εξήχθησαν');
-  } else {
-    toast('📎 PDF ανέβηκε ('+_sigs+'/'+_req+' υπογραφές)');
+    const resp = await fetch(edgeUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + anonKey,
+        'apikey': anonKey
+      },
+      body: JSON.stringify({ pdfBase64: wo.signedPdfData || '' })
+    });
+
+    const rawText = await resp.text();
+    let result = {};
+
+    try{
+      result = rawText ? JSON.parse(rawText) : {};
+    }catch(parseErr){
+      throw new Error('Μη έγκυρη JSON απάντηση από Edge Function.');
+    }
+
+    if(!resp.ok){
+      throw new Error('HTTP ' + resp.status + ': ' + (result.message || rawText || 'Άγνωστο σφάλμα'));
+    }
+
+    const signers = Array.isArray(result.signers) ? result.signers.filter(Boolean) : [];
+    const edgeCountNum = Number(result.count);
+    const sigCount = Number.isFinite(edgeCountNum) && edgeCountNum >= 0 ? edgeCountNum : heuristicCount;
+
+    const edgeOk = (result.valid === true || result.verified === true);
+    const integrityOk = (result.integrityOk !== false);
+    const certificatesOk = (result.certificatesOk !== false);
+
+    const matched = [];
+    const missing = [];
+
+    committee.forEach(member=>{
+      const found = signers.some(signer => signerMatchesMember(signer, member.name));
+      if(found) matched.push(member.name);
+      else missing.push(member.name + ' (' + (member.role || 'Μέλος') + ')');
+    });
+
+    const finalValid =
+      edgeOk === true &&
+      integrityOk === true &&
+      certificatesOk === true &&
+      sigCount >= committee.length &&
+      missing.length === 0;
+
+    wo._sigExtractedNames = signers;
+    wo._sigVerification = {
+      valid: finalValid,
+      source: 'edge',
+      checkedAt: new Date().toISOString(),
+      edgeOk,
+      integrityOk,
+      certificatesOk,
+      sigCount,
+      required: committee.length,
+      signers,
+      matched,
+      missing,
+      message: result.message || ''
+    };
+
+    if(sigCount > 0) wo._edgeSigCount = sigCount;
+
+    save();
+    renderSigModal();
+
+    if(finalValid){
+      toast('✅ Επιτυχής επαλήθευση ψηφιακών υπογραφών (' + sigCount + '/' + committee.length + ')');
+    }else{
+      const reasons = [];
+      if(edgeOk !== true) reasons.push('η Edge Function δεν επέστρεψε valid=true');
+      if(integrityOk !== true) reasons.push('απέτυχε ο έλεγχος ακεραιότητας PDF');
+      if(certificatesOk !== true) reasons.push('απέτυχε ο έλεγχος πιστοποιητικών');
+      if(sigCount < committee.length) reasons.push('ανιχνεύθηκαν ' + sigCount + '/' + committee.length + ' υπογραφές');
+      if(missing.length) reasons.push('δεν ταυτοποιήθηκαν: ' + missing.join(', '));
+
+      alert(
+        'Το PDF ανέβηκε, αλλά η επαλήθευση απέτυχε.\n\n• ' +
+        reasons.join('\n• ') +
+        (result.message ? '\n\nΛεπτομέρεια: ' + result.message : '')
+      );
+    }
+  }catch(err){
+    console.error('importSignedPdf failed:', err);
+
+    const heuristicCount = countPdfSignatures(wo.signedPdfData || '');
+    wo._sigExtractedNames = [];
+    wo._sigVerification = {
+      valid: false,
+      source: 'edge',
+      checkedAt: new Date().toISOString(),
+      edgeOk: false,
+      integrityOk: false,
+      certificatesOk: false,
+      sigCount: heuristicCount,
+      required: committee.length,
+      signers: [],
+      matched: [],
+      missing: committee.map(m => m.name + ' (' + (m.role || 'Μέλος') + ')'),
+      message: err.message || 'Σφάλμα επαλήθευσης.'
+    };
+
+    save();
+    renderSigModal();
+    alert('Αποτυχία επαλήθευσης ψηφιακών υπογραφών: ' + (err.message || 'Άγνωστο σφάλμα'));
+  }finally{
+    input.value = '';
   }
 }
 
@@ -2876,55 +3055,107 @@ function downloadSignedPdf(id){
 }
 
 function resetSignedPdf(id){
-  if(!confirm('Διαγραφή υπογεγραμμένου PDF και επανεκκίνηση;'))return;
+  if(!confirm('Διαγραφή υπογεγραμμένου PDF και επανεκκίνηση;')) return;
+
   const wo = workOrders.find(w=>w.id===id);
   if(!wo) return;
-  delete wo.signedPdfData; delete wo.signedPdfName; delete wo.signedAt;
-  save(); renderSigModal();
+
+  delete wo.signedPdfData;
+  delete wo.signedPdfName;
+  delete wo.signedAt;
+  delete wo.signedPdfUrl;
+  delete wo.signedPdfPath;
+
+  delete wo._sigVerification;
+  delete wo._sigExtractedNames;
+  delete wo._edgeSigCount;
+  delete wo.signatureValidatedAt;
+  delete wo.signatureValidationSource;
+
+  save();
+  renderSigModal();
 }
+
 
 function finalizeAcceptance(){
   const wo = workOrders.find(w=>w.id===_sigOrderId);
   if(!wo) return;
-  if(!wo.signedPdfData && !wo.signedPdfUrl){alert('Εισάγετε πρώτα το υπογεγραμμένο PDF.');return;}
-  const sigs = countPdfSignatures(wo.signedPdfData||'');
-  const req = Math.max(1, (settings.eSignUsers||[]).filter(u=>u.name).length||3);
 
-  // Check count
-  if(sigs < req){
-    if(!confirm('Ανιχνεύθηκαν '+sigs+'/'+req+' ψηφιακές υπογραφές. Θέλετε να ολοκληρώσετε;'))return;
+  if(!wo.signedPdfData && !wo.signedPdfUrl){
+    alert('Εισάγετε πρώτα το υπογεγραμμένο PDF.');
+    return;
   }
 
-  // Check signer names
-  const validation = validatePdfSigners(wo.signedPdfData||'', wo);
-  if(!validation.valid && validation.missing && validation.missing.length > 0){
-    const msg = 'Μη επαληθευμένοι υπογράφοντες. Λείπουν: '+validation.missing.join(', ')+'. Να ολοκληρωθεί παρόλα αυτά;';
-    if(!confirm(msg)) return;
+  const validation = validatePdfSigners(wo.signedPdfData || '', wo);
+
+  if(!validation.valid){
+    const reasons = [];
+
+    if(validation.source !== 'edge'){
+      reasons.push('δεν έχει εκτελεστεί επαλήθευση από Edge Function');
+    }
+    if(validation.edgeOk !== true){
+      reasons.push('η Edge Function δεν επέστρεψε valid=true');
+    }
+    if(validation.integrityOk !== true){
+      reasons.push('απέτυχε ο έλεγχος ακεραιότητας του PDF');
+    }
+    if(validation.certificatesOk !== true){
+      reasons.push('απέτυχε ο έλεγχος πιστοποιητικών υπογραφής');
+    }
+    if((validation.sigCount || 0) < (validation.required || 1)){
+      reasons.push('ανιχνεύθηκαν ' + (validation.sigCount || 0) + '/' + (validation.required || 1) + ' υπογραφές');
+    }
+    if(validation.missing && validation.missing.length){
+      reasons.push('λείπουν ή δεν ταυτοποιήθηκαν: ' + validation.missing.join(', '));
+    }
+
+    alert(
+      'Η παραλαβή δεν μπορεί να ολοκληρωθεί.\n\n• ' +
+      reasons.join('\n• ') +
+      (validation.msg ? '\n\nΛεπτομέρεια: ' + validation.msg : '')
+    );
+    return;
   }
 
   closeSigModal();
+
   wo.status = 'Παραλήφθηκε';
   wo.completionDate = todayStr();
+  wo.signatureValidatedAt = validation.checkedAt || new Date().toISOString();
+  wo.signatureValidationSource = validation.source;
+
   const idx = workOrders.findIndex(w=>w.id===wo.id);
-  if(idx>=0) workOrders[idx]=wo;
-  // ── AUTO-CREATE PAYMENT ──────────────────────────────────────
-  const alreadyPaid = payments.some(p=>p.orderId===wo.id&&!p.isPenalty);
+  if(idx >= 0) workOrders[idx] = wo;
+
+  const alreadyPaid = payments.some(p => p.orderId === wo.id && !p.isPenalty);
   if(!alreadyPaid){
-    const netAmt = Math.max(0, woTotal(wo)-(wo.penaltyAmount||0));
+    const netAmt = Math.max(0, woTotal(wo) - (wo.penaltyAmount || 0));
     const d = new Date();
+
     payments.push({
-      id:genId(), date:todayStr(),
-      amount:netAmt, orderId:wo.id, invoiceNum:'',
-      month:d.toLocaleDateString('el-GR',{month:'long',year:'numeric'}),
-      notes:'Παραλαβή εντολής '+wo.orderNum
-        +' — ψηφιακά υπογεγραμμένο ('+(wo.signedPdfName||'')+', '+sigs+' υπογραφ'+(sigs===1?'ή':'ές')+')'
-        +(wo.penaltyAmount>0?' — μετά αφαίρεση ρήτρας -'+fmt(wo.penaltyAmount)+' €':''),
-      isPenalty:false, autoCreated:true
+      id: genId(),
+      date: todayStr(),
+      amount: netAmt,
+      orderId: wo.id,
+      invoiceNum: '',
+      month: d.toLocaleDateString('el-GR',{month:'long',year:'numeric'}),
+      notes:
+        'Παραλαβή εντολής ' + wo.orderNum +
+        ' — επαληθευμένο ψηφιακά υπογεγραμμένο PDF (' +
+        (wo.signedPdfName || '') + ', ' +
+        validation.sigCount + ' υπογραφ' + (validation.sigCount === 1 ? 'ή' : 'ές') + ')' +
+        (wo.penaltyAmount > 0 ? ' — μετά αφαίρεση ρήτρας -' + fmt(wo.penaltyAmount) + ' €' : ''),
+      isPenalty: false,
+      autoCreated: true
     });
-    toast('✅ Παραλαβή ψηφιακά υπογεγραμμένη — Χρέωση '+fmt(netAmt)+' € δημιουργήθηκε αυτόματα');
   }
-  save(); renderAll();
+
+  save();
+  renderAll();
+  toast('✅ Παραλαβή ολοκληρώθηκε μόνο μετά από επιτυχή επαλήθευση υπογραφών');
 }
+
 
 function renderESignUsersSettings(){
   const users = settings.eSignUsers||[];
