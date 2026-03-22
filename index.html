@@ -2486,11 +2486,12 @@ function renderSigModal(){
   const _namesOk = !_hasPdfData || !_sigValidation || !_sigValidation.extractedNames || !_sigValidation.extractedNames.length
     ? null
     : (_sigValidation.missing && _sigValidation.missing.length === 0);
-  // isValid: needs committee configured, correct sig count, AND names OK (or unverifiable but committee not set)
+  // isValid: use edge result when available, otherwise fall back to count
+  const _edgeOk = wo._edgeResult ? (wo._edgeResult.verified === true) : null;
   const isValid = hasSigned
     && sigCount >= requiredSigs
     && _committeeConfigured
-    && (_namesOk === true || (_namesOk === null && !_hasPdfData));
+    && (_edgeOk === true || (_edgeOk === null && sigCount >= requiredSigs));
   const pdfName = 'ΠρωτοκολλοΤμηματικηςΠαραλαβης_' + wo.orderNum + '.pdf';
 
   document.getElementById('sigModalTitle').textContent = '✍ Ψηφιακή Υπογραφή — Εντολή ' + wo.orderNum;
@@ -2900,6 +2901,7 @@ function resetSignedPdf(id){
   if(!confirm('Διαγραφή υπογεγραμμένου PDF και επανεκκίνηση;'))return;
   const wo = workOrders.find(w=>w.id===id);
   if(!wo) return;
+  // Clear all PDF and verification data
   delete wo.signedPdfData;
   delete wo.signedPdfName;
   delete wo.signedPdfUrl;
@@ -2909,13 +2911,19 @@ function resetSignedPdf(id){
   delete wo._sigExtractedNames;
   delete wo._sigConfirmed;
   delete wo._edgeSigCount;
+  // Also delete from Supabase Storage if uploaded
+  if(wo.signedPdfPath){
+    const sb = getSupabase();
+    if(sb) sb.storage.from('attachments').remove([wo.signedPdfPath]).catch(()=>{});
+  }
   save();
+  // Re-render modal fresh
   renderSigModal();
-  // Re-enable file input so user can select new PDF
+  // Reset file input so same file can be re-selected
   setTimeout(()=>{
     const fi = document.getElementById('sigPdfInput');
-    if(fi){ fi.value=''; }
-  }, 200);
+    if(fi){ fi.value = ''; fi.type='text'; fi.type='file'; }
+  }, 300);
 }
 
 function finalizeAcceptance(){
