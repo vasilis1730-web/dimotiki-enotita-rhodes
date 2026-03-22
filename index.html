@@ -2900,8 +2900,22 @@ function resetSignedPdf(id){
   if(!confirm('Διαγραφή υπογεγραμμένου PDF και επανεκκίνηση;'))return;
   const wo = workOrders.find(w=>w.id===id);
   if(!wo) return;
-  delete wo.signedPdfData; delete wo.signedPdfName; delete wo.signedAt;
-  save(); renderSigModal();
+  delete wo.signedPdfData;
+  delete wo.signedPdfName;
+  delete wo.signedPdfUrl;
+  delete wo.signedPdfPath;
+  delete wo.signedAt;
+  delete wo._edgeResult;
+  delete wo._sigExtractedNames;
+  delete wo._sigConfirmed;
+  delete wo._edgeSigCount;
+  save();
+  renderSigModal();
+  // Re-enable file input so user can select new PDF
+  setTimeout(()=>{
+    const fi = document.getElementById('sigPdfInput');
+    if(fi){ fi.value=''; }
+  }, 200);
 }
 
 function finalizeAcceptance(){
