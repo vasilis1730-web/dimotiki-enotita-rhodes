@@ -124,6 +124,9 @@ tr:hover td{background:#faf9f7;}
 .fg{display:flex;flex-direction:column;gap:3px;}
 .fg.full{grid-column:1/-1;}
 .fg label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+
+.fg input[required],.fg select[required],.fg textarea[required]{border:2px solid #e67e22 !important;background:#fffbf5 !important;}
+.fg select[required] option:not([value=""]):checked ~ ,.fg input[required]:not([value=""]) {border-color:#27ae60 !important;}
 .fg input,.fg select,.fg textarea{border:1px solid var(--borderS);border-radius:var(--rs);padding:7px 9px;font-size:12px;color:var(--txt);background:var(--card);font-family:inherit;transition:border-color .15s;}
 .fg input:focus,.fg select:focus,.fg textarea:focus{outline:none;border-color:var(--navy);box-shadow:0 0 0 2px rgba(26,58,92,.1);}
 .fg textarea{resize:vertical;min-height:60px;}
@@ -715,7 +718,7 @@ tr:hover td{background:#faf9f7;}
   <label>Τοποθεσία / Οδός *</label>
   <div style="display:flex;gap:6px;align-items:flex-start;">
     <div class="ac-wrap" style="flex:1;">
-      <input type="text" id="wo_loc" placeholder="Π.χ. Οδός Πειραιώς, Ρόδος..." autocomplete="off" oninput="acSearch(this.value)" onkeydown="acKey(event)">
+      <input type="text" id="wo_loc" placeholder="Π.χ. Οδός Πειραιώς, Ρόδος..." required autocomplete="off" oninput="acSearch(this.value)" onkeydown="acKey(event)">
       <div class="ac-list" id="acList" style="display:none"></div>
     </div>
     <button type="button" class="btn" title="Επιλογή τοποθεσίας στον χάρτη" onclick="openMapPicker()" style="padding:7px 10px;font-size:15px;flex-shrink:0;white-space:nowrap;">🗺 Google Maps</button>
@@ -723,7 +726,7 @@ tr:hover td{background:#faf9f7;}
   <div id="wo_coords_display" style="display:none;margin-top:4px;font-size:11px;color:var(--green);"></div>
 </div>
         <div class="fg"><label>Κατηγορία Προτεραιότητας</label>
-          <select id="wo_prio">
+          <select id="wo_prio" required>
             <option>ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ</option>
             <option>ΚΑΤ. 2 - ΕΠΕΙΓΟΝ</option>
             <option selected>ΚΑΤ. 3 - ΥΨΗΛΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ</option>
@@ -732,7 +735,7 @@ tr:hover td{background:#faf9f7;}
           </select>
         </div>
         <div class="fg"><label>Προθεσμία Απόκρισης</label><input type="text" id="wo_deadline" readonly style="background:var(--sec)"></div>
-        <div class="fg full"><label>Περιγραφή Εντολής *</label><textarea id="wo_desc"></textarea></div>
+        <div class="fg full"><label>Περιγραφή Εντολής *</label><textarea id="wo_desc" required></textarea></div>
       </div>
       <div class="section-block">
         <h4>Εργασίες & Κόστη (από Αναλυτικό Τιμολόγιο)</h4>
@@ -753,7 +756,7 @@ tr:hover td{background:#faf9f7;}
           </select>
         </div>
         <div class="fg"><label>Κατάσταση</label>
-          <select id="wo_status">
+          <select id="wo_status" required>
             <option>Εκδόθηκε</option>
             <option>Εστάλη</option>
             <option>Ολοκληρώθηκε - Εκκρεμούν Υπογραφές</option>
@@ -4324,7 +4327,7 @@ function openAddIssue(){
   _issueAttachments=[];
   if(document.getElementById('i_municipalDate')) document.getElementById('i_municipalDate').value='';
   updateIssueCoordsDisplay();
-  document.getElementById('issueModal').style.display='flex';
+  document.getElementById('issueModal').style.display='flex'; setTimeout(checkCitizenDuplicate,200);
 }
 
 function editIssue(id){
