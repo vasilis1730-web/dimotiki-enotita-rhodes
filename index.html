@@ -2944,17 +2944,12 @@ function finalizeAcceptance(){
     if(!confirm('Ανιχνεύθηκαν '+sigs+'/'+req+' ψηφιακές υπογραφές. Θέλετε να ολοκληρώσετε;'))return;
   }
 
-  // Check signer names
-  const validation = validatePdfSigners(wo.signedPdfData||'', wo);
-  // Hard block: if edge function found names but they don't match → reject
+  // Check using Edge Function result ONLY — local name matching is unreliable
   if(wo._edgeResult && wo._edgeResult.verified === false){
     alert('🚫 Δεν είναι δυνατή η ολοκλήρωση.\n\nΤο πρωτόκολλο δεν έχει τις απαιτούμενες έγκυρες ψηφιακές υπογραφές.\n\nΑνεβάστε το σωστό υπογεγραμμένο πρωτόκολλο.');
     return;
   }
-  if(validation.missing && validation.missing.length > 0 && wo._edgeResult){
-    alert('🚫 Δεν είναι δυνατή η ολοκλήρωση.\n\nΛείπουν υπογραφές από:\n'+validation.missing.join('\n')+'\n\nΑνεβάστε πρωτόκολλο με τις υπογραφές όλων των μελών της Επιτροπής.');
-    return;
-  }
+  // If edge result says verified=true → proceed without any further checks
 
   closeSigModal();
   wo.status = 'Παραλήφθηκε'; // Auto-set when protocol accepted
@@ -3338,11 +3333,8 @@ function renderOrders(){
         btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
 
       } else if(st==='Εστάλη'){
-        if(w.penaltyApplied){
-          btnHtml+='<span style="font-size:10px;color:var(--red);font-weight:600;padding:4px 8px;background:var(--rbg);border-radius:3px;">🔒 '+fmt(w.penaltyAmount||0)+' €</span>';
-        } else {
-          btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα</button>';
-        }
+        // Penalty button always active in Εστάλη
+        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(w.penaltyApplied?' ('+fmt(w.penaltyAmount||0)+'€)':'')+'</button>';
         btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">✍ Υπογραφή</button>';
         btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
         btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
@@ -3368,11 +3360,8 @@ function renderOrders(){
         if(isAdmin) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN">✎</button>';
 
       } else if(st==='Δεν ολοκληρώθηκε'){
-        if(w.penaltyApplied){
-          btnHtml+='<span style="font-size:10px;color:var(--red);font-weight:600;padding:4px 8px;background:var(--rbg);border-radius:3px;">🔒 '+fmt(w.penaltyAmount||0)+' €</span>';
-        } else {
-          btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα</button>';
-        }
+        // Penalty button always active
+        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(w.penaltyApplied?' ('+fmt(w.penaltyAmount||0)+'€)':'')+'</button>';
         btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
         btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
         if(isAdmin || !w.penaltyApplied) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
@@ -3590,7 +3579,7 @@ function renderFinance(){
         <td>${fmtDate(p.date)}</td>
         <td>${esc(p.month||'-')}</td>
         <td style="${isPen?'color:var(--red);font-weight:600;':''}">${esc(p.invoiceNum||'-')}</td>
-        <td>${wo?`<strong>${esc(wo.orderNum)}</strong>`:'—'}</td>
+        <td>${wo?`<strong>${esc(wo.orderNum)}</strong><br><span style="font-size:10px;color:var(--muted)">${esc(wo.location||'')}</span>${wo.items&&wo.items.length?'<br><span style="font-size:10px;color:var(--muted)">'+wo.items.length+' εργασίες</span>':''}`:'—'}</td>
         <td><strong style="color:${amtColor}">${isPen?'-':''}${fmt(Math.abs(p.amount))} €</strong>${isPen?'<br><span style="font-size:10px;color:var(--red);">⚠ Ρήτρα</span>':''}</td>
         <td style="color:${cumPaid<0?'var(--red)':'var(--navy)'}">${fmt(cumPaid)} €</td>
         <td style="font-size:11px;color:var(--muted)">${esc(p.notes||'')}</td>
