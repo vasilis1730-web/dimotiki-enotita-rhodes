@@ -569,11 +569,11 @@ tr:hover td{background:#faf9f7;}
             <option>Άλλο</option>
           </select>
         </div>
-        <div class="fg"><label>Ονοματεπώνυμο Πολίτη</label><input type="text" id="i_citizen" placeholder="Προαιρετικό"></div>
+        <div class="fg"><label>Ονοματεπώνυμο Πολίτη</label><input type="text" id="i_citizen" oninput="checkCitizenDuplicate()" placeholder="Προαιρετικό"></div>
         <div class="fg"><label>Διεύθυνση Πολίτη</label><input type="text" id="i_addr" placeholder="Οδός, αριθμός"></div>
-        <div class="fg"><label>Κινητό Τηλέφωνο</label><input type="tel" id="i_mobile" placeholder="69xxxxxxxx"></div>
+        <div class="fg"><label>Κινητό Τηλέφωνο</label><input type="tel" id="i_mobile" oninput="checkCitizenDuplicate()" placeholder="69xxxxxxxx"></div>
         <div class="fg"><label>Σταθερό Τηλέφωνο</label><input type="tel" id="i_phone" placeholder="224xxxxxxx"></div>
-        <div class="fg"><label>Email Πολίτη</label><input type="email" id="i_email" placeholder="email@example.com"></div>
+        <div class="fg"><label>Email Πολίτη</label><input type="email" id="i_email" oninput="checkCitizenDuplicate()" placeholder="email@example.com"></div>
         <input type="hidden" id="i_contact">
         <div class="fg full"><label>Τοποθεσία / Οδός *</label><input type="text" id="i_location" required></div>
         <div class="fg"><label>Δημοτική / Τοπική Κοινότητα</label>
@@ -3094,7 +3094,7 @@ function renderIssues(){
   const search=(document.getElementById('iSearch')?.value||'').toLowerCase();
   const fs=document.getElementById('iStatus')?.value||'';
   const fp=document.getElementById('iPrio')?.value||'';
-  const fc=document.getElementById('iCat')?.value||'';
+  const fc=document.getElementById('i_cat')?.value||'';
   const dateFrom=document.getElementById('iDateFrom')?.value||'';
   const dateTo=document.getElementById('iDateTo')?.value||'';
   let list=issues.filter(i=>{
@@ -5643,6 +5643,48 @@ if(document.readyState==='loading'){
 } else {
   initLogin();
 }
+function checkCitizenDuplicate(){
+  const name = (document.getElementById('i_citizen')?.value||'').trim().toLowerCase();
+  const mobile = (document.getElementById('i_mobile')?.value||'').trim().replace(/\s+/g,'');
+  const email = (document.getElementById('i_email')?.value||'').trim().toLowerCase();
+  const alertDiv = document.getElementById('citizenDupAlert');
+  if(!alertDiv) return;
+  if(!name && !mobile && !email){ alertDiv.style.display='none'; return; }
+  const editingId = document.getElementById('issueModal')?.dataset?.editId||null;
+  const matches = issues.filter(iss=>{
+    if(editingId && iss.id===editingId) return false;
+    const iName=(iss.citizenName||'').toLowerCase();
+    const iMob=(iss.mobile||'').replace(/\s+/g,'');
+    const iEmail=(iss.citizenEmail||'').toLowerCase();
+    if(name&&name.length>2&&iName&&iName.includes(name)) return true;
+    if(mobile&&mobile.length>6&&iMob&&(iMob.includes(mobile.replace('+30',''))||mobile.includes(iMob.replace('+30','')))) return true;
+    if(email&&email.length>4&&iEmail===email) return true;
+    return false;
+  });
+  if(!matches.length){ alertDiv.style.display='none'; return; }
+  const curCat=(document.getElementById('i_cat')?.value||'').toLowerCase();
+  const curTitle=(document.getElementById('i_title')?.value||'').trim().toLowerCase();
+  const sameSubject=matches.filter(iss=>{
+    const sc=(iss.category||'').toLowerCase()===curCat;
+    const st=curTitle.length>3&&(iss.title||'').toLowerCase().includes(curTitle.slice(0,10));
+    return sc&&st;
+  });
+  const hasSame=sameSubject.length>0;
+  let html=(hasSame?'🔁 <strong style="color:#c0392b;">ΙΔΙΟ ΘΕΜΑ — ':'⚠️ <strong>');
+  html+='Επαναλαμβανόμενος πολίτης!</strong> '+matches.length+' αίτημα'+(matches.length>1?'τα':'')+':<br>';
+  matches.slice(0,4).forEach(iss=>{
+    const rep=sameSubject.some(s=>s.id===iss.id);
+    html+='<span style="'+(rep?'color:#c0392b;font-weight:700;':'')+'">• '
+      +(iss.issueNum||iss.id.slice(-4).toUpperCase())+' — '+esc((iss.title||'—').slice(0,40))
+      +' ('+fmtDate(iss.date)+')' +(rep?' 🔁':'')+'</span><br>';
+  });
+  if(matches.length>4) html+='<span style="color:var(--muted)">...και '+(matches.length-4)+' ακόμα</span>';
+  alertDiv.style.display='block';
+  alertDiv.style.background=hasSame?'#fee2e2':'#fff3cd';
+  alertDiv.style.borderColor=hasSame?'#fca5a5':'#ffc107';
+  alertDiv.innerHTML=html;
+}
+
 </script>
 
 <!-- User Management Modal -->
