@@ -3316,29 +3316,57 @@ function renderOrders(){
         btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
       }
     } else {
-      // ── CONTRACTOR ORDER: full buttons ──
-      if(w.penaltyApplied){
-        btnHtml+='<span style="font-size:10px;color:var(--red);font-weight:600;">🔒 Ρήτρα '+fmt(w.penaltyAmount||0)+' €</span>';
-      } else if(w.status==='Παραλήφθηκε'||w.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές'){
-        btnHtml+='<button style="background:#ccc;color:#999;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:not-allowed;" disabled title="Εντολή παραλήφθηκε — δεν επιτρέπεται ρήτρα">⚠ Ρήτρα</button>';
-      } else {
-        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα</button>';
-      }
-      if((w.status==='Παραλήφθηκε'||w.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') && w.signedPdfData){
-        btnHtml+='<button style="background:#198754;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="downloadSignedPdf(\''+w.id+'\')">📄 Πρωτόκολλο</button>';
-        btnHtml+='<button class="ab-done" onclick="emailProtocol(\''+w.id+'\')">✉ Αποστολή</button>';
-        if(currentUser && currentUser.id==='admin') btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN: Επεξεργασία">✎</button>';
-      } else if(w.status==='Παραλήφθηκε'){
-        btnHtml+='<button style="background:#ffc107;color:#000;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:700;" onclick="openSigModal(\''+w.id+'\')">✍ Υπογραφή</button>';
+      // ── CONTRACTOR ORDER ──
+      const isAdmin = !!(currentUser && currentUser.id==='admin');
+      const st = w.status;
+      const hasProtocol = !!(w.signedPdfData || w.signedPdfUrl);
+
+      if(st==='Εκδόθηκε'){
+        btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">⚠ Ρήτρα</button>';
+        btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">✍ Υπογραφή</button>';
         btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
         btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
-        if(currentUser && currentUser.id==='admin') btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN: Επεξεργασία">✎</button>';
-      } else {
-        btnHtml+='<button style="background:#1a3a5c;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:700;" onclick="openSigModal(\''+w.id+'\')">✍ Υπογραφή</button>';
+        btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
+
+      } else if(st==='Εστάλη'){
+        if(w.penaltyApplied){
+          btnHtml+='<span style="font-size:10px;color:var(--red);font-weight:600;padding:4px 8px;background:var(--rbg);border-radius:3px;">🔒 '+fmt(w.penaltyAmount||0)+' €</span>';
+        } else {
+          btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα</button>';
+        }
+        btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">✍ Υπογραφή</button>';
         btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
         btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
-        if(currentUser && currentUser.id==='admin') btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN: Επεξεργασία">✎</button>';
-        if(!w.penaltyApplied && !(currentUser && currentUser.id==='admin')) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
+        if(!w.penaltyApplied || isAdmin) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
+
+      } else if(st==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές'){
+        btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">⚠ Ρήτρα</button>';
+        if(hasProtocol){
+          btnHtml+='<button style="background:#198754;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="downloadSignedPdf(\''+w.id+'\')">📄 Πρωτόκολλο</button>';
+          btnHtml+='<button class="ab-done" onclick="emailProtocol(\''+w.id+'\')">✉ Αποστολή</button>';
+        } else {
+          btnHtml+='<button style="background:#ffc107;color:#000;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:700;" onclick="openSigModal(\''+w.id+'\')">✍ Υπογραφή</button>';
+          btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
+          btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
+        }
+        if(isAdmin) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN">✎</button>';
+
+      } else if(st==='Παραλήφθηκε'){
+        if(hasProtocol){
+          btnHtml+='<button style="background:#198754;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="downloadSignedPdf(\''+w.id+'\')">📄 Πρωτόκολλο</button>';
+          btnHtml+='<button class="ab-done" onclick="emailProtocol(\''+w.id+'\')">✉ Αποστολή</button>';
+        }
+        if(isAdmin) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN">✎</button>';
+
+      } else if(st==='Δεν ολοκληρώθηκε'){
+        if(w.penaltyApplied){
+          btnHtml+='<span style="font-size:10px;color:var(--red);font-weight:600;padding:4px 8px;background:var(--rbg);border-radius:3px;">🔒 '+fmt(w.penaltyAmount||0)+' €</span>';
+        } else {
+          btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα</button>';
+        }
+        btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
+        btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
+        if(isAdmin || !w.penaltyApplied) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
       }
     } // end contractor block
     // Delete button — admin always gets red 🗑, others get normal or disabled
