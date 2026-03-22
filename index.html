@@ -432,8 +432,9 @@ tr:hover td{background:#faf9f7;}
       <input type="text" id="woSearch" placeholder="Αναζήτηση..." oninput="renderOrders()">
       <select id="woStatus" onchange="renderOrders()">
         <option value="">Όλες καταστάσεις</option>
-        <option>Εκδόθηκε</option><option>Εστάλη</option>
-        <option>Σε εξέλιξη</option><option>Εκκρεμούν Υπογραφές</option><option>Ολοκληρώθηκε</option>
+        <option>Εκδόθηκε</option>
+        <option>Εστάλη</option>
+        <option>Ολοκληρώθηκε - Εκκρεμούν Υπογραφές</option>
         <option>Παραλήφθηκε</option>
         <option>Δεν ολοκληρώθηκε</option>
       </select>
@@ -753,8 +754,11 @@ tr:hover td{background:#faf9f7;}
         </div>
         <div class="fg"><label>Κατάσταση</label>
           <select id="wo_status">
-            <option>Εκδόθηκε</option><option>Εστάλη</option>
-            <option>Σε εξέλιξη</option><option>Εκκρεμούν Υπογραφές</option><option>Ολοκληρώθηκε</option><option>Παραλήφθηκε</option><option>Δεν ολοκληρώθηκε</option>
+            <option>Εκδόθηκε</option>
+            <option>Εστάλη</option>
+            <option>Ολοκληρώθηκε - Εκκρεμούν Υπογραφές</option>
+            <option>Παραλήφθηκε</option>
+            <option>Δεν ολοκληρώθηκε</option>
           </select>
         </div>
         <div class="fg"><label>Ημ. Ολοκλήρωσης</label><input type="date" id="wo_complete"></div>
@@ -2942,9 +2946,14 @@ function finalizeAcceptance(){
 
   // Check signer names
   const validation = validatePdfSigners(wo.signedPdfData||'', wo);
-  if(!validation.valid && validation.missing && validation.missing.length > 0){
-    const msg = 'Μη επαληθευμένοι υπογράφοντες. Λείπουν: '+validation.missing.join(', ')+'. Να ολοκληρωθεί παρόλα αυτά;';
-    if(!confirm(msg)) return;
+  // Hard block: if edge function found names but they don't match → reject
+  if(wo._edgeResult && wo._edgeResult.verified === false){
+    alert('🚫 Δεν είναι δυνατή η ολοκλήρωση.\n\nΤο πρωτόκολλο δεν έχει τις απαιτούμενες έγκυρες ψηφιακές υπογραφές.\n\nΑνεβάστε το σωστό υπογεγραμμένο πρωτόκολλο.');
+    return;
+  }
+  if(validation.missing && validation.missing.length > 0 && wo._edgeResult){
+    alert('🚫 Δεν είναι δυνατή η ολοκλήρωση.\n\nΛείπουν υπογραφές από:\n'+validation.missing.join('\n')+'\n\nΑνεβάστε πρωτόκολλο με τις υπογραφές όλων των μελών της Επιτροπής.');
+    return;
   }
 
   closeSigModal();
@@ -4854,10 +4863,10 @@ function buildWoHtml(wo){
       <p>Διεύθυνση Τεχνικών Έργων & Υποδομών</p>
       <p>Τμήμα Εκτέλεσης Έργων Αυτεπιστασίας & Καθημερινότητας</p>
     </div>
-    <div class="wo-title">${wo.status==='Παραλήφθηκε' ? 'ΠΡΩΤΟΚΟΛΛΟ ΟΡΙΣΤΙΚΗΣ ΤΜΗΜΑΤΙΚΗΣ ΠΑΡΑΛΑΒΗΣ' : 'ΕΝΤΟΛΗ ΕΡΓΑΣΙΑΣ ΑΝΑΔΟΧΟΥ'}</div>
+    <div class="wo-title">${(wo.status==='Παραλήφθηκε'||wo.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') ? 'ΠΡΩΤΟΚΟΛΛΟ ΟΡΙΣΤΙΚΗΣ ΤΜΗΜΑΤΙΚΗΣ ΠΑΡΑΛΑΒΗΣ' : 'ΕΝΤΟΛΗ ΕΡΓΑΣΙΑΣ ΑΝΑΔΟΧΟΥ'}</div>
     <div class="wo-meta">
       <div><span>Αρ. Εντολής: </span>${esc(wo.orderNum)}</div>
-      <div><span>${wo.status==='Παραλήφθηκε' ? 'Ημ. Παραλαβής: ' : 'Ημ. Έκδοσης: '}</span>${fmtDate(wo.status==='Παραλήφθηκε' ? (wo.completionDate||wo.date) : wo.date)}${wo.issuedTime&&wo.status!=='Παραλήφθηκε' ? ' &nbsp;🕐 '+wo.issuedTime : ''}</div>
+      <div><span>${(wo.status==='Παραλήφθηκε'||wo.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') ? 'Ημ. Παραλαβής: ' : 'Ημ. Έκδοσης: '}</span>${fmtDate((wo.status==='Παραλήφθηκε'||wo.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') ? (wo.completionDate||wo.date) : wo.date)}${wo.issuedTime&&wo.status!=='Παραλήφθηκε' ? ' &nbsp;🕐 '+wo.issuedTime : ''}</div>
       <div><span>Ανάδοχος: </span>${esc(settings.contractor||'—')}</div>
       <div><span>Υπεύθυνος: </span>${esc(settings.contractorContact||'—')}</div>
       <div><span>Τοποθεσία: </span>${esc(wo.location)}</div>
@@ -4865,7 +4874,7 @@ function buildWoHtml(wo){
       <div><span>Χρόνος Απόκρισης: </span><strong>${pd.resp}</strong></div>
       ${issue?`<div><span>Αίτημα: </span>${issue.issueNum||issue.id.slice(-4).toUpperCase()} – ${esc(issue.title)}</div>`:''}
     </div>
-    <p style="margin:8px 0;font-size:10pt;"><strong>${wo.status==='Παραλήφθηκε' ? 'Περιγραφή Εργασιών που Παραλήφθηκαν:' : 'Περιγραφή Εντολής:'}</strong> ${esc(wo.description||'—')}</p>
+    <p style="margin:8px 0;font-size:10pt;"><strong>${(wo.status==='Παραλήφθηκε'||wo.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') ? 'Περιγραφή Εργασιών που Παραλήφθηκαν:' : 'Περιγραφή Εντολής:'}</strong> ${esc(wo.description||'—')}</p>
     ${wo.notes?`<p style="margin:4px 0;font-size:10pt;"><strong>Ειδικές Οδηγίες:</strong> ${esc(wo.notes)}</p>`:''}
     ${wo.status==='Παραλήφθηκε'&&wo.penaltyAmount>0?`<p style="margin:4px 0;font-size:10pt;color:#a32020;"><strong>⚠ Ποινική Ρήτρα:</strong> -${fmt(wo.penaltyAmount)} € (${esc(wo.penaltyNote||'')})</p>`:''}
     <br>
