@@ -2489,19 +2489,21 @@ function renderSigModal(){
   // _namesOk: true=all matched, false=some missing, null=couldn't extract
   // If no base64 data (only URL) → can't extract names
   const _hasPdfData = !!(wo.signedPdfData && wo.signedPdfData.length > 100);
-  const _namesOk = !_hasPdfData || !_sigValidation || !_sigValidation.extractedNames || !_sigValidation.extractedNames.length
-    ? null
-    : (_sigValidation.missing && _sigValidation.missing.length === 0);
-  // isValid: use edge result when available, otherwise fall back to count
+  const _namesOk = null; // Unused - using edge result
+  // isValid: edge verified=true AND all committee members matched
+  const _edgeSigners = (wo._edgeResult && wo._edgeResult.signers) ? wo._edgeResult.signers : [];
   const _edgeOk = wo._edgeResult ? (wo._edgeResult.verified === true) : null;
-  const isValid = hasSigned
-    && sigCount >= requiredSigs
-    && _committeeConfigured
-    && (_edgeOk === true || (_edgeOk === null && sigCount >= requiredSigs));
-  const pdfName = 'ΠρωτοκολλοΤμηματικηςΠαραλαβης_' + wo.orderNum + '.pdf';
-
-  document.getElementById('sigModalTitle').textContent = '✍ Ψηφιακή Υπογραφή — Εντολή ' + wo.orderNum;
-  let html = '';
+  // Check if committee members appear in extracted signers
+  const _allMembersMatched = _edgeSigners.length > 0 && _committee.length > 0
+    && _committee.every(mb => _edgeSigners.some(n =>
+        mb.name.split(' ').filter(p=>p.length>2).every(p=>n.toUpperCase().includes(p.toUpperCase()))
+      ));
+  // Failed if: edge says not verified, OR names extracted but don't match committee
+  const _edgeFailed = (_edgeOk === false)
+    || (_edgeSigners.length > 0 && _committee.length > 0 && !_allMembersMatched);
+  // Valid ONLY if edge verified AND (no signers extracted OR all matched)
+  const isValid = hasSigned && sigCount >= requiredSigs && _committeeConfigured
+    && _edgeOk === true && !_edgeFailed;
 
   if(hasSigned){
     const sigColor = isValid ? '#198754' : '#856404';
@@ -2582,12 +2584,11 @@ function renderSigModal(){
       html += '<button class="btn btn-p" style="font-size:13px;" onclick="finalizeAcceptance()">✅ Ολοκλήρωση Παραλαβής & Δημιουργία Χρέωσης</button>';
     } else if(sigCount < requiredSigs){
       html += '<button class="btn" style="background:#1a3a5c;color:#fff;" onclick="continueSign()">🔏 Επόμενη Υπογραφή</button>';
-    } else if(_edgeOk === null && sigCount >= requiredSigs){
-      // No edge result — allow with count only
-      html += '<button class="btn btn-p" style="font-size:13px;" onclick="finalizeAcceptance()">✅ Ολοκλήρωση Παραλαβής & Δημιουργία Χρέωσης</button>';
+    } else if(_edgeOk === null){
+      // Edge function hasn't run yet — show waiting message
+      html += '<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px;font-size:12px;color:#856404;text-align:center;">⏳ Αναμονή επαλήθευσης υπογραφών από Edge Function...</div>';
+      html += '<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px;font-size:12px;color:#856404;text-align:center;">⏳ Αναμονή επαλήθευσης υπογραφών...</div>';
     }
-    html += '<button class="btn" style="border-color:var(--amber);color:var(--amber);" onclick="resetSignedPdf(_sigOrderId)">↩ Επανεκκίνηση</button>'
-      + '</div>';
 
   } else {
     // Step 1
