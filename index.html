@@ -79,6 +79,7 @@ tr:hover td{background:#faf9f7;}
 .s-pending::before{background:var(--amber);}
 .s-ongoing{background:var(--bbg);color:var(--blue);}
 .s-ongoing::before{background:var(--blue);}
+.s-progress{background:#fef3c7;color:#92400e;}
 .s-done{background:var(--gbg);color:var(--green);}
 .s-pending{background:#fff3cd;color:#856404;}
 .s-done::before{background:var(--green);}
@@ -1237,7 +1238,8 @@ function statusClass(s){
   if(s==='Συνεχιζόμενο')return 's-ongoing';
   if(s==='Ολοκληρωμένο'||s==='Παραλήφθηκε')return 's-done';
   if(s==='Εκκρεμούν Υπογραφές')return 's-pending';
-  if(s==='Εστάλη'||s==='Σε εξέλιξη')return 's-sent';
+  if(s==='Εστάλη')return 's-sent';
+  if(s==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές')return 's-progress';
   if(s==='Δεν ολοκληρώθηκε')return 's-cancelled';
   return 's-cancelled';
 }
@@ -2946,7 +2948,7 @@ function finalizeAcceptance(){
   }
 
   closeSigModal();
-  wo.status = 'Παραλήφθηκε';
+  wo.status = 'Παραλήφθηκε'; // Auto-set when protocol accepted
   wo.completionDate = todayStr();
   const idx = workOrders.findIndex(w=>w.id===wo.id);
   if(idx>=0) workOrders[idx]=wo;
@@ -3223,7 +3225,7 @@ function delIssue(id){
 function buildCountdown(wo){
   // Show countdown for active statuses (Εστάλη / Σε εξέλιξη)
   // Stop when completed: Παραλήφθηκε, Ολοκληρώθηκε, Δεν ολοκληρώθηκε, Εκδόθηκε
-  const activeStatuses = ['Εστάλη', 'Σε εξέλιξη'];
+  const activeStatuses = ['Εστάλη', 'Ολοκληρώθηκε - Εκκρεμούν Υπογραφές'];
   if(!activeStatuses.includes(wo.status)) return '';
   if(!wo.sentAt) return '';
   const pd=PRIO_DATA[wo.priority];
@@ -3254,7 +3256,29 @@ setInterval(()=>{
   if(document.getElementById('ordersTbl')) renderOrders();
 }, 60000);
 
+function checkAutopenalties(){
+  if(!workOrders || !settings) return;
+  const pd_map = PRIO_DATA || {};
+  workOrders.forEach(wo=>{
+    if(wo.orderType==='service') return; // only contractor
+    if(wo.status!=='Εστάλη') return;
+    if(wo.penaltyApplied) return;
+    if(!wo.sentAt) return;
+    const pd = pd_map[wo.priority];
+    if(!pd || !pd.minResp) return;
+    const deadlineMs = new Date(wo.sentAt).getTime() + pd.minResp * 60 * 1000;
+    if(Date.now() > deadlineMs){
+      // Overdue — highlight in renderOrders (actual penalty applied by user)
+      wo._overdue = true;
+    } else {
+      wo._overdue = false;
+    }
+  });
+}
+
 function renderOrders(){
+  // Auto-penalty check: apply penalty for overdue orders (Εστάλη + expired)
+  checkAutopenalties();
   const search=(document.getElementById('woSearch')?.value||'').toLowerCase();
   const fs=document.getElementById('woStatus')?.value||'';
   let list=workOrders.filter(w=>{
@@ -3295,12 +3319,12 @@ function renderOrders(){
       // ── CONTRACTOR ORDER: full buttons ──
       if(w.penaltyApplied){
         btnHtml+='<span style="font-size:10px;color:var(--red);font-weight:600;">🔒 Ρήτρα '+fmt(w.penaltyAmount||0)+' €</span>';
-      } else if(w.status==='Παραλήφθηκε'){
+      } else if(w.status==='Παραλήφθηκε'||w.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές'){
         btnHtml+='<button style="background:#ccc;color:#999;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:not-allowed;" disabled title="Εντολή παραλήφθηκε — δεν επιτρέπεται ρήτρα">⚠ Ρήτρα</button>';
       } else {
         btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα</button>';
       }
-      if(w.status==='Παραλήφθηκε' && w.signedPdfData){
+      if((w.status==='Παραλήφθηκε'||w.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') && w.signedPdfData){
         btnHtml+='<button style="background:#198754;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="downloadSignedPdf(\''+w.id+'\')">📄 Πρωτόκολλο</button>';
         btnHtml+='<button class="ab-done" onclick="emailProtocol(\''+w.id+'\')">✉ Αποστολή</button>';
         if(currentUser && currentUser.id==='admin') btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN: Επεξεργασία">✎</button>';
@@ -3327,7 +3351,9 @@ function renderOrders(){
     }
     btnHtml+='</div>';
     // Status badge
-    const statusBadge='<span class="sbadge '+statusClass(w.status)+'">'+w.status+'</span>';
+    const _isOverdue = w._overdue && w.status==='Εστάλη' && !w.penaltyApplied;
+    const statusBadge='<span class="sbadge '+statusClass(w.status)+(_isOverdue?' overdue':'')+'">'+w.status+(_isOverdue?' ⚠':'')+'</span>'
+      +(_isOverdue?'<div style="font-size:9px;color:#dc2626;font-weight:700;margin-top:2px;">🔴 ΕΚΤΟΣ ΧΡΟΝΟΥ</div>':'');
     // Penalty lock indicator
     const lockBadge = w.penaltyApplied ? ' <span style="font-size:10px;background:var(--rbg);color:var(--red);padding:1px 5px;border-radius:3px;font-weight:600;">🔒 ΚΛΕΙΔΩΜΑ</span>' : '';
     rows+='<tr>'
@@ -4643,12 +4669,16 @@ function saveOrder(andPrint){
 
   // Warn non-admin when setting to Παραλήφθηκε
   if(!isAdmin && newStatus === 'Παραλήφθηκε' && oldStatus !== 'Παραλήφθηκε'){
+    // Block if no signed PDF
+    if(!_existingWo || (!_existingWo.signedPdfData && !_existingWo.signedPdfUrl)){
+      alert('🚫 Δεν επιτρέπεται η μετάβαση σε «Παραλήφθηκε» χωρίς υπογεγραμμένο Πρωτόκολλο Παραλαβής.\n\nΑκολουθήστε τη διαδικασία:\n1. Αλλάξτε κατάσταση σε «Ολοκληρώθηκε - Εκκρεμούν Υπογραφές»\n2. Ανεβάστε υπογεγραμμένο πρωτόκολλο');
+      return;
+    }
     const ok = confirm(
       '⚠️ ΠΡΟΣΟΧΗ — Κατάσταση: Παραλήφθηκε\n\n'
       +'Μόλις αποθηκευτεί η εντολή ως «Παραλήφθηκε»:\n'
-      +'• Δεν θα είναι δυνατή η επεξεργασία της\n'
-      +'• Θα απαιτείται ψηφιακό πρωτόκολλο παραλαβής\n\n'
-      +'Είστε σίγουροι ότι θέλετε να συνεχίσετε;'
+      +'• Δεν θα είναι δυνατή η επεξεργασία της\n\n'
+      +'Είστε σίγουροι;'
     );
     if(!ok) return;
   }
