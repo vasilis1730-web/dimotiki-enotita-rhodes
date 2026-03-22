@@ -439,7 +439,7 @@ tr:hover td{background:#faf9f7;}
         <option>Δεν ολοκληρώθηκε</option>
       </select>
     </div>
-    <div id="bulkBar" style="display:none;background:#1a2744;color:#fff;padding:10px 16px;border-radius:8px;margin-bottom:10px;align-items:center;gap:12px;flex-wrap:wrap;"><span id="bulkCount" style="font-weight:700;font-size:13px;"></span><button class="btn" style="background:#27ae60;color:#fff;border-color:#27ae60;font-weight:700;" onclick="openBulkSigModal()">📋 Μαζικό Πρωτόκολλο Παραλαβής</button><button class="btn" style="background:transparent;color:rgba(255,255,255,.6);border-color:rgba(255,255,255,.3);font-size:11px;" onclick="clearBulkSelection()">✕ Ακύρωση</button></div>    <div id="ordersTbl"></div>
+    <div id="ordersTbl"></div>
   </div>
 
   <!-- FINANCE -->
@@ -683,7 +683,7 @@ tr:hover td{background:#faf9f7;}
         <div class="fg"><label>Τοποθεσία στον Χάρτη</label>
           <div style="display:flex;gap:6px;align-items:center;">
             <div id="i_coordsDisplay" style="flex:1;font-size:11px;color:var(--muted);">Δεν έχει οριστεί</div>
-            <button type="button" class="btn" onclick="openIssueMapPicker()" style="padding:6px 10px;font-size:13px;white-space:nowrap;">🗺 Χάρτης</button>
+            <button type="button" class="btn" onclick="openIssueMapPicker()" style="padding:6px 10px;font-size:13px;white-space:nowrap;">🗺 Google Maps</button>
           </div></div>
         <div class="fg full"><label>Συνημμένα Αρχεία (έγγραφα, φωτογραφίες)</label>
           <div id="i_attachList" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;min-height:30px;"></div>
@@ -718,7 +718,7 @@ tr:hover td{background:#faf9f7;}
       <input type="text" id="wo_loc" placeholder="Π.χ. Οδός Πειραιώς, Ρόδος..." autocomplete="off" oninput="acSearch(this.value)" onkeydown="acKey(event)">
       <div class="ac-list" id="acList" style="display:none"></div>
     </div>
-    <button type="button" class="btn" title="Επιλογή τοποθεσίας στον χάρτη" onclick="openMapPicker()" style="padding:7px 10px;font-size:15px;flex-shrink:0;white-space:nowrap;">🗺 Χάρτης</button>
+    <button type="button" class="btn" title="Επιλογή τοποθεσίας στον χάρτη" onclick="openMapPicker()" style="padding:7px 10px;font-size:15px;flex-shrink:0;white-space:nowrap;">🗺 Google Maps</button>
   </div>
   <div id="wo_coords_display" style="display:none;margin-top:4px;font-size:11px;color:var(--green);"></div>
 </div>
@@ -1048,6 +1048,23 @@ let _saveTimer = null;
 // getSupabase and isSupabaseConfigured defined in settings section below
 
 // ── LOAD ──────────────────────────────────────────────────────────
+async function markRequiredLabels(){
+  // Style required fields with orange border + label asterisk
+  document.querySelectorAll('input[required],select[required],textarea[required]').forEach(el=>{
+    el.style.borderColor = '#e67e22';
+    el.style.borderWidth = '2px';
+    el.addEventListener('input', function(){
+      this.style.borderColor = this.value.trim() ? '#27ae60' : '#e67e22';
+    }, {once: false});
+    const fg = el.closest('.fg');
+    if(!fg) return;
+    const lbl = fg.querySelector('label');
+    if(lbl && !lbl.dataset.reqMarked){
+      lbl.dataset.reqMarked = '1';
+      lbl.innerHTML = lbl.innerHTML + ' <span style="color:#e67e22;font-weight:700;">*</span>';
+    }
+  });
+}
 async function load(){
   const hist = getHistoricalData();
   const sb = getSupabase();
@@ -2463,7 +2480,6 @@ function setCurrentTime(){
 // DIGITAL SIGNATURE WORKFLOW — PDF BRIDGE TO MINDIGITAL WEBSIGN
 // ════════════════════════════════════════════════════════════════
 let _sigOrderId = null;
-let _bulkSelected = new Set();
 
 function openSigModal(id){
   _sigOrderId = id;
@@ -2998,182 +3014,6 @@ function showTab(tab){
   renderAll();
 }
 
-function toggleBulkSelect(orderId){
-  if(_bulkSelected.has(orderId)) _bulkSelected.delete(orderId);
-  else _bulkSelected.add(orderId);
-  updateBulkBar(); renderOrders();
-}
-function clearBulkSelection(){
-  _bulkSelected.clear(); updateBulkBar(); renderOrders();
-}
-function updateBulkBar(){
-  const bar=document.getElementById('bulkBar');
-  const cnt=document.getElementById('bulkCount');
-  if(!bar)return;
-  const n=_bulkSelected.size;
-  if(n>=1){
-    bar.style.display='flex';
-    cnt.textContent=n+' εντολ'+(n===1?'ή':'ές')+' επιλεγμέν'+(n===1?'η':'ες');
-    const btn=bar.querySelector('.btn');
-    if(btn) btn.style.display=n>=2?'':'none';
-  } else {
-    bar.style.display='none';
-  }
-}
-function openBulkSigModal(){
-  if(_bulkSelected.size<2){toast('Επιλέξτε τουλάχιστον 2 εντολές');return;}
-  const orders=workOrders.filter(w=>_bulkSelected.has(w.id));
-  _sigOrderId=null;
-  window._bulkWo={id:'BULK',_edgeResult:null,signedPdfData:null,signedPdfName:null};
-  document.getElementById('sigModalTitle').textContent='✍ Μαζικό Πρωτόκολλο — '+orders.length+' Εντολές';
-  renderBulkSigModal(orders);
-  document.getElementById('sigWrap').style.display='flex';
-}
-function renderBulkSigModal(orders){
-  const total=orders.reduce((s,w)=>s+woTotal(w),0);
-  let html='<div style="background:var(--sec);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">';
-  html+='<div style="font-weight:700;font-size:13px;color:var(--navy);margin-bottom:8px;">📋 Εντολές ('+orders.length+'):</div>';
-  html+='<div style="max-height:130px;overflow-y:auto;">';
-  orders.forEach(w=>{
-    html+='<div style="font-size:11px;padding:3px 6px;background:#fff;border-radius:3px;margin-bottom:2px;display:flex;justify-content:space-between;">'
-      +'<span><strong>'+esc(w.orderNum)+'</strong> — '+esc(w.location)+'</span>'
-      +'<span style="color:var(--muted)">'+fmt(woTotal(w))+' €</span></div>';
-  });
-  html+='</div><div style="margin-top:8px;font-weight:700;font-size:12px;color:var(--navy);">Σύνολο: '+fmt(total)+' €</div></div>';
-  const steps=[
-    {n:1,title:'Εκτύπωση Μαζικού Πρωτοκόλλου',btn:'<button class="btn btn-p" style="margin-left:30px;" onclick="printBulkProtocol()">🖨 Εκτύπωση</button>'},
-    {n:2,title:'Ψηφιακή Υπογραφή (Mindigital)',btn:'<button class="btn" style="background:#1a3a5c;color:#fff;margin-left:30px;" onclick="window.open(settings.eSignUrl||\'https://webapp.mindigital-shde.gr/login\',\'_blank\')">🔏 Mindigital</button>'},
-    {n:3,title:'Ανέβασμα Υπογεγραμμένου PDF',btn:'<input type="file" id="bulkPdfInput" accept=".pdf" style="display:none" onchange="importBulkSignedPdf(this)"><button class="btn" style="background:#198754;color:#fff;border-color:#198754;margin-left:30px;" onclick="document.getElementById(\'bulkPdfInput\').click()">📎 Επιλογή PDF</button>'},
-  ];
-  steps.forEach(s=>{
-    html+='<div style="background:var(--sec);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">'
-      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
-      +'<div style="background:#1a3a5c;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">'+s.n+'</div>'
-      +'<p style="font-weight:700;font-size:12px;color:var(--navy);margin:0;">'+s.title+'</p></div>'
-      +s.btn+'</div>';
-  });
-  document.getElementById('sigModalBody').innerHTML=html;
-}
-async function importBulkSignedPdf(input){
-  const file=input.files[0]; if(!file)return;
-  const orders=workOrders.filter(w=>_bulkSelected.has(w.id));
-  toast('🔍 Έλεγχος υπογραφών μαζικού πρωτοκόλλου...');
-  const b64=await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file);});
-  if(!window._bulkWo) window._bulkWo={};
-  window._bulkWo.signedPdfData=b64; window._bulkWo.signedPdfName=file.name; window._bulkWo.signedAt=new Date().toISOString();
-  let edgeResult=null;
-  const edgeUrl=(settings.edgeFnUrl||'').trim(), anonKey=(localStorage.getItem('sb_key')||'').trim();
-  if(edgeUrl&&anonKey){
-    try{const resp=await fetch(edgeUrl,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+anonKey,'apikey':anonKey},body:JSON.stringify({pdfBase64:b64})});
-      if(resp.ok)edgeResult=await resp.json();}catch(e){}
-  }
-  window._bulkWo._edgeResult=edgeResult;
-  renderBulkResultModal(orders,edgeResult,file.name,b64);
-}
-function renderBulkResultModal(orders,edgeResult,fname,b64){
-  const committee=(settings.eSignUsers||[]).filter(u=>u.name&&u.name.trim());
-  const sigCount=countPdfSignatures(b64), req=Math.max(1,committee.length||3);
-  const edgeOk=edgeResult?edgeResult.verified===true:null;
-  const edgeSigners=edgeResult?(edgeResult.signers||[]):[];
-  const allMatched=edgeSigners.length>0&&committee.length>0&&committee.every(mb=>edgeSigners.some(n=>mb.name.split(' ').filter(p=>p.length>2).every(p=>n.toUpperCase().includes(p.toUpperCase()))));
-  const edgeFailed=(edgeOk===false)||(edgeSigners.length>0&&committee.length>0&&!allMatched);
-  const isValid=sigCount>=req&&edgeOk===true&&!edgeFailed;
-  const sc=isValid?'#198754':'#856404', sb=isValid?'#d1e7dd':'#fff3cd', sbr=isValid?'#198754':'#ffc107';
-  let html='<div style="background:'+sb+';border:2px solid '+sbr+';border-radius:8px;padding:14px;margin-bottom:14px;">'
-    +'<div style="font-size:24px;margin-bottom:6px;">'+(isValid?'✅':'⚠️')+'</div>'
-    +'<div style="font-weight:700;color:'+sc+';font-size:13px;">'+(isValid?'Μαζικό Πρωτόκολλο — Έγκυρο':'Έλεγχος Υπογραφών')+'</div>'
-    +'<div style="font-size:11px;margin-top:4px;">📄 '+esc(fname)+' — '+sigCount+'/'+req+' υπογραφές</div>';
-  committee.forEach(mb=>{
-    const m=edgeSigners.length>0?edgeSigners.some(n=>mb.name.split(' ').filter(p=>p.length>2).every(p=>n.toUpperCase().includes(p.toUpperCase()))):null;
-    html+='<div style="font-size:11px;margin-top:3px;">'+(m===true?'✅':m===false?'❌':'⏳')+' '+esc(mb.name)+'</div>';
-  });
-  if(edgeResult&&edgeResult.message) html+='<div style="font-size:10px;margin-top:6px;color:'+sc+';">🔐 '+esc(edgeResult.message)+'</div>';
-  html+='</div>';
-  const total=orders.reduce((s,w)=>s+Math.max(0,woTotal(w)-(w.penaltyAmount||0)),0);
-  html+='<div style="background:var(--sec);border-radius:6px;padding:10px;margin-bottom:14px;">'
-    +'<div style="font-size:11px;font-weight:600;margin-bottom:6px;">Εντολές ('+orders.length+'):</div>';
-  orders.forEach(w=>{html+='<div style="font-size:11px;">• <strong>'+esc(w.orderNum)+'</strong> '+esc(w.location)+' ('+fmt(Math.max(0,woTotal(w)-(w.penaltyAmount||0)))+' €)</div>';});
-  html+='<div style="font-weight:700;margin-top:6px;">Σύνολο: '+fmt(total)+' €</div></div>';
-  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">';
-  if(edgeFailed){
-    html+='<div style="background:#fee2e2;border:2px solid #dc2626;border-radius:8px;padding:10px;font-size:12px;color:#991b1b;text-align:center;width:100%;">🚫 Μη έγκυρο πρωτόκολλο — Ανεβάστε το σωστό PDF</div>';
-  } else if(isValid){
-    html+='<button class="btn btn-p" style="font-size:13px;" onclick="finalizeBulkAcceptance()">✅ Ολοκλήρωση Μαζικής Παραλαβής & Χρεώσεις</button>';
-  } else {
-    html+='<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px;font-size:12px;color:#856404;text-align:center;">⏳ Χρειάζονται '+Math.max(0,req-sigCount)+' ακόμη υπογραφές</div>';
-  }
-  html+='<button class="btn" style="border-color:var(--amber);color:var(--amber);" onclick="renderBulkSigModal(workOrders.filter(w=>_bulkSelected.has(w.id)))">↩ Επανεκκίνηση</button></div>';
-  document.getElementById('sigModalBody').innerHTML=html;
-}
-async function finalizeBulkAcceptance(){
-  const orders=workOrders.filter(w=>_bulkSelected.has(w.id));
-  if(!orders.length)return;
-  if(!confirm('Ολοκλήρωση μαζικής παραλαβής για '+orders.length+' εντολές;\nΘα δημιουργηθούν '+orders.length+' χρεώσεις αυτόματα.'))return;
-  const bulkWo=window._bulkWo||{};
-  const today=todayStr(); const d=new Date();
-  orders.forEach(wo=>{
-    wo.status='Παραλήφθηκε'; wo.completionDate=today;
-    wo.signedPdfData=bulkWo.signedPdfData||null; wo.signedPdfUrl=bulkWo.signedPdfUrl||null;
-    wo.signedPdfName=bulkWo.signedPdfName||''; wo.signedAt=bulkWo.signedAt||new Date().toISOString();
-    wo._edgeResult=bulkWo._edgeResult||null; wo._isBulkProtocol=true;
-    if(!payments.some(p=>p.orderId===wo.id&&!p.isPenalty)){
-      const net=Math.max(0,woTotal(wo)-(wo.penaltyAmount||0));
-      payments.push({id:genId(),date:today,amount:net,orderId:wo.id,invoiceNum:'',
-        month:d.toLocaleDateString('el-GR',{month:'long',year:'numeric'}),
-        notes:'Μαζική παραλαβή ('+orders.length+' εντολές) — '+esc(wo.orderNum),
-        isPenalty:false,autoCreated:true});
-    }
-  });
-  _bulkSelected.clear(); window._bulkWo=null;
-  closeSigModal(); save(); renderAll(); updateBulkBar();
-  toast('✅ Μαζική παραλαβή '+orders.length+' εντολών ολοκληρώθηκε!');
-}
-function printBulkProtocol(){
-  const orders=workOrders.filter(w=>_bulkSelected.has(w.id));
-  if(!orders.length){toast('Δεν υπάρχουν επιλεγμένες εντολές');return;}
-  const today=todayStr(), vatR=settings.vatRate||24;
-  const committee=(settings.eSignUsers||[]).filter(u=>u.name);
-  const totalNet=orders.reduce((s,w)=>s+Math.max(0,woTotal(w)-(w.penaltyAmount||0)),0);
-  const totalPen=orders.reduce((s,w)=>s+(w.penaltyAmount||0),0);
-  const totalGross=orders.reduce((s,w)=>s+woTotal(w),0);
-  let rows='';
-  orders.forEach((wo,i)=>{
-    rows+='<tr><td>'+(i+1)+'</td><td><strong>'+esc(wo.orderNum)+'</strong></td><td>'+esc(wo.location)+'</td>'
-      +'<td style="font-size:8pt;">'+esc((wo.description||'').slice(0,80))+'</td><td>'+fmtDate(wo.date)+'</td>'
-      +'<td>'+fmt(woTotal(wo))+' €</td><td style="color:red;">'+(wo.penaltyAmount>0?'-'+fmt(wo.penaltyAmount)+' €':'—')+'</td>'
-      +'<td><strong>'+fmt(Math.max(0,woTotal(wo)-(wo.penaltyAmount||0)))+' €</strong></td></tr>';
-  });
-  let sigCells='';
-  committee.forEach(m=>{sigCells+='<td>'+esc(m.name)+'<br><span style="font-size:8pt;color:#555;">'+esc(m.role)+'</span><br><br>Υπογραφή:<br><br></td>';});
-  if(committee.length<3) for(let i=committee.length;i<3;i++) sigCells+='<td></td>';
-  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Μαζικό Πρωτόκολλο</title>'
-    +'<style>body{font-family:Arial,sans-serif;font-size:10pt;margin:20px;}'
-    +'h1{font-size:13pt;text-align:center;text-transform:uppercase;border-bottom:2px solid #000;padding-bottom:6px;}'
-    +'table{width:100%;border-collapse:collapse;margin:10px 0;font-size:9pt;}'
-    +'th,td{border:1px solid #333;padding:4px 6px;}th{background:#e0e0e0;font-weight:700;}'
-    +'.total{font-weight:700;background:#f5f5f5;}.sig td{border:1px solid #333;padding:8px;width:33%;text-align:center;height:60px;vertical-align:bottom;}'
-    +'</style></head><body>'
-    +'<div style="text-align:center;margin-bottom:16px;"><div style="font-size:12pt;font-weight:700;">ΔΗΜΟΣ ΡΟΔΟΥ</div>'
-    +'<div>Διεύθυνση Τεχνικών Έργων &amp; Υποδομών</div></div>'
-    +'<h1>ΠΡΩΤΟΚΟΛΛΟ ΟΡΙΣΤΙΚΗΣ ΤΜΗΜΑΤΙΚΗΣ ΠΑΡΑΛΑΒΗΣ<br>(ΜΑΖΙΚΗ ΠΑΡΑΛΑΒΗ)</h1>'
-    +'<p style="text-align:center;font-weight:700;">Ημερομηνία: '+fmtDate(today)+' | Αριθμός Εντολών: '+orders.length+'</p>'
-    +'<p><strong>Ανάδοχος:</strong> '+esc(settings.contractor||'—')+'</p>'
-    +'<p>Η Επιτροπή Παραλαβής παρέλαβε τις κατωτέρω εντολές εργασίας:</p>'
-    +'<table><thead><tr><th>#</th><th>Αρ. Εντολής</th><th>Τοποθεσία</th><th>Περιγραφή</th><th>Ημ/νία</th><th>Αξία</th><th>Ρήτρα</th><th>Καθαρό</th></tr></thead>'
-    +'<tbody>'+rows
-    +'<tr class="total"><td colspan="5" style="text-align:right;">ΣΥΝΟΛΑ:</td><td>'+fmt(totalGross)+' €</td><td style="color:red;">-'+fmt(totalPen)+' €</td><td>'+fmt(totalNet)+' €</td></tr>'
-    +'<tr class="total"><td colspan="7" style="text-align:right;">ΦΠΑ '+vatR+'%:</td><td>'+fmt(totalNet*vatR/100)+' €</td></tr>'
-    +'<tr class="total"><td colspan="7" style="text-align:right;">ΣΥΝΟΛΟ ΜΕ ΦΠΑ:</td><td>'+fmt(totalNet*(1+vatR/100))+' €</td></tr>'
-    +'</tbody></table>'
-    +'<p>Η παραλαβή έγινε κανονικά σύμφωνα με τους όρους της σύμβασης.</p>'
-    +'<p><strong>Η Επιτροπή Παραλαβής:</strong></p>'
-    +'<table class="sig"><tr>'+sigCells+'</tr></table>'
-    +'<div style="font-size:8pt;text-align:center;margin-top:20px;color:#555;">Δήμος Ρόδου — Αυτεπιστασία — '+fmtDate(today)+'</div></body></html>';
-  const win=window.open('','_blank','width=800,height=900');
-  win.document.write(html); win.document.close();
-  setTimeout(()=>win.print(),600);
-}
-
 function renderAll(){
   updateHeader();
   if(currentTab==='dashboard')renderDash();
@@ -3485,7 +3325,7 @@ function renderOrders(){
         btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">⚠ Ρήτρα</button>';
         btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">✍ Υπογραφή</button>';
         btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
-        btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
+        btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">📤</button>';
         btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
 
       } else if(st==='Εστάλη'){
@@ -3493,7 +3333,7 @@ function renderOrders(){
         btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(w.penaltyApplied?' ('+fmt(w.penaltyAmount||0)+'€)':'')+'</button>';
         btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">✍ Υπογραφή</button>';
         btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
-        btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
+        btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">📤</button>';
         if(!w.penaltyApplied || isAdmin) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
 
       } else if(st==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές'){
@@ -3538,11 +3378,7 @@ function renderOrders(){
       +(_isOverdue?'<div style="font-size:9px;color:#dc2626;font-weight:700;margin-top:2px;">🔴 ΕΚΤΟΣ ΧΡΟΝΟΥ</div>':'');
     // Penalty lock indicator
     const lockBadge = w.penaltyApplied ? ' <span style="font-size:10px;background:var(--rbg);color:var(--red);padding:1px 5px;border-radius:3px;font-weight:600;">🔒 ΚΛΕΙΔΩΜΑ</span>' : '';
-    const _isEligibleBulk = w.orderType!=='service' && w.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές' && !w.signedPdfData && !w.signedPdfUrl;
-    const _isChecked = _bulkSelected.has(w.id);
-    const _chk = _isEligibleBulk ? '<input type="checkbox" data-oid="'+w.id+'" '+(_isChecked?'checked':'')+' onchange="toggleBulkSelect(this.dataset.oid)" style="width:16px;height:16px;cursor:pointer;accent-color:#1a2744;">' : '';
-    rows+='<tr style="'+(_isChecked?'background:#eff6ff;outline:2px solid #3b82f6;':'')+'">'
-      +'<td style="width:30px;text-align:center;">'+_chk+'</td>'
+    rows+='<tr>'
       +'<td><strong>'+esc(w.orderNum)+'</strong>'+(w.orderType==='service'?'<br><span style="font-size:10px;background:#d1fae5;color:#065f46;padding:1px 5px;border-radius:3px;font-weight:600;">🔧 Υπηρεσίας</span>':'<br><span style="font-size:10px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:3px;font-weight:600;">📄 Αναδόχου</span>')+(issue?'<br><span style="font-size:10px;font-weight:700;color:var(--amber);">📋 '+(issue.issueNum||issue.id.slice(-4).toUpperCase())+'</span><br><span style="font-size:10px;color:var(--muted)">'+esc(issue.title.slice(0,28))+'</span>':'')+'</td>'
       +'<td style="white-space:nowrap">'+fmtDate(w.date)+'<br><span style="font-size:10px;color:var(--muted)">🕐 '+(w.issuedTime||'—')+'</span>'+'</td>'
       +'<td>'+esc(w.location)+'</td>'
@@ -3557,7 +3393,7 @@ function renderOrders(){
       +'</tr>';
   });
   document.getElementById('ordersTbl').innerHTML='<div class="tbl-wrap"><table>'
-    +'<thead><tr><th style="width:30px"></th><th>Αρ. Εντολής</th><th>Ημ/νία</th><th>Τοποθεσία</th><th>Προτ.</th><th>Εργασίες</th><th>Κόστος (χ.ΦΠΑ)</th><th>Κατάσταση</th><th>Ενέργειες</th></tr></thead>'
+    +'<thead><tr><th>Αρ. Εντολής</th><th>Ημ/νία</th><th>Τοποθεσία</th><th>Προτ.</th><th>Εργασίες</th><th>Κόστος (χ.ΦΠΑ)</th><th>Κατάσταση</th><th>Ενέργειες</th></tr></thead>'
     +'<tbody>'+rows+'</tbody>'
     +'</table></div>';
 }
@@ -5914,22 +5750,23 @@ if(document.readyState==='loading'){
 <div id="econfWrap" class="econf-wrap" onclick="if(event.target===this)closeEconf()">
   <div class="econf-box">
     <div class="econf-hdr">
-      <h3>✉ Αποστολή Εντολής με Email</h3>
+      <h3>📤 Αποστολή Εντολής Εργασίας</h3>
       <button onclick="closeEconf()">✕</button>
     </div>
     <div class="econf-body">
       <div id="econfInfo"></div>
       <div class="econf-note">
-        📧 Το email θα ανοίξει στον email client σας (Outlook / Gmail).<br>
-        Αποστέλλεται <strong>από:</strong> <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="d5b1bcb4bebab9bcbaa695a7bdbab1b0a6fbb2a7">[email&#160;protected]</a><br>
+        Επιλέξτε τρόπο αποστολής:<br>
+        📱 <strong>Viber / WhatsApp</strong> — ανοίγει η εφαρμογή με έτοιμο μήνυμα, πατάτε Send<br>
+        ✉ <strong>Email</strong> — ανοίγει ο email client (Outlook/Gmail)<br><br>
         Αποστέλλεται <strong>προς:</strong> <span id="econfToAddr" style="font-weight:700;"></span>
       </div>
     </div>
     <div class="econf-footer" style="flex-wrap:wrap;gap:8px;">
-      <button class="btn" onclick="closeEconf()">Ακύρωση</button>
-      <button class="btn" onclick="doSendViber()" style="background:#7360f2;color:#fff;border-color:#7360f2;">📱 Viber</button>
-      <button class="btn" onclick="doSendWhatsApp()" style="background:#25d366;color:#fff;border-color:#25d366;">💬 WhatsApp</button>
-      <button class="btn btn-p" onclick="doSendEmail()">✉ Email</button>
+      <button class="btn" onclick="closeEconf()" style="min-width:80px;">Ακύρωση</button>
+      <button class="btn" onclick="doSendViber()" style="background:#7360f2;color:#fff;border-color:#7360f2;font-weight:700;">📱 Viber</button>
+      <button class="btn" onclick="doSendWhatsApp()" style="background:#25d366;color:#fff;border-color:#25d366;font-weight:700;">💬 WhatsApp</button>
+      <button class="btn btn-p" onclick="doSendEmail()" style="font-weight:700;">✉ Email</button>
     </div>
   </div>
 </div>
