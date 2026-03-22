@@ -4705,19 +4705,10 @@ function saveOrder(andPrint){
   const isAdmin = currentUser?.id === 'admin';
 
   // Warn non-admin when setting to Παραλήφθηκε
-  if(!isAdmin && newStatus === 'Παραλήφθηκε' && oldStatus !== 'Παραλήφθηκε'){
-    // Block if no signed PDF
-    if(!_existingWo || (!_existingWo.signedPdfData && !_existingWo.signedPdfUrl)){
-      alert('🚫 Δεν επιτρέπεται η μετάβαση σε «Παραλήφθηκε» χωρίς υπογεγραμμένο Πρωτόκολλο Παραλαβής.\n\nΑκολουθήστε τη διαδικασία:\n1. Αλλάξτε κατάσταση σε «Ολοκληρώθηκε - Εκκρεμούν Υπογραφές»\n2. Ανεβάστε υπογεγραμμένο πρωτόκολλο');
-      return;
-    }
-    const ok = confirm(
-      '⚠️ ΠΡΟΣΟΧΗ — Κατάσταση: Παραλήφθηκε\n\n'
-      +'Μόλις αποθηκευτεί η εντολή ως «Παραλήφθηκε»:\n'
-      +'• Δεν θα είναι δυνατή η επεξεργασία της\n\n'
-      +'Είστε σίγουροι;'
-    );
-    if(!ok) return;
+  // BLOCK: Παραλήφθηκε can ONLY be set via finalizeAcceptance (signed protocol upload)
+  if(newStatus === 'Παραλήφθηκε' && oldStatus !== 'Παραλήφθηκε'){
+    alert('🚫 Δεν επιτρέπεται χειροκίνητη μετάβαση σε «Παραλήφθηκε».\n\nΗ παραλαβή γίνεται αυτόματα μόνο μέσω ανεβάσματος υπογεγραμμένου Πρωτοκόλλου Παραλαβής:\n1. Κατάσταση → «Ολοκληρώθηκε - Εκκρεμούν Υπογραφές»\n2. Κουμπί ✍ Υπογραφή → ανέβασμα πρωτοκόλλου\n3. Η κατάσταση αλλάζει αυτόματα');
+    return;
   }
 
   // Admin reset: whenever admin edits an existing locked order (penalty or Παραλήφθηκε)
