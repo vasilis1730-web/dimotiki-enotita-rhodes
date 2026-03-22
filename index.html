@@ -3333,7 +3333,9 @@ function renderOrders(){
       // ── CONTRACTOR ORDER ──
       const isAdmin = !!(currentUser && currentUser.id==='admin');
       const st = w.status;
-      const hasProtocol = !!(w.signedPdfData || w.signedPdfUrl);
+      // hasProtocol = PDF exists AND edge function verified it (or no edge result yet)
+      const _wEdgeOk = w._edgeResult ? (w._edgeResult.verified === true) : null;
+      const hasProtocol = !!(w.signedPdfData || w.signedPdfUrl) && _wEdgeOk !== false;
 
       if(st==='Εκδόθηκε'){
         btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">⚠ Ρήτρα</button>';
