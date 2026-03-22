@@ -2466,8 +2466,8 @@ let _sigOrderId = null;
 
 function openSigModal(id){
   _sigOrderId = id;
-  document.getElementById('sigWrap').style.display='flex';
   renderSigModal();
+  document.getElementById('sigWrap').style.display='flex';
 }
 
 function closeSigModal(){
@@ -2478,160 +2478,124 @@ function closeSigModal(){
 function renderSigModal(){
   const wo = workOrders.find(w=>w.id===_sigOrderId);
   if(!wo) return;
-  const pdfName = 'ΠρωτοκολλοΤμηματικηςΠαραλαβης_' + wo.orderNum + '.pdf';
-  document.getElementById('sigModalTitle').textContent = '✍ Ψηφιακή Υπογραφή — Εντολή ' + wo.orderNum;
   const users = (settings.eSignUsers||[]).filter(u=>u.name);
   const hasSigned = !!(wo.signedPdfName || wo.signedPdfUrl);
   const sigCount = countPdfSignatures(wo.signedPdfData);
   const requiredSigs = Math.max(1, users.length||3);
-  // Validate count + committee
   const _committee = (settings.eSignUsers||[]).filter(u=>u.name && u.name.trim());
   const _committeeConfigured = _committee.length > 0;
-  const _sigValidation = hasSigned ? validatePdfSigners(wo.signedPdfData||'', wo) : null;
-  // _namesOk: true=all matched, false=some missing, null=couldn't extract
-  // If no base64 data (only URL) → can't extract names
-  const _hasPdfData = !!(wo.signedPdfData && wo.signedPdfData.length > 100);
-  const _namesOk = null; // Unused - using edge result
-  // isValid: edge verified=true AND all committee members matched
+  const pdfName = 'ΠρωτοκολλοΤμηματικηςΠαραλαβης_' + wo.orderNum + '.pdf';
+
+  // Edge function results
   const _edgeSigners = (wo._edgeResult && wo._edgeResult.signers) ? wo._edgeResult.signers : [];
   const _edgeOk = wo._edgeResult ? (wo._edgeResult.verified === true) : null;
-  // Check if committee members appear in extracted signers
   const _allMembersMatched = _edgeSigners.length > 0 && _committee.length > 0
     && _committee.every(mb => _edgeSigners.some(n =>
         mb.name.split(' ').filter(p=>p.length>2).every(p=>n.toUpperCase().includes(p.toUpperCase()))
       ));
-  // Failed if: edge says not verified, OR names extracted but don't match committee
   const _edgeFailed = (_edgeOk === false)
     || (_edgeSigners.length > 0 && _committee.length > 0 && !_allMembersMatched);
-  // Valid ONLY if edge verified AND (no signers extracted OR all matched)
   const isValid = hasSigned && sigCount >= requiredSigs && _committeeConfigured
     && _edgeOk === true && !_edgeFailed;
 
   let html = '';
+
   if(hasSigned){
     const sigColor = isValid ? '#198754' : '#856404';
     const sigBg    = isValid ? '#d1e7dd' : '#fff3cd';
     const sigBorder= isValid ? '#198754' : '#ffc107';
-    html += '<div style="background:'+sigBg+';border:2px solid '+sigBorder+';border-radius:8px;padding:14px;margin-bottom:14px;">'
-      + '<div style="display:flex;align-items:center;gap:10px;">'
-      + '<div style="font-size:28px;">'+(isValid?'✅':'⚠️')+'</div>'
-      + '<div><div style="font-weight:700;color:'+sigColor+';font-size:13px;">'
-      + (isValid ? 'Πρωτόκολλο ψηφιακά υπογεγραμμένο — έγκυρο' : 'PDF ανέβηκε — έλεγχος υπογραφών')
-      + '</div>'
-      + '<div style="font-size:11px;color:'+sigColor+';">📄 '+esc(wo.signedPdfName)+'</div>'
-      + (wo.signedAt ? '<div style="font-size:10px;color:'+sigColor+';">🕐 '+fmtDateTime(wo.signedAt)+'</div>' : '')
-      + '</div></div>'
-      + '<div style="margin-top:10px;padding:8px;background:rgba(255,255,255,.5);border-radius:6px;">'
-      + '<div style="font-size:11px;font-weight:600;color:'+sigColor+';margin-bottom:6px;">🔏 Ψηφιακές υπογραφές:</div>'
-      + '<div style="display:flex;align-items:center;gap:10px;">'
-      + '<div style="flex:1;background:#e9ecef;border-radius:20px;height:8px;">'
-      + '<div style="width:'+Math.min(100,Math.round(sigCount/requiredSigs*100))+'%;background:'+sigColor+';height:8px;border-radius:20px;"></div></div>'
-      + '<span style="font-size:13px;font-weight:700;color:'+sigColor+';">'+sigCount+' / '+requiredSigs+'</span>'
-      + '</div>'
-      + (sigCount<requiredSigs ? '<div style="font-size:10px;color:#856404;margin-top:4px;">⚠ Χρειάζονται ακόμη '+(requiredSigs-sigCount)+' υπογραφές.</div>' : '')
-      + (function(){
-          // Show per-member name validation
-          const v = validatePdfSigners(wo.signedPdfData||'', wo);
-          const committee = (settings.eSignUsers||[]).filter(u=>u.name);
-          if(!committee.length) return '';
-          let rows = '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">';
-          rows += '<div style="font-size:10px;color:var(--muted);margin-bottom:4px);font-weight:600;">Έλεγχος υπογραφόντων:</div>';
-          const _edgeRes = wo._edgeResult || null;
-          const _edgeSigners = _edgeRes ? (_edgeRes.signers||[]) : [];
-          const _confirmed = wo._sigConfirmed || [];
-          committee.forEach((member,i)=>{
-            // Check if member name found in cryptographic signers
-            const _cryptoMatch = _edgeSigners.length > 0
-              ? _edgeSigners.some(n=> member.name.split(' ').filter(p=>p.length>2).every(p=>n.toUpperCase().includes(p.toUpperCase())))
-              : null;
-            const checked = _confirmed.includes(i);
-            const _icon = _cryptoMatch===true ? '✅' : _cryptoMatch===false ? '❌' : (checked ? '✅' : '⏳');
-            const _bg = _cryptoMatch===true ? '#d1fae5' : _cryptoMatch===false ? '#fee2e2' : (checked?'#d1fae5':'#fff');
-            const _border = _cryptoMatch===true ? '#6ee7b7' : _cryptoMatch===false ? '#fca5a5' : (checked?'#6ee7b7':'var(--border)');
-            const _color = _cryptoMatch===true ? '#166534' : _cryptoMatch===false ? '#991b1b' : (checked?'#166534':'var(--text)');
-            // Always show auto result (no manual checkboxes)
-            rows += '<div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:5px 8px;background:'+_bg+';border:1px solid '+_border+';border-radius:5px;margin-bottom:3px;">'
-              +'<span style="font-size:16px;">'+_icon+'</span>'
-              +'<div style="flex:1;"><span style="font-weight:600;color:'+_color+';">'+esc(member.name)+'</span>'
-              +'<span style="color:var(--muted);font-size:10px;margin-left:6px;">'+esc(member.role)+'</span></div>'
-            +'</div>';
-          });
-          if(_edgeRes){
-            const _msgColor = _edgeRes.valid ? '#166534' : '#991b1b';
-            const _msgBg = _edgeRes.valid ? '#d1fae5' : '#fee2e2';
-            rows += '<div style="font-size:10px;color:'+_msgColor+';margin-top:5px;padding:6px 10px;background:'+_msgBg+';border-radius:4px;font-weight:600;">🔐 '+esc(_edgeRes.message||'')+'</div>';
-          } else {
-            rows += '<div style="font-size:10px;color:#856404;margin-top:5px;padding:5px 8px;background:#fff3cd;border-radius:4px;">⏳ Αναμονή επαλήθευσης υπογραφών...</div>';
-          }
-          rows += '</div>';
-          return rows;
-        })()
-      + '</div></div>';
+    html += '<div style="background:'+sigBg+';border:2px solid '+sigBorder+';border-radius:8px;padding:14px;margin-bottom:14px;">';
+    html += '<div style="display:flex;align-items:center;gap:10px;">';
+    html += '<div style="font-size:28px;">'+( isValid?'✅':'⚠️')+'</div>';
+    html += '<div><div style="font-weight:700;color:'+sigColor+';font-size:13px;">';
+    html += (isValid ? 'Πρωτόκολλο ψηφιακά υπογεγραμμένο — έγκυρο' : 'PDF ανέβηκε — έλεγχος υπογραφών');
+    html += '</div>';
+    html += '<div style="font-size:11px;color:'+sigColor+';">📄 '+esc(wo.signedPdfName||'')+'</div>';
+    html += (wo.signedAt ? '<div style="font-size:10px;color:'+sigColor+';">🕐 '+fmtDateTime(wo.signedAt)+'</div>' : '');
+    html += '</div></div>';
+    html += '<div style="margin-top:10px;padding:8px;background:rgba(255,255,255,.5);border-radius:6px;">';
+    html += '<div style="font-size:11px;font-weight:600;color:'+sigColor+';margin-bottom:6px;">🔏 Ψηφιακές υπογραφές:</div>';
+    html += '<div style="display:flex;align-items:center;gap:10px;">';
+    html += '<div style="flex:1;background:#e9ecef;border-radius:20px;height:8px;">';
+    html += '<div style="width:'+Math.min(100,Math.round(sigCount/requiredSigs*100))+'%;background:'+sigColor+';height:8px;border-radius:20px;"></div></div>';
+    html += '<span style="font-size:13px;font-weight:700;color:'+sigColor+';">'+sigCount+' / '+requiredSigs+'</span>';
+    html += '</div>';
+    if(sigCount < requiredSigs){
+      html += '<div style="font-size:10px;color:#856404;margin-top:4px;">⚠ Χρειάζονται ακόμη '+(requiredSigs-sigCount)+' υπογραφές.</div>';
+    }
+    // Show committee member validation
+    if(_committee.length > 0){
+      html += '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">';
+      html += '<div style="font-size:10px;color:var(--muted);margin-bottom:4px;font-weight:600;">Έλεγχος υπογραφόντων:</div>';
+      _committee.forEach((member,i)=>{
+        const _cryptoMatch = _edgeSigners.length > 0
+          ? _edgeSigners.some(n=> member.name.split(' ').filter(p=>p.length>2).every(p=>n.toUpperCase().includes(p.toUpperCase())))
+          : null;
+        const _icon = _cryptoMatch===true ? '✅' : _cryptoMatch===false ? '❌' : '⏳';
+        const _bg = _cryptoMatch===true ? '#d1fae5' : _cryptoMatch===false ? '#fee2e2' : '#fff';
+        const _border = _cryptoMatch===true ? '#6ee7b7' : _cryptoMatch===false ? '#fca5a5' : 'var(--border)';
+        const _color = _cryptoMatch===true ? '#166534' : _cryptoMatch===false ? '#991b1b' : 'var(--text)';
+        html += '<div style="display:flex;align-items:center;gap:8px;font-size:11px;padding:5px 8px;background:'+_bg+';border:1px solid '+_border+';border-radius:5px;margin-bottom:3px;">';
+        html += '<span style="font-size:16px;">'+_icon+'</span>';
+        html += '<div style="flex:1;"><span style="font-weight:600;color:'+_color+';"> '+esc(member.name)+'</span>';
+        html += '<span style="color:var(--muted);font-size:10px;margin-left:6px;">'+esc(member.role)+'</span></div>';
+        html += '</div>';
+      });
+      if(_edgeOk !== null){
+        const _msgColor = isValid ? '#166534' : '#991b1b';
+        const _msgBg = isValid ? '#d1fae5' : '#fee2e2';
+        const _edgeMsg = (wo._edgeResult && wo._edgeResult.message) ? wo._edgeResult.message : '';
+        html += '<div style="font-size:10px;color:'+_msgColor+';margin-top:5px;padding:6px 10px;background:'+_msgBg+';border-radius:4px;font-weight:600;">🔐 '+esc(_edgeMsg)+'</div>';
+      } else {
+        html += '<div style="font-size:10px;color:#856404;margin-top:5px;padding:5px 8px;background:#fff3cd;border-radius:4px;">⏳ Αναμονή επαλήθευσης υπογραφών...</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div></div>';
 
-    // Action buttons — use global _sigOrderId, no id param needed
-    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">'
-      + '<button class="btn" onclick="downloadSignedPdf(_sigOrderId)">⬇ Λήψη PDF</button>';
+    // Action buttons
+    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">';
+    html += '<button class="btn" onclick="downloadSignedPdf(_sigOrderId)">⬇ Λήψη PDF</button>';
     if(!_committeeConfigured){
-      html += '<div style="background:#fee2e2;border:2px solid #dc2626;border-radius:8px;padding:12px 16px;font-size:12px;color:#991b1b;text-align:center;font-weight:600;">'
-        + '🚫 Δεν έχει οριστεί Επιτροπή Παραλαβής!<br>'
-        + '<span style="font-weight:400;font-size:11px;">Μεταβείτε στις <strong>Ρυθμίσεις → Επιτροπή Παραλαβής</strong>.</span>'
-        + '</div>';
+      html += '<div style="background:#fee2e2;border:2px solid #dc2626;border-radius:8px;padding:12px 16px;font-size:12px;color:#991b1b;text-align:center;font-weight:600;">🚫 Δεν έχει οριστεί Επιτροπή Παραλαβής! Μεταβείτε στις <strong>Ρυθμίσεις</strong>.</div>';
     } else if(_edgeFailed){
-      // Edge function says invalid → NO finalize button, show error
-      html += '<div style="background:#fee2e2;border:2px solid #dc2626;border-radius:8px;padding:12px 16px;font-size:12px;color:#991b1b;text-align:center;">'
-        + '<div style="font-size:20px;margin-bottom:6px;">🚫</div>'
-        + '<div style="font-weight:700;margin-bottom:4px;">Μη έγκυρο πρωτόκολλο</div>'
-        + '<div style="font-weight:400;font-size:11px;">Δεν υπάρχουν οι απαιτούμενες ψηφιακές υπογραφές.<br>Πατήστε «↩ Επανεκκίνηση» και ανεβάστε το σωστό πρωτόκολλο.</div>'
-        + '</div>';
+      html += '<div style="background:#fee2e2;border:2px solid #dc2626;border-radius:8px;padding:12px 16px;font-size:12px;color:#991b1b;text-align:center;">🚫 <strong>Μη έγκυρο πρωτόκολλο</strong><br><span style="font-size:11px;">Δεν υπάρχουν οι απαιτούμενες υπογραφές. Πατήστε «↩ Επανεκκίνηση».</span></div>';
     } else if(isValid){
       html += '<button class="btn btn-p" style="font-size:13px;" onclick="finalizeAcceptance()">✅ Ολοκλήρωση Παραλαβής & Δημιουργία Χρέωσης</button>';
     } else if(sigCount < requiredSigs){
       html += '<button class="btn" style="background:#1a3a5c;color:#fff;" onclick="continueSign()">🔏 Επόμενη Υπογραφή</button>';
-    } else if(_edgeOk === null){
-      // Edge function hasn't run yet — show waiting message
-      html += '<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px;font-size:12px;color:#856404;text-align:center;">⏳ Αναμονή επαλήθευσης υπογραφών από Edge Function...</div>';
+    } else {
       html += '<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px;font-size:12px;color:#856404;text-align:center;">⏳ Αναμονή επαλήθευσης υπογραφών...</div>';
     }
+    html += '<button class="btn" style="border-color:var(--amber);color:var(--amber);" onclick="resetSignedPdf(_sigOrderId)">↩ Επανεκκίνηση</button>';
+    html += '</div>';
 
   } else {
-    // Step 1
-    html += '<div style="background:var(--sec);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">'
-      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
-      + '<div style="background:#1a3a5c;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">1</div>'
-      + '<p style="font-weight:700;font-size:12px;color:var(--navy);margin:0;">Λήψη Πρωτοκόλλου ως PDF</p></div>'
-      + '<p style="font-size:11px;color:var(--muted);margin:0 0 10px 30px;">Αρχείο: <strong>'+pdfName+'</strong></p>'
-      + '<button class="btn btn-p" style="margin-left:30px;" onclick="sigDownloadProtocol()" >⬇ Λήψη Πρωτοκόλλου</button>'
-      + '</div>';
-
-    // Step 2
-    html += '<div style="background:var(--sec);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">'
-      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
-      + '<div style="background:#1a3a5c;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">2</div>'
-      + '<p style="font-weight:700;font-size:12px;color:var(--navy);margin:0;">Υπογραφή από μέλη Επιτροπής</p></div>';
-    if(users.length > 0){
-      html += '<div style="margin:6px 0 10px 30px;">';
-      users.forEach(u=>{
-        html += '<div style="display:inline-flex;align-items:center;gap:6px;margin:3px;padding:4px 10px;background:#fff;border-radius:20px;border:1px solid var(--border);font-size:11px;">'
-          + '👤 <strong>'+esc(u.name)+'</strong>'+(u.username?' <span style="color:#0056b3;font-size:10px;">('+esc(u.username)+')</span>':'')+' — '+esc(u.role)
-          + '</div>';
-      });
-      html += '</div>';
-    }
-    html += '<p style="font-size:10px;color:var(--muted);margin:0 0 10px 30px;">Κάθε μέλος ανεβάζει το PDF στο Mindigital, εισάγει username + password + OTP και κατεβάζει το υπογεγραμμένο.</p>'
-      + '<a href="https://webapp.mindigital-shde.gr/login" target="_blank" '
-      + 'style="margin-left:30px;display:inline-flex;align-items:center;gap:6px;background:#1a3a5c;color:#fff;padding:9px 18px;border-radius:6px;text-decoration:none;font-size:12px;font-weight:700;">'
-      + '🔗 Άνοιγμα Mindigital WebSign</a></div>';
-
-    // Step 3
-    html += '<div style="background:var(--sec);border:2px dashed #1a3a5c;border-radius:8px;padding:14px;">'
-      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
-      + '<div style="background:#1a3a5c;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">3</div>'
-      + '<p style="font-weight:700;font-size:12px;color:var(--navy);margin:0;">Εισαγωγή Υπογεγραμμένου PDF</p></div>'
-      + '<p style="font-size:11px;color:var(--muted);margin:0 0 10px 30px;">Ανεβάστε το PDF αφού υπογραφεί. Η εφαρμογή μετράει αυτόματα τις ψηφιακές υπογραφές.</p>'
-      + '<input type="file" id="sigPdfInput" accept=".pdf" style="display:none" onchange="importSignedPdf(this)">'
-      + '<button class="btn" style="background:#198754;color:#fff;border-color:#198754;margin-left:30px;" '
-      + 'onclick="sigClickFileInput()">📎 Επιλογή Υπογεγραμμένου PDF</button>'
-      + '</div>';
+    // Step 1: Download protocol
+    html += '<div style="background:var(--sec);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+    html += '<div style="background:#1a3a5c;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">1</div>';
+    html += '<p style="font-weight:700;font-size:12px;color:var(--navy);margin:0;">Λήψη Πρωτοκόλλου ως PDF</p></div>';
+    html += '<p style="font-size:11px;color:var(--muted);margin:0 0 10px 30px;">Αρχείο: <strong>'+pdfName+'</strong></p>';
+    html += '<button class="btn btn-p" style="margin-left:30px;" onclick="sigDownloadProtocol()">⬇ Λήψη Πρωτοκόλλου</button>';
+    html += '</div>';
+    // Step 2: Sign
+    html += '<div style="background:var(--sec);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+    html += '<div style="background:#1a3a5c;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">2</div>';
+    html += '<p style="font-weight:700;font-size:12px;color:var(--navy);margin:0;">Ψηφιακή Υπογραφή (Mindigital)</p></div>';
+    html += '<p style="font-size:11px;color:var(--muted);margin:0 0 10px 30px;">Υπογράψτε το PDF στο Mindigital WebSign με τα 3 μέλη της Επιτροπής.</p>';
+    html += '<button class="btn" style="background:#1a3a5c;color:#fff;margin-left:30px;" onclick="window.open(settings.eSignUrl||\'https://webapp.mindigital-shde.gr/login\',\'_blank\')">🔏 Άνοιγμα Mindigital</button>';
+    html += '</div>';
+    // Step 3: Upload
+    html += '<div style="background:var(--sec);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+    html += '<div style="background:#1a3a5c;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">3</div>';
+    html += '<p style="font-weight:700;font-size:12px;color:var(--navy);margin:0;">Εισαγωγή Υπογεγραμμένου PDF</p></div>';
+    html += '<p style="font-size:11px;color:var(--muted);margin:0 0 10px 30px;">Ανεβάστε το PDF αφού υπογραφεί.</p>';
+    html += '<input type="file" id="sigPdfInput" accept=".pdf" style="display:none" onchange="importSignedPdf(this)">';
+    html += '<button class="btn" style="background:#198754;color:#fff;border-color:#198754;margin-left:30px;" onclick="sigClickFileInput()">📎 Επιλογή Υπογεγραμμένου PDF</button>';
+    html += '</div>';
   }
 
   document.getElementById('sigModalBody').innerHTML = html;
