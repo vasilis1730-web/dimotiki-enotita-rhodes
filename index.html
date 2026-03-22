@@ -2466,8 +2466,8 @@ let _sigOrderId = null;
 
 function openSigModal(id){
   _sigOrderId = id;
-  renderSigModal();
   document.getElementById('sigWrap').style.display='flex';
+  renderSigModal();
 }
 
 function closeSigModal(){
@@ -2478,6 +2478,8 @@ function closeSigModal(){
 function renderSigModal(){
   const wo = workOrders.find(w=>w.id===_sigOrderId);
   if(!wo) return;
+  const pdfName = 'ΠρωτοκολλοΤμηματικηςΠαραλαβης_' + wo.orderNum + '.pdf';
+  document.getElementById('sigModalTitle').textContent = '✍ Ψηφιακή Υπογραφή — Εντολή ' + wo.orderNum;
   const users = (settings.eSignUsers||[]).filter(u=>u.name);
   const hasSigned = !!(wo.signedPdfName || wo.signedPdfUrl);
   const sigCount = countPdfSignatures(wo.signedPdfData);
