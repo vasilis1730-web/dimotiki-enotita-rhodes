@@ -2505,6 +2505,7 @@ function renderSigModal(){
   const isValid = hasSigned && sigCount >= requiredSigs && _committeeConfigured
     && _edgeOk === true && !_edgeFailed;
 
+  let html = '';
   if(hasSigned){
     const sigColor = isValid ? '#198754' : '#856404';
     const sigBg    = isValid ? '#d1e7dd' : '#fff3cd';
