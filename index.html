@@ -312,25 +312,6 @@ tr:hover td{background:#faf9f7;}
 
 .app-credit{position:fixed;bottom:6px;right:12px;font-size:10px;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:4px;padding:3px 8px;z-index:5;letter-spacing:.3px;opacity:.8;}
 </style>
-  <!-- Firebase OTP -->
-  <script type="module">
-    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-    import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
-    const firebaseApp = initializeApp({
-      apiKey: "AIzaSyATvkHqSyyVxVD8UujQQnj_wdR2Kc306wA",
-      authDomain: "dimosrodou-otp.firebaseapp.com",
-      projectId: "dimosrodou-otp",
-      storageBucket: "dimosrodou-otp.firebasestorage.app",
-      messagingSenderId: "315292350668",
-      appId: "1:315292350668:web:8288883847d24ac33e2a69"
-    });
-    const auth = getAuth(firebaseApp);
-    auth.languageCode = 'el';
-    window._fbAuth = auth;
-    window._RecaptchaVerifier = RecaptchaVerifier;
-    window._signInWithPhoneNumber = signInWithPhoneNumber;
-    window._fbReady = true;
-  </script>
 </head>
 <body>
 
@@ -376,20 +357,6 @@ tr:hover td{background:#faf9f7;}
     </div>
   </div>
 </header>
-<!-- CITIZEN BAR -->
-<div id="citizenBar" style="display:none;background:#27ae60;padding:12px 20px;align-items:center;justify-content:space-between;gap:12px;">
-  <div style="color:#fff;">
-    <div style="font-weight:700;font-size:14px;">👤 Λειτουργία Πολίτη</div>
-    <div style="font-size:11px;opacity:.8;" id="citizenPhone">—</div>
-  </div>
-  <div style="display:flex;gap:8px;align-items:center;">
-    <span id="citizenIssueCount" style="background:rgba(255,255,255,.2);color:#fff;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;"></span>
-    <button class="btn" style="background:#fff;color:#166534;border-color:#fff;font-weight:700;font-size:13px;" onclick="openAddIssue()">✚ Νέο Αίτημα</button>
-    <button class="btn" style="background:transparent;color:rgba(255,255,255,.8);border-color:rgba(255,255,255,.3);font-size:11px;" onclick="doLogout()">Έξοδος</button>
-  </div>
-</div>
-<!-- CITIZEN ISSUES LIST -->
-<div id="citizenIssuesList" style="display:none;padding:16px;max-width:800px;margin:0 auto;"></div>
 
 <main>
   <!-- DASHBOARD -->
@@ -2167,7 +2134,6 @@ function loginSuccess(u){
     applyTabPermissions(u);
     initRealtimeSync();
     checkRhodesImport();
-    if(u.isCitizen) applyCitizenMode();
   });
   toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
 }
@@ -2218,17 +2184,6 @@ function closeLogoutPop(e){
 }
 
 function doLogout(){
-  localStorage.removeItem('citizen_phone');
-  // Restore nav and main
-  const nav=document.getElementById('mainNavBar');
-  if(nav) nav.style.display='';
-  const main=document.querySelector('main');
-  if(main) main.style.display='';
-  document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='');
-  const bar=document.getElementById('citizenBar');
-  if(bar) bar.style.display='none';
-  const lst=document.getElementById('citizenIssuesList');
-  if(lst) lst.style.display='none';
   sessionStorage.removeItem('rhodesUser');
   currentUser=null;
   document.getElementById('logoutPop').style.display='none';
@@ -3176,7 +3131,7 @@ function renderIssues(){
             ?'<br><span style="font-size:10px;font-weight:600;color:#2d5a8a;" title="Ημ. αιτήματος Δήμου">🏛 '+fmtDate(i.municipalDate)+'</span>'
             :''}
         </td>
-        <td><strong>${esc(i.title)}</strong> ${dangerTag}${i.attachments&&i.attachments.length?'<span style="font-size:10px;color:var(--navy);font-weight:600;"> 📎'+i.attachments.length+'</span>':''}<br><span style="font-size:10px;color:var(--muted)">📍${esc(i.location)}</span></td>
+        <td>${i.source==='citizen'?'<span style="background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;margin-right:3px;">👤</span>':''}<strong>${esc(i.title)}</strong> ${dangerTag}${i.attachments&&i.attachments.length?'<span style="font-size:10px;color:var(--navy);font-weight:600;"> 📎'+i.attachments.length+'</span>':''}<br><span style="font-size:10px;color:var(--muted)">📍${esc(i.location)}</span></td>
         <td><span class="cat-tag">${esc(i.category)}</span></td>
         <td><span class="prio ${prioClass(i.priority)}" title="${prioResp(i.priority)}">${i.priority.slice(0,6)}</span></td>
         <td><span class="sbadge ${statusClass(i.status)}">${i.status}</span></td>
@@ -3188,7 +3143,6 @@ function renderIssues(){
           ${i.status!=='Ολοκληρωμένο'?`<button class="ab-done" onclick="chStatus('${i.id}','Ολοκληρωμένο')">✓ Τέλος</button>`:''}
           ${i.status==='Προς ενέργεια'?`<button class="ab-order" onclick="chStatus('${i.id}','Συνεχιζόμενο')">↻ Συνεχίζεται</button>`:''}
           <button class="ab-edit" onclick="editIssue('${i.id}')">✎</button>
-          \${i.source==='citizen'?'<button style="background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:3px;padding:3px 8px;font-size:10px;cursor:pointer;font-weight:600;" onclick="editIssue(\''+i.id+'\')">⬆ Αναβάθμιση</button>':''}
           <button class="ab-del" onclick="delIssue('${i.id}')">🗑</button>
           `}
         </div></td>
@@ -3407,7 +3361,7 @@ function renderOrders(){
       +(_isOverdue?'<div style="font-size:9px;color:#dc2626;font-weight:700;margin-top:2px;">🔴 ΕΚΤΟΣ ΧΡΟΝΟΥ</div>':'');
     // Penalty lock indicator
     const lockBadge = w.penaltyApplied ? ' <span style="font-size:10px;background:var(--rbg);color:var(--red);padding:1px 5px;border-radius:3px;font-weight:600;">🔒 ΚΛΕΙΔΩΜΑ</span>' : '';
-    rows+=(i.source==='citizen'?'<tr style="background:#f0fdf4;">':'<tr>')
+    rows+='<tr>'
       +'<td><strong>'+esc(w.orderNum)+'</strong>'+(w.orderType==='service'?'<br><span style="font-size:10px;background:#d1fae5;color:#065f46;padding:1px 5px;border-radius:3px;font-weight:600;">🔧 Υπηρεσίας</span>':'<br><span style="font-size:10px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:3px;font-weight:600;">📄 Αναδόχου</span>')+(issue?'<br><span style="font-size:10px;font-weight:700;color:var(--amber);">📋 '+(issue.issueNum||issue.id.slice(-4).toUpperCase())+'</span><br><span style="font-size:10px;color:var(--muted)">'+esc(issue.title.slice(0,28))+'</span>':'')+'</td>'
       +'<td style="white-space:nowrap">'+fmtDate(w.date)+'<br><span style="font-size:10px;color:var(--muted)">🕐 '+(w.issuedTime||'—')+'</span>'+'</td>'
       +'<td>'+esc(w.location)+'</td>'
@@ -4406,7 +4360,6 @@ function saveIssue(){
   const data={
     id:id||genId(),
     issueNum: id ? (issues.find(x=>x.id===id)?.issueNum || nextIssueNum()) : nextIssueNum(),
-    source: isCitizenMode() ? 'citizen' : (id ? (issues.find(x=>x.id===id)?.source||'staff') : 'staff'),
     date:document.getElementById('i_date').value,
     time:document.getElementById('i_time')?.value||'',
     receiptMethod:document.getElementById('i_receipt').value,
@@ -5674,237 +5627,241 @@ if(document.readyState==='loading'){
   initLogin();
 }
 
-
 // ================================================================
-// CITIZEN MODE
+// CITIZEN MODE — OTP LOGIN + ISOLATED DASHBOARD
 // ================================================================
 let _clConfirmResult = null;
 let _clRecaptchaRendered = false;
 
-function isCitizenMode(){ return !!(currentUser && currentUser.isCitizen); }
+function isCitizenMode(){
+  return !!(currentUser && currentUser.isCitizen);
+}
 
 function openCitizenLogin(){
+  // Auto-login if phone already saved
   const saved = localStorage.getItem('citizen_phone');
   if(saved){ loginAsCitizenWithPhone(saved); return; }
-  document.getElementById('citizenLoginWrap').style.display='flex';
-  document.getElementById('clStep1').style.display='block';
-  document.getElementById('clStep2').style.display='none';
-  document.getElementById('clError1').style.display='none';
-  document.getElementById('clPhone').value='';
-  document.getElementById('clSendBtn').disabled=true;
-  setTimeout(()=>document.getElementById('clPhone').focus(),100);
+  // Show modal
+  document.getElementById('citizenLoginWrap').style.display = 'flex';
+  document.getElementById('clStep1').style.display = 'block';
+  document.getElementById('clStep2').style.display = 'none';
+  document.getElementById('clError1').style.display = 'none';
+  document.getElementById('clPhone').value = '';
+  document.getElementById('clSendBtn').disabled = true;
+  setTimeout(()=>document.getElementById('clPhone').focus(), 100);
+  // Init recaptcha
   if(!_clRecaptchaRendered && window._fbReady){
     try{
-      window._clRV = new window._RecaptchaVerifier(window._fbAuth,'recaptcha-container-citizen',{
-        size:'normal',
-        callback:()=>document.getElementById('clSendBtn').disabled=false,
-        'expired-callback':()=>document.getElementById('clSendBtn').disabled=true
+      window._clRV = new window._RecaptchaVerifier(window._fbAuth, 'recaptcha-container-citizen', {
+        size: 'normal',
+        callback: ()=>{ document.getElementById('clSendBtn').disabled = false; },
+        'expired-callback': ()=>{ document.getElementById('clSendBtn').disabled = true; }
       });
       window._clRV.render();
-      _clRecaptchaRendered=true;
-    }catch(e){ document.getElementById('clSendBtn').disabled=false; }
+      _clRecaptchaRendered = true;
+    }catch(e){ console.warn('Recaptcha init error:', e); }
   } else if(!window._fbReady){
-    document.getElementById('clSendBtn').disabled=false;
-    document.getElementById('clSendBtn').textContent='Είσοδος (test)';
-    document.getElementById('recaptcha-container-citizen').style.display='none';
+    // Local mode - no Firebase
+    document.getElementById('recaptcha-container-citizen').innerHTML =
+      '<div style="font-size:11px;color:#64748b;text-align:center;padding:8px;">📱 Τοπική δοκιμή — χωρίς SMS</div>';
+    document.getElementById('clSendBtn').disabled = false;
+    document.getElementById('clSendBtn').textContent = 'Είσοδος (test)';
   }
 }
 
 async function clSendOtp(){
   let phone = document.getElementById('clPhone').value.trim().replace(/[\s\-\.\(\)]/g,'');
-  if(phone.startsWith('0')) phone='+30'+phone.slice(1);
-  if(!phone.startsWith('+')&&phone.length===10) phone='+30'+phone;
-  if(!window._fbReady){ loginAsCitizenWithPhone(phone); document.getElementById('citizenLoginWrap').style.display='none'; return; }
-  const btn=document.getElementById('clSendBtn');
-  btn.disabled=true; btn.textContent='⏳ Αποστολή...';
+  if(phone.startsWith('00')) phone = '+' + phone.slice(2);
+  if(phone.startsWith('0')) phone = '+30' + phone.slice(1);
+  if(!phone.startsWith('+') && phone.length===10) phone = '+30' + phone;
+  if(phone.replace('+30','').length < 10){
+    document.getElementById('clError1').style.display = 'block';
+    document.getElementById('clError1').textContent = '⚠️ Εισάγετε έγκυρο αριθμό (10 ψηφία)';
+    return;
+  }
+  // Local/test mode
+  if(!window._fbReady){
+    loginAsCitizenWithPhone(phone);
+    document.getElementById('citizenLoginWrap').style.display = 'none';
+    return;
+  }
+  const btn = document.getElementById('clSendBtn');
+  btn.disabled = true; btn.textContent = '⏳ Αποστολή...';
+  document.getElementById('clError1').style.display = 'none';
   try{
-    _clConfirmResult=await window._signInWithPhoneNumber(window._fbAuth,phone,window._clRV);
-    document.getElementById('clPhoneDisplay').textContent=phone;
-    document.getElementById('clStep1').style.display='none';
-    document.getElementById('clStep2').style.display='block';
-    setTimeout(()=>document.getElementById('clOtpCode').focus(),100);
+    _clConfirmResult = await window._signInWithPhoneNumber(window._fbAuth, phone, window._clRV);
+    document.getElementById('clPhoneDisplay').textContent = phone;
+    document.getElementById('clStep1').style.display = 'none';
+    document.getElementById('clStep2').style.display = 'block';
+    document.getElementById('clOtpCode').value = '';
+    setTimeout(()=>document.getElementById('clOtpCode').focus(), 200);
   }catch(e){
-    document.getElementById('clError1').style.display='block';
-    document.getElementById('clError1').textContent='❌ '+(e.message||'Σφάλμα. Δοκιμάστε ξανά.');
-    btn.disabled=false; btn.textContent='Συνέχεια με SMS';
+    document.getElementById('clError1').style.display = 'block';
+    document.getElementById('clError1').textContent = '❌ ' + (e.message||'Σφάλμα αποστολής. Δοκιμάστε ξανά.');
+    btn.disabled = false; btn.textContent = 'Συνέχεια με SMS';
     try{ window._clRV.render(); }catch(ex){}
   }
 }
 
 async function clVerifyOtp(){
-  const code=document.getElementById('clOtpCode').value.trim();
-  if(code.length<6){ document.getElementById('clError2').style.display='block'; document.getElementById('clError2').textContent='⚠️ Εισάγετε 6ψήφιο κωδικό'; return; }
+  const code = document.getElementById('clOtpCode').value.trim();
+  if(code.length < 6){
+    document.getElementById('clError2').style.display = 'block';
+    document.getElementById('clError2').textContent = '⚠️ Εισάγετε 6ψήφιο κωδικό';
+    return;
+  }
+  document.getElementById('clError2').style.display = 'none';
   try{
     await _clConfirmResult.confirm(code);
-    const phone=document.getElementById('clPhoneDisplay').textContent;
-    localStorage.setItem('citizen_phone',phone);
-    document.getElementById('citizenLoginWrap').style.display='none';
+    const phone = document.getElementById('clPhoneDisplay').textContent;
+    localStorage.setItem('citizen_phone', phone);
+    document.getElementById('citizenLoginWrap').style.display = 'none';
     loginAsCitizenWithPhone(phone);
   }catch(e){
-    document.getElementById('clError2').style.display='block';
-    document.getElementById('clError2').textContent='❌ Λάθος κωδικός. Δοκιμάστε ξανά.';
-    document.getElementById('clOtpCode').value='';
+    document.getElementById('clError2').style.display = 'block';
+    document.getElementById('clError2').textContent = '❌ Λάθος κωδικός. Δοκιμάστε ξανά.';
+    document.getElementById('clOtpCode').value = '';
+    document.getElementById('clOtpCode').focus();
   }
 }
 
 function clBackToPhone(){
-  document.getElementById('clStep1').style.display='block';
-  document.getElementById('clStep2').style.display='none';
-  document.getElementById('clError2').style.display='none';
-  const btn=document.getElementById('clSendBtn');
-  btn.disabled=false; btn.textContent='Συνέχεια με SMS';
+  document.getElementById('clStep1').style.display = 'block';
+  document.getElementById('clStep2').style.display = 'none';
+  document.getElementById('clError2').style.display = 'none';
+  document.getElementById('clError1').style.display = 'none';
+  const btn = document.getElementById('clSendBtn');
+  btn.disabled = false; btn.textContent = 'Συνέχεια με SMS';
 }
 
 function loginAsCitizenWithPhone(phone){
-  const user={id:'citizen_'+phone.replace(/\D/g,''),username:phone,name:'Πολίτης',
-    role:'Πολίτης',canOrders:false,isCitizen:true,citizenPhone:phone};
+  const user = {
+    id: 'citizen_' + phone.replace(/\D/g,''),
+    username: phone, name: 'Πολίτης',
+    role: 'Πολίτης', canOrders: false,
+    isCitizen: true, citizenPhone: phone
+  };
   loginSuccess(user);
 }
 
 function loginAsCitizen(){ openCitizenLogin(); }
 
 function applyCitizenMode(){
-  const nav=document.getElementById('mainNavBar');
-  const bar=document.getElementById('citizenBar');
-  const lst=document.getElementById('citizenIssuesList');
   if(!isCitizenMode()){
-    if(bar) bar.style.display='none';
-    if(lst) lst.style.display='none';
-    if(nav) nav.style.display='';
+    // Restore normal view
+    const nav = document.getElementById('mainNavBar');
+    const main = document.querySelector('main');
+    const bar = document.getElementById('citizenBar');
+    const lst = document.getElementById('citizenIssuesList');
+    if(nav) nav.style.display = '';
+    if(main) main.style.display = '';
+    if(bar) bar.style.display = 'none';
+    if(lst) lst.style.display = 'none';
     document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='');
-    // Restore main content area
-    const main=document.querySelector('main');
-    if(main) main.style.display='';
     return;
   }
   // Hide everything except citizen UI
-  if(nav) nav.style.display='none';
+  const nav = document.getElementById('mainNavBar');
+  const main = document.querySelector('main');
+  const bar = document.getElementById('citizenBar');
+  const lst = document.getElementById('citizenIssuesList');
+  if(nav) nav.style.display = 'none';
+  if(main) main.style.display = 'none';
   document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='none');
-  // Also hide the main element entirely
-  const main=document.querySelector('main');
-  if(main) main.style.display='none';
   if(bar){
-    bar.style.display='flex';
-    const ph=document.getElementById('citizenPhone');
-    if(ph) ph.textContent=currentUser.citizenPhone||'';
+    bar.style.display = 'flex';
+    const lbl = document.getElementById('citizenPhoneLabel');
+    if(lbl) lbl.textContent = currentUser.citizenPhone||'';
   }
-  if(lst) lst.style.display='block';
+  if(lst) lst.style.display = 'block';
   renderCitizenIssues();
 }
 
 function renderCitizenIssues(){
-  const phone=(currentUser.citizenPhone||'').replace(/[\s\-\.]/g,'').replace('+30','');
-  const mine=issues.filter(iss=>{
-    const p=(iss.mobile||'').replace(/[\s\-\.]/g,'').replace('+30','');
-    return p&&phone&&(p===phone||p.endsWith(phone)||phone.endsWith(p));
+  const phone = (currentUser.citizenPhone||'').replace(/[\s\-\.]/g,'').replace('+30','');
+  const mine = issues.filter(iss=>{
+    const p = (iss.mobile||'').replace(/[\s\-\.]/g,'').replace('+30','');
+    return p && phone && (p===phone || p.endsWith(phone) || phone.endsWith(p));
   });
-  const cntEl=document.getElementById('citizenIssueCount');
-  if(cntEl) cntEl.textContent=mine.length+' αίτημα'+(mine.length===1?'':'τα');
-  const lst=document.getElementById('citizenIssuesList');
+  const cntEl = document.getElementById('citizenIssueCount');
+  if(cntEl) cntEl.textContent = mine.length + ' αίτημα' + (mine.length===1?'':'τα');
+  const lst = document.getElementById('citizenIssuesList');
   if(!lst) return;
-  lst.style.display='block';
   if(!mine.length){
-    lst.innerHTML='<div style="text-align:center;padding:40px;background:#fff;border-radius:10px;border:1px solid #e5e7eb;">'
+    lst.innerHTML = '<div style="text-align:center;padding:40px 20px;background:#fff;border-radius:10px;border:1px solid #e2e8f0;">'
       +'<div style="font-size:48px;margin-bottom:12px;">📋</div>'
-      +'<div style="font-weight:600;color:#374151;font-size:15px;">Δεν έχετε αιτήματα ακόμα</div>'
-      +'<div style="color:#6b7280;font-size:13px;margin-top:6px;">Πατήστε «✚ Νέο Αίτημα» για να υποβάλετε αίτημα</div></div>';
+      +'<div style="font-weight:600;color:#1e293b;font-size:15px;">Δεν έχετε αιτήματα ακόμα</div>'
+      +'<div style="color:#64748b;font-size:13px;margin-top:6px;">Πατήστε «✚ Νέο Αίτημα» για να υποβάλετε</div></div>';
     return;
   }
-  const stColor={
-    'Προς ενέργεια':'#fef3c7;color:#92400e',
-    'Συνεχιζόμενο':'#dbeafe;color:#1e40af',
-    'Ολοκληρωμένο':'#d1fae5;color:#065f46',
-    'Δεν προχώρησε':'#fee2e2;color:#991b1b'
-  };
-  lst.innerHTML='<div style="display:flex;flex-direction:column;gap:10px;">'
-    +mine.slice().reverse().map(iss=>{
-      const sc=stColor[iss.status]||'#f3f4f6;color:#374151';
-      return '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px;border-left:4px solid #27ae60;">'
-        +'<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">'
+  const stBg = {'Προς ενέργεια':'#fef3c7','Συνεχιζόμενο':'#dbeafe','Ολοκληρωμένο':'#d1fae5','Δεν προχώρησε':'#fee2e2'};
+  const stColor = {'Προς ενέργεια':'#92400e','Συνεχιζόμενο':'#1e40af','Ολοκληρωμένο':'#065f46','Δεν προχώρησε':'#991b1b'};
+  lst.innerHTML = '<div style="display:flex;flex-direction:column;gap:10px;">'
+    + mine.slice().reverse().map(iss=>{
+      const bg = stBg[iss.status]||'#f8fafc';
+      const col = stColor[iss.status]||'#374151';
+      return '<div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px;border-left:4px solid #16a34a;">'
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">'
         +'<div style="flex:1;">'
-        +'<div style="font-weight:700;font-size:14px;color:#1a2744;">'+esc(iss.title||'—')+'</div>'
-        +'<div style="font-size:12px;color:#6b7280;margin-top:3px;">📍 '+esc(iss.location||'—')+'</div>'
-        +'<div style="font-size:11px;color:#9ca3af;margin-top:2px;">📅 '+fmtDate(iss.date)+'</div>'
-        +(iss.description?'<div style="font-size:12px;color:#374151;margin-top:6px;">'+esc(iss.description.slice(0,100))+(iss.description.length>100?'...':'')+'</div>':'')
-        +(iss.issueNum?'<div style="font-size:10px;color:#9ca3af;margin-top:4px;">Αρ.: '+esc(iss.issueNum)+'</div>':'')
+        +'<div style="font-weight:700;font-size:14px;color:#1e293b;">'+esc(iss.title||'—')+'</div>'
+        +'<div style="font-size:12px;color:#64748b;margin-top:4px;">📍 '+esc(iss.location||'—')+'</div>'
+        +'<div style="font-size:11px;color:#94a3b8;margin-top:2px;">📅 '+fmtDate(iss.date)+'</div>'
+        +(iss.description?'<div style="font-size:12px;color:#374151;margin-top:6px;">'+esc(iss.description.slice(0,120))+(iss.description.length>120?'…':'')+'</div>':'')
+        +(iss.issueNum?'<div style="font-size:10px;color:#94a3b8;margin-top:4px;">Αρ.: '+esc(iss.issueNum)+'</div>':'')
         +'</div>'
         +'<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;">'
-        +'<span style="background:'+sc+';padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;">'+esc(iss.status)+'</span>'
+        +'<span style="background:'+bg+';color:'+col+';padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;">'+esc(iss.status)+'</span>'
         +'<button data-id="'+iss.id+'" onclick="citizenDeleteIssue(this.dataset.id)" style="background:none;border:1px solid #fca5a5;color:#ef4444;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;">🗑 Διαγραφή</button>'
         +'</div>'
         +'</div>'
         +'</div>';
-    }).join('')+'</div>';
+    }).join('')
+    + '</div>';
 }
 
 function citizenDeleteIssue(id){
-  if(!confirm('Διαγραφή αιτήματος; Θα αφαιρεθεί από τη λίστα σας.')) return;
+  if(!confirm('Διαγραφή αιτήματος;\nΘα αφαιρεθεί από τη λίστα σας και από το μητρώο.')) return;
   issues = issues.filter(i=>i.id!==id);
   save();
   renderCitizenIssues();
   toast('🗑 Το αίτημα διαγράφηκε');
 }
 
-// Hook into openAddIssue to customize form for citizens
-const _origOpenAddIssue = typeof openAddIssue === 'function' ? openAddIssue : null;
-
 function applyCitizenForm(){
   if(!isCitizenMode()) return;
-  const phone=currentUser.citizenPhone||'';
-  // Τρόπος Λήψης → Αίτημα Πολίτη
-  const rec=document.getElementById('i_receipt');
-  if(rec){ if(![...rec.options].find(o=>o.value==='Αίτημα Πολίτη')){const o=document.createElement('option');o.value=o.textContent='Αίτημα Πολίτη';rec.appendChild(o);} rec.value='Αίτημα Πολίτη';rec.disabled=true;rec.style.opacity='.6'; }
-  // Κινητό → auto-fill + hide
-  const mob=document.getElementById('i_mobile');
-  if(mob){ mob.value=phone; mob.closest('.fg').style.display='none'; }
-  // Αναλυτική Περιγραφή → not required
-  const desc=document.getElementById('i_desc');
-  if(desc){ desc.removeAttribute('required'); desc.style.borderColor=''; if(desc.closest('.fg')){const l=desc.closest('.fg').querySelector('label');if(l)l.innerHTML=l.innerHTML.replace(/ <span[^>]*>\*<\/span>/,'');} }
-  // Hide fields
-  ['i_prio','i_inspect','i_status','i_notes','i_municipalNum'].forEach(id=>{ const el=document.getElementById(id); if(el&&el.closest('.fg')) el.closest('.fg').style.display='none'; });
-  // GPS button on location
-  const loc=document.getElementById('i_location');
-  if(loc&&!document.getElementById('citizenGpsBtn')){
-    const b=document.createElement('button');
-    b.type='button'; b.id='citizenGpsBtn';
-    b.innerHTML='📍 Εντοπισμός θέσης (GPS)';
-    b.style.cssText='margin-top:6px;padding:10px 14px;background:#4285f4;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;width:100%;';
-    b.onclick=citizenGetGPS;
-    loc.closest('.fg').appendChild(b);
+  const phone = currentUser.citizenPhone||'';
+  const rec = document.getElementById('i_receipt');
+  if(rec){ if(![...rec.options].find(o=>o.value==='Αίτημα Πολίτη')){const o=document.createElement('option');o.value=o.textContent='Αίτημα Πολίτη';rec.appendChild(o);}rec.value='Αίτημα Πολίτη';rec.disabled=true;rec.style.opacity='.7';}
+  const mob = document.getElementById('i_mobile');
+  if(mob){mob.value=phone;mob.closest('.fg').style.display='none';}
+  const desc = document.getElementById('i_desc');
+  if(desc){desc.removeAttribute('required');desc.style.borderColor='';desc.style.borderWidth='';}
+  ['i_prio','i_inspect','i_status','i_notes','i_municipalNum'].forEach(id=>{const el=document.getElementById(id);if(el&&el.closest('.fg'))el.closest('.fg').style.display='none';});
+  const locFg = document.getElementById('i_location')?.closest('.fg');
+  if(locFg&&!document.getElementById('citizenGpsBtn')){
+    const btn=document.createElement('button');btn.type='button';btn.id='citizenGpsBtn';
+    btn.innerHTML='📍 GPS — Εντοπισμός Θέσης';
+    btn.style.cssText='margin-top:6px;padding:10px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;width:100%;';
+    btn.onclick=citizenGetGPS;locFg.appendChild(btn);
   }
-  // Remove bottom google maps button (duplicate)
-  document.querySelectorAll('button').forEach(b=>{ if(b.textContent.includes('Google Maps')&&!b.id) b.closest('.fg')&&(b.closest('.fg').style.display='none'); });
 }
-
 function citizenGetGPS(){
   const btn=document.getElementById('citizenGpsBtn');
   if(btn){btn.textContent='⏳ Εντοπισμός...';btn.disabled=true;}
-  if(!navigator.geolocation){alert('Δεν υποστηρίζεται GPS.');if(btn){btn.textContent='📍 Εντοπισμός θέσης (GPS)';btn.disabled=false;}return;}
+  if(!navigator.geolocation){alert('GPS μη διαθέσιμο');if(btn){btn.textContent='📍 GPS';btn.disabled=false;}return;}
   navigator.geolocation.getCurrentPosition(async pos=>{
     const {latitude:lat,longitude:lng}=pos.coords;
-    document.getElementById('i_mapLat')&&(document.getElementById('i_mapLat').value=lat);
-    document.getElementById('i_mapLng')&&(document.getElementById('i_mapLng').value=lng);
-    document.getElementById('i_coordsDisplay')&&(document.getElementById('i_coordsDisplay').textContent=lat.toFixed(5)+', '+lng.toFixed(5));
+    if(document.getElementById('i_mapLat'))document.getElementById('i_mapLat').value=lat;
+    if(document.getElementById('i_mapLng'))document.getElementById('i_mapLng').value=lng;
+    if(document.getElementById('i_coordsDisplay'))document.getElementById('i_coordsDisplay').textContent=lat.toFixed(5)+', '+lng.toFixed(5);
     try{
       const r=await fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat='+lat+'&lon='+lng+'&accept-language=el');
-      const d=await r.json();
-      const a=d.address;
+      const d=await r.json();const a=d.address;
       const street=(a.road||a.pedestrian||d.display_name.split(',')[0])+(a.house_number?' '+a.house_number:'');
-      const locEl=document.getElementById('i_location');
-      if(locEl){locEl.value=street;locEl.style.borderColor='#27ae60';}
-      if(btn){btn.textContent='✅ '+street.slice(0,30);btn.style.background='#27ae60';btn.disabled=false;}
-    }catch(e){ if(btn){btn.textContent='✅ GPS OK';btn.style.background='#27ae60';btn.disabled=false;} }
-  },err=>{alert('Σφάλμα GPS: '+err.message);if(btn){btn.textContent='📍 Εντοπισμός θέσης (GPS)';btn.disabled=false;}},{enableHighAccuracy:true,timeout:10000});
-}
-
-// ── Mark citizen issues in _doSaveIssue ──
-// Hook: after save, refresh citizen list
-const _origDoSaveIssue = typeof _doSaveIssue !== 'undefined' ? _doSaveIssue : null;
-
-// ── Staff: citizen issue badge + upgrade button ──
-function getCitizenBadgeHtml(iss){
-  if(iss.source!=='citizen') return '';
-  return '<span style="display:inline-block;background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:3px;padding:1px 6px;font-size:9px;font-weight:600;margin-right:4px;vertical-align:middle;">👤 ΠΟΛΙΤΗΣ</span>';
+      const locEl=document.getElementById('i_location');if(locEl){locEl.value=street;locEl.style.borderColor='#16a34a';}
+      if(btn){btn.textContent='✅ '+street.slice(0,30);btn.style.background='#16a34a';btn.disabled=false;}
+    }catch(e){if(btn){btn.textContent='✅ GPS OK';btn.style.background='#16a34a';btn.disabled=false;}}
+  },err=>{alert('Σφάλμα: '+err.message);if(btn){btn.textContent='📍 GPS';btn.disabled=false;}},{enableHighAccuracy:true,timeout:10000});
 }
 </script>
 
@@ -5998,57 +5955,7 @@ function getCitizenBadgeHtml(iss){
     </div>
     <button class="login-btn" id="loginBtn" onclick="doLogin()" disabled>Είσοδος</button>
     <div class="login-error" id="loginError" style="display:none;">❌ Λάθος username ή password.</div>
-    <div style="display:flex;align-items:center;gap:10px;margin-top:14px;">
-      <div style="flex:1;height:1px;background:#e5e7eb;"></div>
-      <span style="font-size:11px;color:#9ca3af;">ή</span>
-      <div style="flex:1;height:1px;background:#e5e7eb;"></div>
-    </div>
-    <button class="login-btn" onclick="openCitizenLogin()" style="margin-top:12px;background:#27ae60;color:#fff;border-color:#27ae60;">
-      👤 Είσοδος Πολίτη
-    </button>
-    <p style="font-size:10px;color:#9ca3af;text-align:center;margin-top:8px;">Για υποβολή αιτήματος με ταυτοποίηση κινητού</p>
-  
-<!-- CITIZEN LOGIN MODAL -->
-<div id="citizenLoginWrap" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9100;align-items:center;justify-content:center;padding:16px;">
-  <div style="background:#fff;border-radius:12px;width:100%;max-width:400px;box-shadow:0 8px 40px rgba(0,0,0,.3);">
-    <div style="padding:20px 24px 0;display:flex;justify-content:space-between;align-items:flex-start;">
-      <div>
-        <div style="font-weight:700;font-size:15px;color:#1a2744;">Είσοδος Πολίτη</div>
-        <div style="font-size:12px;color:#6b7280;margin-top:2px;">Εισάγετε τον αριθμό κινητού σας για ταυτοποίηση.</div>
-      </div>
-      <button onclick="document.getElementById('citizenLoginWrap').style.display='none'" style="border:none;background:none;font-size:20px;cursor:pointer;color:#9ca3af;">✕</button>
-    </div>
-    <div style="padding:20px 24px;">
-      <div id="clStep1">
-        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:6px;">Κινητό τηλέφωνο</label>
-        <input id="clPhone" type="tel" placeholder="69xxxxxxxx"
-          style="width:100%;padding:12px 14px;border:2px solid #e5e7eb;border-radius:8px;font-size:16px;box-sizing:border-box;margin-bottom:12px;"
-          oninput="document.getElementById('clSendBtn').disabled=this.value.replace(/[\s\-\.]/g,'').length<10"
-          onkeydown="if(event.key==='Enter')clSendOtp()">
-        <div id="recaptcha-container-citizen" style="margin:10px 0;display:flex;justify-content:center;min-height:78px;"></div>
-        <div id="clError1" style="display:none;padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#991b1b;margin-bottom:10px;"></div>
-        <div style="display:flex;gap:8px;">
-          <button onclick="document.getElementById('citizenLoginWrap').style.display='none'" style="flex:1;padding:11px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;">Ακύρωση</button>
-          <button id="clSendBtn" onclick="clSendOtp()" disabled style="flex:2;padding:11px;border:none;border-radius:8px;background:#1a2744;color:#fff;cursor:pointer;font-size:14px;font-weight:600;">Συνέχεια με SMS</button>
-        </div>
-      </div>
-      <div id="clStep2" style="display:none;">
-        <div style="background:#d1fae5;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#166534;">✅ SMS στάλθηκε στο <strong id="clPhoneDisplay"></strong></div>
-        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:6px;">Κωδικός 6 ψηφίων</label>
-        <input id="clOtpCode" type="number" placeholder="123456"
-          style="width:100%;padding:14px;border:2px solid #e5e7eb;border-radius:8px;font-size:28px;text-align:center;letter-spacing:10px;box-sizing:border-box;"
-          oninput="if(this.value.length===6)clVerifyOtp()">
-        <div id="clError2" style="display:none;padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#991b1b;margin:10px 0;"></div>
-        <div style="display:flex;gap:8px;margin-top:12px;">
-          <button onclick="clBackToPhone()" style="flex:1;padding:11px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;">← Πίσω</button>
-          <button onclick="clVerifyOtp()" style="flex:2;padding:11px;border:none;border-radius:8px;background:#27ae60;color:#fff;cursor:pointer;font-size:14px;font-weight:600;">✅ Επαλήθευση</button>
-        </div>
-        <button onclick="clBackToPhone()" style="width:100%;margin-top:8px;padding:8px;border:none;background:none;color:#6b7280;cursor:pointer;font-size:12px;">🔄 Εκ νέου αποστολή SMS</button>
-      </div>
-    </div>
   </div>
-</div>
-</div>
   <div class="login-version">v2.0 · Δήμος Ρόδου 2026</div>
 </div>
 
@@ -6070,7 +5977,7 @@ function getCitizenBadgeHtml(iss){
       <div id="econfInfo"></div>
       <div class="econf-note">
         📧 Το email θα ανοίξει στον email client σας (Outlook / Gmail).<br>
-        Αποστέλλεται <strong>από:</strong> <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="32565b53595d5e5b5d4172405a5d5657411c5540">[email&#160;protected]</a><br>
+        Αποστέλλεται <strong>από:</strong> <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="b7d3ded6dcd8dbded8c4f7c5dfd8d3d2c499d0c5">[email&#160;protected]</a><br>
         Αποστέλλεται <strong>προς:</strong> <span id="econfToAddr" style="font-weight:700;"></span>
       </div>
     </div>
