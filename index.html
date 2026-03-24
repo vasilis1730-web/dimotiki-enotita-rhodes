@@ -3253,6 +3253,116 @@ function printBulkProtocol(){
   setTimeout(()=>win.print(),600);
 }
 
+function applycitizenFormMode(){
+  if(!isCitizenMode()) return;
+  const phone = currentUser.citizenPhone || '';
+
+  // 1. Τρόπος Λήψης → auto-set to "Αίτημα Πολίτη" and disable
+  const receiptEl = document.getElementById('i_receipt');
+  if(receiptEl){
+    // Add "Αίτημα Πολίτη" option if not exists
+    if(![...receiptEl.options].find(o=>o.value==='Αίτημα Πολίτη')){
+      const opt = document.createElement('option');
+      opt.value = 'Αίτημα Πολίτη'; opt.textContent = 'Αίτημα Πολίτη';
+      receiptEl.appendChild(opt);
+    }
+    receiptEl.value = 'Αίτημα Πολίτη';
+    receiptEl.disabled = true;
+    receiptEl.style.opacity = '0.6';
+  }
+
+  // 2. Mobile → auto-fill and hide
+  const mobileEl = document.getElementById('i_mobile');
+  if(mobileEl){
+    mobileEl.value = phone;
+    mobileEl.closest('.fg').style.display = 'none';
+  }
+
+  // 3. Αναλυτική Περιγραφή → not required
+  const descEl = document.getElementById('i_desc');
+  if(descEl){
+    descEl.removeAttribute('required');
+    descEl.style.borderColor = '';
+    descEl.style.borderWidth = '';
+    const lbl = descEl.closest('.fg')?.querySelector('label');
+    if(lbl) lbl.innerHTML = lbl.innerHTML.replace(' <span style="color:#e67e22;font-weight:700;">*</span>','');
+  }
+
+  // 4. Hide: Προτεραιότητα, Αυτοψία, Κατάσταση, Παρατηρήσεις, Αρ. Αιτήματος, bottom Google Maps
+  ['i_prio','i_inspect','i_status','i_notes','i_municipalNum'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.closest('.fg').style.display = 'none';
+  });
+
+  // 5. Τοποθεσία/Οδός → add GPS button  
+  const locEl = document.getElementById('i_location');
+  if(locEl && !document.getElementById('citizenGpsBtn')){
+    const locFg = locEl.closest('.fg');
+    const gpsBtn = document.createElement('button');
+    gpsBtn.type = 'button';
+    gpsBtn.id = 'citizenGpsBtn';
+    gpsBtn.innerHTML = '📍 Google Maps — Εντοπισμός Θέσης';
+    gpsBtn.style.cssText = 'width:100%;margin-top:6px;padding:10px;background:#4285f4;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;';
+    gpsBtn.onclick = getCitizenGpsLocation;
+    locFg.appendChild(gpsBtn);
+  }
+}
+
+function getCitizenGpsLocation(){
+  const btn = document.getElementById('citizenGpsBtn');
+  if(btn){ btn.textContent = '⏳ Εντοπισμός...'; btn.disabled = true; }
+  
+  if(!navigator.geolocation){
+    alert('Ο browser δεν υποστηρίζει εντοπισμό τοποθεσίας.');
+    if(btn){ btn.textContent = '📍 Google Maps — Εντοπισμός Θέσης'; btn.disabled = false; }
+    return;
+  }
+  
+  navigator.geolocation.getCurrentPosition(
+    async (pos)=>{
+      const lat = pos.coords.latitude;
+      const lng = pos.coords.longitude;
+      
+      // Store coords
+      const latEl = document.getElementById('i_mapLat');
+      const lngEl = document.getElementById('i_mapLng');
+      if(latEl) latEl.value = lat;
+      if(lngEl) lngEl.value = lng;
+      
+      // Update coords display
+      const dispEl = document.getElementById('i_coordsDisplay');
+      if(dispEl) dispEl.textContent = lat.toFixed(6)+', '+lng.toFixed(6);
+      
+      // Reverse geocode to get address
+      try{
+        const resp = await fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat='+lat+'&lon='+lng+'&accept-language=el');
+        const data = await resp.json();
+        const addr = data.address;
+        let street = '';
+        if(addr.road) street = addr.road + (addr.house_number ? ' ' + addr.house_number : '');
+        else if(addr.pedestrian) street = addr.pedestrian;
+        else street = data.display_name.split(',')[0];
+        
+        const locEl = document.getElementById('i_location');
+        if(locEl && street){
+          locEl.value = street;
+          locEl.style.borderColor = '#27ae60';
+        }
+        if(btn){ btn.textContent = '✅ Τοποθεσία εντοπίστηκε'; btn.style.background='#27ae60'; btn.disabled=false; }
+      }catch(e){
+        const locEl = document.getElementById('i_location');
+        if(locEl) locEl.value = lat.toFixed(5)+', '+lng.toFixed(5);
+        if(btn){ btn.textContent = '✅ GPS: '+lat.toFixed(4)+', '+lng.toFixed(4); btn.style.background='#27ae60'; btn.disabled=false; }
+      }
+    },
+    (err)=>{
+      alert('Δεν ήταν δυνατός ο εντοπισμός: '+err.message+'\n\nΕπιτρέψτε την πρόσβαση στην τοποθεσία από τον browser σας.');
+      if(btn){ btn.textContent = '📍 Google Maps — Εντοπισμός Θέσης'; btn.disabled=false; }
+    },
+    {enableHighAccuracy:true, timeout:10000}
+  );
+}
+
 function renderAll(){
   updateHeader();
   // Citizen mode UI
