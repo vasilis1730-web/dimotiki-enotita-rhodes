@@ -366,7 +366,7 @@ tr:hover td{background:#faf9f7;}
     </div>
     <div class="hinfo" id="hinfo"></div>
   </div>
-  <div style="display:flex;align-items:center;justify-content:space-between;">
+  <div id="mainNavBar" style="display:flex;align-items:center;justify-content:space-between;">
     <nav>
       <button class="active" onclick="showTab('dashboard')">📊 Πίνακας</button>
       <button onclick="showTab('issues')">📋 Αιτήματα</button>
@@ -2129,6 +2129,23 @@ function toggleLoginPw(){
   else { f.type='password'; btn.textContent='👁'; }
 }
 
+function loginAsCitizen(){
+  currentUser = {
+    id: 'citizen',
+    username: 'citizen',
+    name: 'Πολίτης',
+    role: 'Πολίτης',
+    canOrders: false,
+    isCitizen: true
+  };
+  loginSuccess();
+  toast('👤 Είσοδος ως Πολίτης — μόνο υποβολή αιτήματος');
+}
+
+function isCitizenMode(){
+  return !!(currentUser && currentUser.isCitizen);
+}
+
 function doLogin(){
   const username = (document.getElementById('loginUsername')?.value||'').trim().toLowerCase();
   const password = (document.getElementById('loginPassword')?.value||'');
@@ -3042,6 +3059,22 @@ function showTab(tab){
 
 function renderAll(){
   updateHeader();
+  // Citizen mode: show citizen bar, hide main tabs and content
+  const citizenBar = document.getElementById('citizenBar');
+  // Find nav and content area
+  const navEl = document.getElementById('mainNavBar');
+  const contentEl = document.querySelector('.content') || document.getElementById('tab-dashboard')?.parentElement;
+  if(isCitizenMode()){
+    if(citizenBar) citizenBar.style.display='flex';
+    if(navEl) navEl.style.display='none';
+    // Hide all tab content
+    document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='none');
+    return; // don't render anything else for citizen
+  } else {
+    if(citizenBar) citizenBar.style.display='none';
+    if(navEl) navEl.style.display='';
+    document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='');
+  }
   if(currentTab==='dashboard')renderDash();
   if(currentTab==='issues')renderIssues();
   if(currentTab==='orders')renderOrders();
@@ -4401,11 +4434,13 @@ function editIssue(id){
 function saveIssue(){
   const mobileVal = (document.getElementById('i_mobile')?.value||'').trim();
   const editingId = document.getElementById('issueModal')?.dataset?.editId||null;
-  if(mobileVal && mobileVal.length >= 10 && !editingId && window._fbReady){
+  if(mobileVal && mobileVal.length >= 10 && !editingId){
     let p = mobileVal.replace(/[\s\-\.\(\)]/g,'');
     if(p.startsWith('0')) p = '+30' + p.slice(1);
     if(!p.startsWith('+') && p.length===10) p = '+30' + p;
-    if(!_otpVerified.has(p)){
+    // Always require OTP for citizen mode; optionally for staff if Firebase ready
+    const needOtp = isCitizenMode() || window._fbReady;
+    if(needOtp && !_otpVerified.has(p)){
       requirePhoneVerification(mobileVal, ()=>{ _doSaveIssue(); });
       return;
     }
@@ -6037,6 +6072,15 @@ function otpCancel(){
     </div>
     <button class="login-btn" id="loginBtn" onclick="doLogin()" disabled>Είσοδος</button>
     <div class="login-error" id="loginError" style="display:none;">❌ Λάθος username ή password.</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
+      <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+      <span style="font-size:11px;color:#9ca3af;">ή</span>
+      <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+    </div>
+    <button class="login-btn" onclick="loginAsCitizen()" style="margin-top:12px;background:#27ae60;color:#fff;border-color:#27ae60;">
+      👤 Είσοδος Πολίτη
+    </button>
+    <p style="font-size:10px;color:#9ca3af;text-align:center;margin-top:8px;">Για υποβολή αιτήματος χωρίς λογαριασμό</p>
   </div>
   <div class="login-version">v2.0 · Δήμος Ρόδου 2026</div>
 </div>
