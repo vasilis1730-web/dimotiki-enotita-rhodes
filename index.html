@@ -384,6 +384,20 @@ tr:hover td{background:#faf9f7;}
   </div>
 </header>
 
+<!-- CITIZEN MODE BAR -->
+<div id="citizenBar" style="display:none;background:#27ae60;padding:14px 20px;align-items:center;justify-content:space-between;gap:12px;">
+  <div style="color:#fff;">
+    <div style="font-weight:700;font-size:14px;">👤 Λειτουργία Πολίτη</div>
+    <div style="font-size:11px;opacity:.8;">Μόνο υποβολή αιτήματος</div>
+  </div>
+  <button class="btn" style="background:#fff;color:#166534;border-color:#fff;font-weight:700;font-size:14px;padding:10px 20px;" onclick="openAddIssue()">
+    ✚ Αίτημα Πολίτη
+  </button>
+  <button class="btn" style="background:transparent;color:rgba(255,255,255,.8);border-color:rgba(255,255,255,.4);font-size:12px;" onclick="doLogout()">
+    Έξοδος
+  </button>
+</div>
+
 <main>
   <!-- DASHBOARD -->
   <div id="tab-dashboard">
@@ -2130,7 +2144,7 @@ function toggleLoginPw(){
 }
 
 function loginAsCitizen(){
-  currentUser = {
+  const citizenUser = {
     id: 'citizen',
     username: 'citizen',
     name: 'Πολίτης',
@@ -2138,8 +2152,7 @@ function loginAsCitizen(){
     canOrders: false,
     isCitizen: true
   };
-  loginSuccess();
-  toast('👤 Είσοδος ως Πολίτης — μόνο υποβολή αιτήματος');
+  loginSuccess(citizenUser);
 }
 
 function isCitizenMode(){
@@ -2194,6 +2207,14 @@ function loginSuccess(u){
     applyTabPermissions(u);
     initRealtimeSync();
     checkRhodesImport();
+    // Apply citizen mode AFTER load completes
+    if(u.isCitizen){
+      const navEl = document.getElementById('mainNavBar');
+      if(navEl) navEl.style.display='none';
+      document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='none');
+      const citizenBar = document.getElementById('citizenBar');
+      if(citizenBar) citizenBar.style.display='flex';
+    }
   });
   toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
 }
@@ -2244,6 +2265,12 @@ function closeLogoutPop(e){
 }
 
 function doLogout(){
+  // Restore nav for next login
+  const navEl2 = document.getElementById('mainNavBar');
+  if(navEl2) navEl2.style.display='';
+  document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='');
+  const citizenBar2 = document.getElementById('citizenBar');
+  if(citizenBar2) citizenBar2.style.display='none';
   sessionStorage.removeItem('rhodesUser');
   currentUser=null;
   document.getElementById('logoutPop').style.display='none';
@@ -3059,21 +3086,16 @@ function showTab(tab){
 
 function renderAll(){
   updateHeader();
-  // Citizen mode: show citizen bar, hide main tabs and content
+  // Citizen mode UI
   const citizenBar = document.getElementById('citizenBar');
-  // Find nav and content area
   const navEl = document.getElementById('mainNavBar');
-  const contentEl = document.querySelector('.content') || document.getElementById('tab-dashboard')?.parentElement;
   if(isCitizenMode()){
     if(citizenBar) citizenBar.style.display='flex';
     if(navEl) navEl.style.display='none';
-    // Hide all tab content
-    document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='none');
-    return; // don't render anything else for citizen
+    return;
   } else {
     if(citizenBar) citizenBar.style.display='none';
     if(navEl) navEl.style.display='';
-    document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='');
   }
   if(currentTab==='dashboard')renderDash();
   if(currentTab==='issues')renderIssues();
