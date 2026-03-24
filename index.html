@@ -2942,6 +2942,16 @@ function resetSignedPdf(id){
   }, 300);
 }
 
+function updateLinkedIssueStatus(wo, newStatus){
+  // When a work order completes, update its linked citizen issue
+  if(!wo || !wo.issueId) return;
+  const iss = issues.find(i=>i.id===wo.issueId);
+  if(!iss) return;
+  iss.status = newStatus;
+  if(newStatus==='Ολοκληρωμένο') iss.completionDate = todayStr();
+  save();
+}
+
 function finalizeAcceptance(){
   const wo = workOrders.find(w=>w.id===_sigOrderId);
   if(!wo) return;
@@ -2964,6 +2974,7 @@ function finalizeAcceptance(){
   closeSigModal();
   wo.status = 'Παραλήφθηκε'; // Auto-set when protocol accepted
   wo.completionDate = todayStr();
+  updateLinkedIssueStatus(wo, 'Ολοκληρωμένο'); // Sync citizen issue
   const idx = workOrders.findIndex(w=>w.id===wo.id);
   if(idx>=0) workOrders[idx]=wo;
   // ── AUTO-CREATE PAYMENT ──────────────────────────────────────
@@ -3210,7 +3221,7 @@ function setDateRange(range){
 
 function chStatus(id,st){
   const linked = workOrders.find(w=>w.issueId===id);
-  if(linked){
+  if(linked && linked.status!=='Παραλήφθηκε'){
     toast('⛔ Δεν επιτρέπεται αλλαγή κατάστασης — το αίτημα έχει συνδεθεί με εντολή '+linked.orderNum+'.');
     return;
   }
@@ -4327,7 +4338,7 @@ function openAddIssue(){
   document.getElementById('i_id').value='';
   document.getElementById('issueModal').querySelector('form')?.reset?.();
   ['i_date','i_receipt','i_citizen','i_addr','i_mobile','i_phone','i_email','i_contact','i_location','i_unit','i_cat','i_title','i_desc','i_prio','i_notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});;
-  document.getElementById('i_date').value=settings.listDate;
+  document.getElementById('i_date').value=todayStr();
   setCurrentTime();
   document.getElementById('i_title').innerHTML='<option value="">— Επiλέξτε πρώτα κατηγορία —</option>';
   document.getElementById('i_status').value='Προς ενέργεια';
@@ -5889,14 +5900,31 @@ function applyCitizenForm(){
     const el=document.getElementById(id);
     if(el&&el.closest('.fg')) el.closest('.fg').style.display='none';
   });
-  // GPS button on location
+  // GPS + Google Maps buttons on location (side by side)
   const locFg=document.getElementById('i_location')?.closest('.fg');
   if(locFg&&!document.getElementById('citizenGpsBtn')){
+    const wrap=document.createElement('div');
+    wrap.style.cssText='display:flex;gap:8px;margin-top:6px;';
     const btn=document.createElement('button');
     btn.type='button'; btn.id='citizenGpsBtn';
-    btn.innerHTML='📍 GPS — Εντοπισμός Θέσης';
-    btn.style.cssText='margin-top:6px;padding:10px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;width:100%;';
-    btn.onclick=citizenGetGPS; locFg.appendChild(btn);
+    btn.innerHTML='📍 GPS';
+    btn.style.cssText='flex:1;padding:10px;background:#2563eb;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;';
+    btn.onclick=citizenGetGPS;
+    const gmBtn=document.createElement('button');
+    gmBtn.type='button'; gmBtn.id='citizenMapsBtn';
+    gmBtn.innerHTML='🗺 Google Maps';
+    gmBtn.style.cssText='flex:1;padding:10px;background:#ea4335;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;';
+    gmBtn.onclick=citizenOpenMaps;
+    wrap.appendChild(btn); wrap.appendChild(gmBtn);
+    locFg.appendChild(wrap);
+    // Paste panel (hidden)
+    const pasteDiv=document.createElement('div');
+    pasteDiv.id='citizenMapsPasteDiv';
+    pasteDiv.style.cssText='display:none;margin-top:8px;background:#fff8f0;border:1px solid #fcd34d;border-radius:8px;padding:10px;';
+    pasteDiv.innerHTML='<div style="font-size:12px;color:#92400e;margin-bottom:6px;font-weight:600;">📋 Βήματα:<br>1. Βρες το σημείο στο Google Maps<br>2. Πάτα παρατεταμένα → «Κοινή χρήση»<br>3. Αντίγραψε τον σύνδεσμο και επικόλλησε παρακάτω:</div>'
+      +'<div style="display:flex;gap:6px;"><input id="citizenMapsLink" type="text" placeholder="https://maps.app.goo.gl/..." style="flex:1;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;">'
+      +'<button type="button" onclick="citizenParseMapsLink()" style="padding:8px 12px;background:#16a34a;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;">✓</button></div>';
+    locFg.appendChild(pasteDiv);
   }
 }
 
@@ -5918,6 +5946,54 @@ function citizenGetGPS(){
       if(btn){btn.textContent='✅ '+street.slice(0,30);btn.style.background='#16a34a';btn.disabled=false;}
     }catch(e){if(btn){btn.textContent='✅ GPS OK';btn.style.background='#16a34a';btn.disabled=false;}}
   },err=>{alert('Σφάλμα: '+err.message);if(btn){btn.textContent='📍 GPS';btn.disabled=false;}},{enableHighAccuracy:true,timeout:10000});
+}
+
+function citizenOpenMaps(){
+  const p=document.getElementById('citizenMapsPasteDiv');
+  if(p){
+    const showing=p.style.display!=='none';
+    p.style.display=showing?'none':'block';
+    if(!showing){
+      window.open('https://maps.google.com','_blank');
+      setTimeout(()=>document.getElementById('citizenMapsLink')?.focus(),800);
+    }
+  }
+}
+
+async function citizenParseMapsLink(){
+  const input=document.getElementById('citizenMapsLink');
+  const link=(input?.value||'').trim();
+  if(!link){alert('Επικολλήστε πρώτα τον σύνδεσμο.');return;}
+  const confirmBtn=input.nextElementSibling;
+  if(confirmBtn){confirmBtn.textContent='⏳';confirmBtn.disabled=true;}
+  try{
+    let lat=null,lng=null;
+    const patterns=[/@(-?\d+\.\d+),(-?\d+\.\d+)/,/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/,/ll=(-?\d+\.\d+),(-?\d+\.\d+)/];
+    for(const p of patterns){const m=link.match(p);if(m){lat=parseFloat(m[1]);lng=parseFloat(m[2]);break;}}
+    if(lat&&lng){
+      if(document.getElementById('i_mapLat'))document.getElementById('i_mapLat').value=lat;
+      if(document.getElementById('i_mapLng'))document.getElementById('i_mapLng').value=lng;
+      if(document.getElementById('i_coordsDisplay'))document.getElementById('i_coordsDisplay').textContent=lat.toFixed(5)+', '+lng.toFixed(5);
+      const r=await fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat='+lat+'&lon='+lng+'&accept-language=el');
+      const d=await r.json();const a=d.address;
+      const street=(a.road||a.pedestrian||a.suburb||d.display_name.split(',')[0])+(a.house_number?' '+a.house_number:'');
+      const locEl=document.getElementById('i_location');
+      if(locEl){locEl.value=street;locEl.style.borderColor='#16a34a';}
+      document.getElementById('citizenMapsPasteDiv').style.display='none';
+      const gpsBtn=document.getElementById('citizenGpsBtn');
+      if(gpsBtn){gpsBtn.textContent='✅ '+street.slice(0,20);gpsBtn.style.background='#16a34a';}
+      toast('✅ '+street);
+    } else {
+      // No coords found - store the link as location
+      const locEl=document.getElementById('i_location');
+      if(locEl) locEl.value=link;
+      document.getElementById('citizenMapsPasteDiv').style.display='none';
+      toast('📍 Σύνδεσμος αποθηκεύτηκε');
+    }
+  }catch(e){
+    alert('Σφάλμα. Αντιγράψτε τη διεύθυνση χειροκίνητα στο πεδίο τοποθεσίας.');
+  }
+  if(confirmBtn){confirmBtn.textContent='✓';confirmBtn.disabled=false;}
 }
 </script>
 
