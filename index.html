@@ -5822,7 +5822,9 @@ function renderCitizenIssues(){
   const phone=(currentUser.citizenPhone||'').replace(/[\s\-\.]/g,'').replace('+30','');
   // Issue 8: saveIssue stores to i_mobile → iss.mobile
   const mine=issues.filter(iss=>{
-    const p=(iss.mobile||'').replace(/[\s\-\.]/g,'').replace('+30','');
+    // saveIssue stores as citizenMobile; some older issues may use mobile
+    const raw = (iss.citizenMobile||iss.mobile||'');
+    const p = raw.replace(/[\s\-\.]/g,'').replace('+30','');
     return p&&phone&&(p===phone||p.endsWith(phone)||phone.endsWith(p));
   });
   const cnt=document.getElementById('citizenIssueCount');
