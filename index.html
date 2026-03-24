@@ -315,6 +315,29 @@ tr:hover td{background:#faf9f7;}
 
 .app-credit{position:fixed;bottom:6px;right:12px;font-size:10px;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:4px;padding:3px 8px;z-index:5;letter-spacing:.3px;opacity:.8;}
 </style>
+  <!-- Firebase OTP -->
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+    import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+    
+    const firebaseApp = initializeApp({
+  apiKey: "AIzaSyATvkHqSyyVxVD8UujQQnj_wdR2Kc306wA",
+  authDomain: "dimosrodou-otp.firebaseapp.com",
+  projectId: "dimosrodou-otp",
+  storageBucket: "dimosrodou-otp.firebasestorage.app",
+  messagingSenderId: "315292350668",
+  appId: "1:315292350668:web:8288883847d24ac33e2a69",
+  measurementId: "G-YMWJ92JBNT"
+});
+    const auth = getAuth(firebaseApp);
+    auth.languageCode = 'el';
+    
+    window._fbAuth = auth;
+    window._RecaptchaVerifier = RecaptchaVerifier;
+    window._signInWithPhoneNumber = signInWithPhoneNumber;
+    window._fbReady = true;
+    console.log('Firebase Auth ready');
+  </script>
 </head>
 <body>
 
@@ -574,7 +597,7 @@ tr:hover td{background:#faf9f7;}
         </div>
         <div class="fg"><label>Ονοματεπώνυμο Πολίτη</label><input type="text" id="i_citizen" oninput="checkCitizenDuplicate()" placeholder="Προαιρετικό"></div>
         <div class="fg"><label>Διεύθυνση Πολίτη</label><input type="text" id="i_addr" placeholder="Οδός, αριθμός"></div>
-        <div class="fg"><label>Κινητό Τηλέφωνο</label><input type="tel" id="i_mobile" oninput="checkCitizenDuplicate()" placeholder="69xxxxxxxx"></div>
+        <div class="fg"><label>Κινητό Τηλέφωνο</label><input type="tel" id="i_mobile" oninput="checkCitizenDuplicate()" placeholder="69xxxxxxxx" required></div>
         <div class="fg"><label>Σταθερό Τηλέφωνο</label><input type="tel" id="i_phone" placeholder="224xxxxxxx"></div>
         <div class="fg"><label>Email Πολίτη</label><input type="email" id="i_email" oninput="checkCitizenDuplicate()" placeholder="email@example.com"></div>
         <input type="hidden" id="i_contact">
@@ -4376,6 +4399,21 @@ function editIssue(id){
 }
 
 function saveIssue(){
+  const mobileVal = (document.getElementById('i_mobile')?.value||'').trim();
+  const editingId = document.getElementById('issueModal')?.dataset?.editId||null;
+  if(mobileVal && mobileVal.length >= 10 && !editingId && window._fbReady){
+    let p = mobileVal.replace(/[\s\-\.\(\)]/g,'');
+    if(p.startsWith('0')) p = '+30' + p.slice(1);
+    if(!p.startsWith('+') && p.length===10) p = '+30' + p;
+    if(!_otpVerified.has(p)){
+      requirePhoneVerification(mobileVal, ()=>{ _doSaveIssue(); });
+      return;
+    }
+  }
+  _doSaveIssue();
+}
+
+function _doSaveIssue(){
   const id=document.getElementById('i_id').value;
   const data={
     id:id||genId(),
@@ -4435,6 +4473,60 @@ let SERVICE_STAFF = [
   {name:'Νικολάου Μανώλης',     mobile:'6900000004'},
   {name:'Κωνσταντίνου Πέτρος',  mobile:'6900000005'},
 ];
+function _doSaveIssue(){
+  const id=document.getElementById('i_id').value;
+  const data={
+    id:id||genId(),
+    issueNum: id ? (issues.find(x=>x.id===id)?.issueNum || nextIssueNum()) : nextIssueNum(),
+    date:document.getElementById('i_date').value,
+    time:document.getElementById('i_time')?.value||'',
+    receiptMethod:document.getElementById('i_receipt').value,
+    citizenName:document.getElementById('i_citizen').value,
+    citizenAddr:document.getElementById('i_addr').value,
+    citizenMobile:document.getElementById('i_mobile').value,
+    citizenPhone:document.getElementById('i_phone').value,
+    citizenEmail:document.getElementById('i_email').value,
+    contactInfo:(()=>{
+      const parts=[];
+      const mob=document.getElementById('i_mobile').value.trim();
+      const ph=document.getElementById('i_phone').value.trim();
+      const em=document.getElementById('i_email').value.trim();
+      if(mob)parts.push('📱 '+mob);
+      if(ph)parts.push('☎ '+ph);
+      if(em)parts.push('✉ '+em);
+      return parts.join(' | ')||document.getElementById('i_contact').value||'';
+    })(),
+    location:document.getElementById('i_location').value,
+    municipality:document.getElementById('i_unit').value,
+    category:document.getElementById('i_cat').value,
+    title:document.getElementById('i_title').value,
+    description:document.getElementById('i_desc').value,
+    priority:document.getElementById('i_prio').value,
+    danger:'Όχι', // field removed
+    inspection:document.getElementById('i_inspect').value,
+    status:document.getElementById('i_status').value,
+    notes:document.getElementById('i_notes').value,
+    municipalNum:document.getElementById('i_municipalNum').value.trim(),
+    mapLat:document.getElementById('i_mapLat').value||null,
+    mapLng:document.getElementById('i_mapLng').value||null,
+    attachments:_issueAttachments||[],
+    municipalDate:document.getElementById('i_municipalDate')?.value||'',
+    completionDate:''
+  };
+  if(!data.date||!data.category||!data.title||!data.location){alert('Συμπληρώστε τα υποχρεωτικά πεδία (*).');return;}
+  if(id){const idx=issues.findIndex(x=>x.id===id);if(idx>=0){data.completionDate=issues[idx].completionDate||'';issues[idx]=data;}}
+  else issues.push(data);
+  save();closeM('issueModal');renderAll();toast(id?'Αίτημα ενημερώθηκε':'Νέο αίτημα προστέθηκε');
+}
+
+// ================================================================
+// MODALS – WORK ORDER
+// ================================================================
+
+// ── SERVICE ORDER UI ─────────────────────────────────────────────
+// Employees available for service orders
+// SERVICE_STAFF: {name, mobile} — edit from Settings → Εντολές Υπηρεσίας
+
 function loadServiceStaff(){
   const s = localStorage.getItem('serviceStaff');
   if(s) try{ SERVICE_STAFF=JSON.parse(s); }catch(e){}
@@ -4945,6 +5037,45 @@ function printOrder(id){
   <br><button onclick="window.print()" style="margin-top:16px;padding:8px 20px;background:#1a3a5c;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">🖨 Εκτύπωση</button>
   
 
+
+<!-- OTP Verification Modal -->
+<div id="otpWrap" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:var(--card);border-radius:12px;width:100%;max-width:400px;box-shadow:0 8px 40px rgba(0,0,0,.3);overflow:hidden;">
+    <div style="background:#1a3a5c;color:#fff;padding:16px 20px;display:flex;align-items:center;gap:10px;">
+      <span style="font-size:24px;">📱</span>
+      <div>
+        <div style="font-weight:700;font-size:14px;">Επαλήθευση Κινητού</div>
+        <div style="font-size:11px;opacity:.8;">Δήμος Ρόδου — Αυτεπιστασία</div>
+      </div>
+    </div>
+    <div style="padding:20px;">
+      <div id="otpStep1">
+        <p style="font-size:13px;margin-bottom:16px;color:var(--text);">Για να υποβάλετε αίτημα, παρακαλώ επαληθεύστε τον αριθμό κινητού σας.</p>
+        <div style="background:#f0f4f8;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;">
+          📞 <strong id="otpPhoneDisplay"></strong>
+        </div>
+        <div id="recaptcha-container" style="margin-bottom:16px;display:flex;justify-content:center;"></div>
+        <button id="otpSendBtn" class="btn btn-p" style="width:100%;font-size:13px;" onclick="otpSendCode()">
+          📨 Αποστολή κωδικού SMS
+        </button>
+        <button class="btn" style="width:100%;margin-top:8px;" onclick="otpCancel()">Ακύρωση</button>
+      </div>
+      <div id="otpStep2" style="display:none;">
+        <p style="font-size:13px;margin-bottom:6px;">Εισάγετε τον 6ψήφιο κωδικό που λάβατε:</p>
+        <div style="background:#d1fae5;border-radius:6px;padding:8px 12px;margin-bottom:14px;font-size:11px;color:#166534;">
+          ✅ SMS στάλθηκε στο <strong id="otpPhoneDisplay2"></strong>
+        </div>
+        <input id="otpCodeInput" type="number" placeholder="123456" maxlength="6"
+          style="width:100%;font-size:24px;text-align:center;padding:12px;border:2px solid var(--border);border-radius:8px;margin-bottom:14px;letter-spacing:8px;"
+          oninput="if(this.value.length===6)otpVerifyCode()">
+        <button class="btn btn-p" style="width:100%;font-size:13px;" onclick="otpVerifyCode()">✅ Επαλήθευση</button>
+        <button class="btn" style="width:100%;margin-top:8px;font-size:11px;" onclick="otpResend()">🔄 Εκ νέου αποστολή</button>
+        <button class="btn" style="width:100%;margin-top:4px;" onclick="otpCancel()">Ακύρωση</button>
+      </div>
+      <div id="otpError" style="display:none;margin-top:12px;padding:8px 12px;background:#fee2e2;border-radius:6px;font-size:12px;color:#991b1b;"></div>
+    </div>
+  </div>
+</div>
 </body></html>`);
   win.document.close();
 }
@@ -5688,6 +5819,132 @@ function checkCitizenDuplicate(){
   alertDiv.innerHTML=html;
 }
 
+
+// ================================================================
+// OTP PHONE VERIFICATION — Firebase
+// ================================================================
+let _otpConfirmResult = null;
+let _otpPendingCallback = null;
+let _otpVerified = new Set(); // phones already verified this session
+let _otpRecaptchaRendered = false;
+
+function requirePhoneVerification(phone, callback){
+  // Clean phone number
+  let p = (phone||'').replace(/[\s\-\.\(\)]/g,'');
+  if(p.startsWith('00')) p = '+' + p.slice(2);
+  if(p.startsWith('0')) p = '+30' + p.slice(1);
+  if(!p.startsWith('+') && p.length===10) p = '+30' + p;
+  
+  if(!p || p.length < 12){
+    alert('⚠️ Παρακαλώ εισάγετε έγκυρο αριθμό κινητού (10 ψηφία).');
+    return;
+  }
+  
+  // If already verified this session, proceed directly
+  if(_otpVerified.has(p)){
+    callback(p);
+    return;
+  }
+  
+  if(!window._fbReady){
+    // Firebase not loaded, skip verification
+    toast('⚠️ Επαλήθευση μη διαθέσιμη — συνεχίζετε χωρίς OTP');
+    callback(p);
+    return;
+  }
+  
+  _otpPendingCallback = callback;
+  document.getElementById('otpPhoneDisplay').textContent = p;
+  document.getElementById('otpPhoneDisplay2').textContent = p;
+  document.getElementById('otpStep1').style.display = 'block';
+  document.getElementById('otpStep2').style.display = 'none';
+  document.getElementById('otpError').style.display = 'none';
+  document.getElementById('otpWrap').style.display = 'flex';
+  document.getElementById('otpCodeInput').value = '';
+  
+  // Init recaptcha if not done
+  if(!_otpRecaptchaRendered){
+    try{
+      window._recaptchaVerifier = new window._RecaptchaVerifier(window._fbAuth, 'recaptcha-container', {
+        'size': 'normal',
+        'callback': () => { document.getElementById('otpSendBtn').disabled = false; },
+        'expired-callback': () => { document.getElementById('otpSendBtn').disabled = true; }
+      });
+      window._recaptchaVerifier.render();
+      _otpRecaptchaRendered = true;
+    }catch(e){
+      console.warn('Recaptcha error:', e);
+    }
+  }
+}
+
+async function otpSendCode(){
+  const phone = document.getElementById('otpPhoneDisplay').textContent;
+  const btn = document.getElementById('otpSendBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Αποστολή...';
+  document.getElementById('otpError').style.display = 'none';
+  
+  try{
+    _otpConfirmResult = await window._signInWithPhoneNumber(window._fbAuth, phone, window._recaptchaVerifier);
+    document.getElementById('otpStep1').style.display = 'none';
+    document.getElementById('otpStep2').style.display = 'block';
+    toast('✅ SMS στάλθηκε στο ' + phone);
+  }catch(e){
+    console.error('OTP send error:', e);
+    const errDiv = document.getElementById('otpError');
+    errDiv.style.display = 'block';
+    errDiv.textContent = '❌ Σφάλμα αποστολής: ' + (e.message || e.code || 'Δοκιμάστε ξανά');
+    btn.disabled = false;
+    btn.textContent = '📨 Αποστολή κωδικού SMS';
+    // Reset recaptcha
+    if(window._recaptchaVerifier){
+      try{ window._recaptchaVerifier.render(); }catch(ex){}
+    }
+  }
+}
+
+async function otpVerifyCode(){
+  const code = document.getElementById('otpCodeInput').value.trim();
+  if(code.length < 6){ 
+    document.getElementById('otpError').style.display = 'block';
+    document.getElementById('otpError').textContent = '⚠️ Εισάγετε 6ψήφιο κωδικό';
+    return; 
+  }
+  
+  try{
+    await _otpConfirmResult.confirm(code);
+    const phone = document.getElementById('otpPhoneDisplay').textContent;
+    _otpVerified.add(phone);
+    document.getElementById('otpWrap').style.display = 'none';
+    toast('✅ Επαλήθευση τηλεφώνου επιτυχής!');
+    if(_otpPendingCallback){
+      _otpPendingCallback(phone);
+      _otpPendingCallback = null;
+    }
+  }catch(e){
+    console.error('OTP verify error:', e);
+    const errDiv = document.getElementById('otpError');
+    errDiv.style.display = 'block';
+    errDiv.textContent = '❌ Λάθος κωδικός. Δοκιμάστε ξανά.';
+    document.getElementById('otpCodeInput').value = '';
+    document.getElementById('otpCodeInput').focus();
+  }
+}
+
+function otpResend(){
+  document.getElementById('otpStep1').style.display = 'block';
+  document.getElementById('otpStep2').style.display = 'none';
+  document.getElementById('otpError').style.display = 'none';
+  document.getElementById('otpSendBtn').disabled = false;
+  document.getElementById('otpSendBtn').textContent = '📨 Αποστολή κωδικού SMS';
+}
+
+function otpCancel(){
+  document.getElementById('otpWrap').style.display = 'none';
+  _otpPendingCallback = null;
+  _otpConfirmResult = null;
+}
 </script>
 
 <!-- User Management Modal -->
