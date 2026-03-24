@@ -5972,6 +5972,15 @@ function getCitizenBadgeHtml(iss){
     </div>
     <button class="login-btn" id="loginBtn" onclick="doLogin()" disabled>Είσοδος</button>
     <div class="login-error" id="loginError" style="display:none;">❌ Λάθος username ή password.</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:14px;">
+      <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+      <span style="font-size:11px;color:#9ca3af;">ή</span>
+      <div style="flex:1;height:1px;background:#e5e7eb;"></div>
+    </div>
+    <button class="login-btn" onclick="openCitizenLogin()" style="margin-top:12px;background:#27ae60;color:#fff;border-color:#27ae60;">
+      👤 Είσοδος Πολίτη
+    </button>
+    <p style="font-size:10px;color:#9ca3af;text-align:center;margin-top:8px;">Για υποβολή αιτήματος με ταυτοποίηση κινητού</p>
   
 <!-- CITIZEN LOGIN MODAL -->
 <div id="citizenLoginWrap" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9100;align-items:center;justify-content:center;padding:16px;">
