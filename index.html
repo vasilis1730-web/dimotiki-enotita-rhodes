@@ -384,18 +384,25 @@ tr:hover td{background:#faf9f7;}
   </div>
 </header>
 
-<!-- CITIZEN MODE BAR -->
-<div id="citizenBar" style="display:none;background:#27ae60;padding:14px 20px;align-items:center;justify-content:space-between;gap:12px;">
-  <div style="color:#fff;">
-    <div style="font-weight:700;font-size:14px;">👤 Λειτουργία Πολίτη</div>
-    <div style="font-size:11px;opacity:.8;">Μόνο υποβολή αιτήματος</div>
+<div id="citizenBar" style="display:none;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:#f4f8f4;border-bottom:1px solid #d6e6d6;flex-wrap:wrap;">
+  <div style="display:flex;align-items:center;gap:10px;min-width:220px;">
+    <div style="width:36px;height:36px;border-radius:50%;background:#27ae60;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;">Π</div>
+    <div>
+      <div style="font-weight:700;color:#1f2d3d;">Λειτουργία Πολίτη</div>
+      <div id="citizenBarSubtitle" style="font-size:13px;color:#5f6b7a;">Είσοδος με κινητό τηλέφωνο — υποβολή και παρακολούθηση των δικών σας αιτημάτων.</div>
+    </div>
   </div>
-  <button class="btn" style="background:#fff;color:#166534;border-color:#fff;font-weight:700;font-size:14px;padding:10px 20px;" onclick="openAddIssue()">
-    ✚ Αίτημα Πολίτη
-  </button>
-  <button class="btn" style="background:transparent;color:rgba(255,255,255,.8);border-color:rgba(255,255,255,.4);font-size:12px;" onclick="doLogout()">
-    Έξοδος
-  </button>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <button type="button" class="btn" onclick="openCitizenNewIssue()">➕ Νέο αίτημα</button>
+    <button type="button" class="btn" onclick="openCitizenMyIssues()">📋 Τα αιτήματά μου</button>
+    <button type="button" class="btn" onclick="doLogout()">↩ Αποσύνδεση</button>
+  </div>
+</div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <button type="button" class="btn" onclick="openCitizenNewIssue()">➕ Νέο αίτημα</button>
+    <button type="button" class="btn" onclick="doLogout()">↩ Αποσύνδεση</button>
+  </div>
 </div>
 
 <main>
@@ -479,7 +486,7 @@ tr:hover td{background:#faf9f7;}
         <option>Δεν ολοκληρώθηκε</option>
       </select>
     </div>
-    <div id="bulkBar" style="display:none;background:#1a2744;color:#fff;padding:10px 16px;border-radius:8px;margin-bottom:10px;align-items:center;gap:12px;flex-wrap:wrap;"><span id="bulkCount" style="font-weight:700;font-size:13px;"></span><button class="btn" style="background:#27ae60;color:#fff;border-color:#27ae60;font-weight:700;" onclick="openBulkSigModal()">📋 Μαζικό Πρωτόκολλο Παραλαβής</button><button class="btn" style="background:#fff;color:#1a2744;border-color:#fff;font-weight:600;" onclick="printBulkProtocol()">🖨 Εκτύπωση</button><button class="btn" style="background:transparent;color:rgba(255,255,255,.6);border-color:rgba(255,255,255,.3);font-size:11px;" onclick="clearBulkSelection()">✕ Ακύρωση</button></div>    <div id="ordersTbl"></div>
+    <div id="ordersTbl"></div>
   </div>
 
   <!-- FINANCE -->
@@ -2109,14 +2116,81 @@ function mapRhodesPriority(pr){
   return 'ΚΑΤ. 3 - ΥΨΗΛΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ';
 }
 
+function normalizeGreekPhone(phone){
+  let p = String(phone||'').replace(/[^\d\+]/g,'');
+  if(p.startsWith('00')) p = '+' + p.slice(2);
+  if(p.startsWith('30') && p.length===12) p = '+' + p;
+  if(p.startsWith('0') && p.length===10) p = '+30' + p.slice(1);
+  if(!p.startsWith('+') && p.length===10) p = '+30' + p;
+  return p;
+}
+
+function getCitizenSessionPhone(){
+  return normalizeGreekPhone(sessionStorage.getItem('rhodesCitizenPhone') || '');
+}
+
+function setCitizenSessionPhone(phone){
+  const p = normalizeGreekPhone(phone);
+  if(!p) return '';
+  sessionStorage.setItem('rhodesCitizenPhone', p);
+  return p;
+}
+
+function clearCitizenSessionPhone(){
+  sessionStorage.removeItem('rhodesCitizenPhone');
+}
+
+function getCitizenIssuesByPhone(phone){
+  const p = normalizeGreekPhone(phone);
+  if(!p) return [];
+  return issues.filter(i=>{
+    const im = normalizeGreekPhone(i.citizenMobile || i.mobile || i.contactInfo || '');
+    return im===p;
+  });
+}
+
+function getCitizenProfileByPhone(phone){
+  const list = getCitizenIssuesByPhone(phone).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const last = list[0] || {};
+  return {
+    name: (last.citizenName || 'Πολίτης').trim() || 'Πολίτης',
+    email: (last.citizenEmail || '').trim(),
+    phone: normalizeGreekPhone(phone),
+    rawMobile: (last.citizenMobile || '').trim(),
+    addr: (last.citizenAddr || '').trim()
+  };
+}
+
+function getCitizenUser(phone){
+  const p = normalizeGreekPhone(phone || getCitizenSessionPhone());
+  const prof = getCitizenProfileByPhone(p);
+  return {
+    id: 'citizen:' + (p || 'guest'),
+    username: p || 'citizen',
+    name: prof.name || 'Πολίτης',
+    role: 'Πολίτης',
+    canOrders: false,
+    canEdit: false,
+    canDelete: false,
+    isCitizen: true,
+    citizenPhone: p,
+    initials: 'Π',
+    color: '#27ae60'
+  };
+}
+
 function initLogin(){
   // Check if already logged in (session)
   const saved = sessionStorage.getItem('rhodesUser');
   if(saved){
     try{
       const u = JSON.parse(saved);
+      if(u && typeof u.id==='string' && u.id.startsWith('citizen')){
+        loginSuccess(getCitizenUser(u.citizenPhone || getCitizenSessionPhone()), true);
+        return;
+      }
       const found = getEffectiveUsers().find(x=>x.id===u.id);
-      if(found){ loginSuccess(found); return; }
+      if(found){ loginSuccess(found, true); return; }
     }catch(e){}
   }
   renderLoginUsers();
@@ -2143,16 +2217,91 @@ function toggleLoginPw(){
   else { f.type='password'; btn.textContent='👁'; }
 }
 
-function loginAsCitizen(){
-  const citizenUser = {
-    id: 'citizen',
-    username: 'citizen',
-    name: 'Πολίτης',
-    role: 'Πολίτης',
-    canOrders: false,
-    isCitizen: true
-  };
+function openCitizenNewIssue(){
+  openAddIssue();
+  const receiptEl = document.getElementById('i_receipt');
+  const statusEl = document.getElementById('i_status');
+  const inspectEl = document.getElementById('i_inspect');
+  if(receiptEl) receiptEl.value = 'Ιστοσελίδα Δήμου (αιτήματα πολιτών)';
+  if(statusEl) statusEl.value = 'Προς ενέργεια';
+  if(inspectEl) inspectEl.value = 'Όχι';
+
+  const phone = getCitizenSessionPhone();
+  const prof = getCitizenProfileByPhone(phone);
+  const mobileEl = document.getElementById('i_mobile');
+  const nameEl = document.getElementById('i_citizen');
+  const emailEl = document.getElementById('i_email');
+  const addrEl = document.getElementById('i_addr');
+
+  if(mobileEl && phone) mobileEl.value = prof.rawMobile || phone.replace('+30','0');
+  if(nameEl && prof.name && prof.name!=='Πολίτης') nameEl.value = prof.name;
+  if(emailEl && prof.email) emailEl.value = prof.email;
+  if(addrEl && prof.addr) addrEl.value = prof.addr;
+}
+
+function openCitizenMyIssues(){
+  currentTab = 'issues';
+  document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='none');
+  const tab = document.getElementById('tab-issues');
+  if(tab) tab.style.display='block';
+  renderAll();
+}
+
+function citizenAuthStart(){
+  const phone = document.getElementById('citizenLoginPhone')?.value || '';
+  const normalized = normalizeGreekPhone(phone);
+  if(!normalized || normalized.length < 12){
+    const err = document.getElementById('citizenLoginError');
+    if(err){
+      err.style.display='block';
+      err.textContent='⚠️ Συμπληρώστε έγκυρο κινητό τηλέφωνο 10 ψηφίων.';
+    }
+    return;
+  }
+  const err = document.getElementById('citizenLoginError');
+  if(err) err.style.display='none';
+  requirePhoneVerification(normalized, ()=>completeCitizenPhoneLogin(normalized));
+}
+
+function openCitizenPhoneLogin(){
+  const wrap = document.getElementById('citizenLoginWrap');
+  const inp = document.getElementById('citizenLoginPhone');
+  const err = document.getElementById('citizenLoginError');
+  if(err) err.style.display='none';
+  if(inp){
+    inp.value = getCitizenSessionPhone().replace('+30','0');
+    setTimeout(()=>inp.focus(), 60);
+  }
+  if(wrap) wrap.style.display='flex';
+}
+
+function closeCitizenPhoneLogin(){
+  const wrap = document.getElementById('citizenLoginWrap');
+  if(wrap) wrap.style.display='none';
+}
+
+function completeCitizenPhoneLogin(phone){
+  const p = setCitizenSessionPhone(phone);
+  closeCitizenPhoneLogin();
+  loginAsCitizen(p);
+}
+
+function loginAsCitizen(phone){
+  const citizenUser = getCitizenUser(phone);
+  currentUser = citizenUser;
+  currentTab = 'issues';
   loginSuccess(citizenUser);
+  const navEl = document.getElementById('mainNavBar');
+  if(navEl) navEl.style.display='none';
+  document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='none');
+  const citizenBar = document.getElementById('citizenBar');
+  if(citizenBar) citizenBar.style.display='flex';
+  const phoneToUse = citizenUser.citizenPhone || getCitizenSessionPhone();
+  if(getCitizenIssuesByPhone(phoneToUse).length){
+    setTimeout(()=>openCitizenMyIssues(), 120);
+  }else{
+    setTimeout(()=>openCitizenNewIssue(), 120);
+  }
 }
 
 function isCitizenMode(){
@@ -2189,7 +2338,12 @@ function doLogin(){
   }
 }
 
-function loginSuccess(u){
+function loginSuccess(u, suppressToast=false){
+  if(!u){
+    console.error('loginSuccess called without user');
+    toast('❌ Σφάλμα σύνδεσης χρήστη');
+    return;
+  }
   currentUser = u;
   sessionStorage.setItem('rhodesUser', JSON.stringify({id:u.id}));
   // Hide login screen
@@ -2199,24 +2353,26 @@ function loginSuccess(u){
   const avEl = document.getElementById('headerAv');
   const nameEl = document.getElementById('headerName');
   const userEl = document.getElementById('headerUser');
-  if(avEl){ avEl.textContent=u.initials; avEl.style.background=u.color; }
-  if(nameEl) nameEl.textContent=u.name.split(' ')[0];
+  const userInitials = u.initials || (u.name||'?').trim().charAt(0).toUpperCase() || '?';
+  const userColor = u.color || '#2d4a8a';
+  const userName = (u.name || 'Χρήστης').trim();
+  if(avEl){ avEl.textContent=userInitials; avEl.style.background=userColor; }
+  if(nameEl) nameEl.textContent=userName.split(' ')[0] || userName;
   if(userEl) userEl.style.display='flex';
   // Load app
   load().then(()=>{
     applyTabPermissions(u);
     initRealtimeSync();
     checkRhodesImport();
-    // Apply citizen mode AFTER load completes
-    if(u.isCitizen){
-      const navEl = document.getElementById('mainNavBar');
-      if(navEl) navEl.style.display='none';
-      document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='none');
-      const citizenBar = document.getElementById('citizenBar');
-      if(citizenBar) citizenBar.style.display='flex';
-    }
   });
-  toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
+  const subtitle = document.getElementById('citizenBarSubtitle');
+  if(subtitle && u && u.isCitizen){
+    const count = getCitizenIssuesByPhone(u.citizenPhone || '').length;
+    subtitle.textContent = (u.citizenPhone ? ('Κινητό: ' + (u.citizenPhone.replace('+30','0')) + ' · ') : '') + (count ? ('Βρέθηκαν ' + count + ' δικά σας αιτήματα.') : 'Δεν βρέθηκαν προηγούμενα αιτήματα για αυτό το κινητό.');
+  }
+  if(!suppressToast){
+    toast('👋 Καλωσήρθατε, '+userName+'! ('+issues.length+' αιτήματα)');
+  }
 }
 
 function applyTabPermissions(u){
@@ -2268,18 +2424,25 @@ function doLogout(){
   // Restore nav for next login
   const navEl2 = document.getElementById('mainNavBar');
   if(navEl2) navEl2.style.display='';
-  document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='');
+  document.querySelectorAll('[id^="tab-"]').forEach((el,idx)=>el.style.display=idx===0?'':'none');
   const citizenBar2 = document.getElementById('citizenBar');
   if(citizenBar2) citizenBar2.style.display='none';
   sessionStorage.removeItem('rhodesUser');
+  clearCitizenSessionPhone();
   currentUser=null;
-  document.getElementById('logoutPop').style.display='none';
-  document.getElementById('headerUser').style.display='none';
-  document.getElementById('loginScreen').style.display='flex';
+  currentTab='dashboard';
+  const logoutPop=document.getElementById('logoutPop');
+  if(logoutPop) logoutPop.style.display='none';
+  const headerUser=document.getElementById('headerUser');
+  if(headerUser) headerUser.style.display='none';
+  const loginScreen=document.getElementById('loginScreen');
+  if(loginScreen) loginScreen.style.display='flex';
+  const issueModal=document.getElementById('issueModal');
+  if(issueModal) issueModal.style.display='none';
   if(document.getElementById('loginUsername')) document.getElementById('loginUsername').value='';
   if(document.getElementById('loginPassword')) document.getElementById('loginPassword').value='';
-  document.getElementById('loginBtn').disabled=true;
-  document.getElementById('loginError').style.display='none';
+  if(document.getElementById('loginBtn')) document.getElementById('loginBtn').disabled=true;
+  if(document.getElementById('loginError')) document.getElementById('loginError').style.display='none';
   _selectedLoginUser=null;
   renderLoginUsers();
 }
@@ -2550,7 +2713,6 @@ function setCurrentTime(){
 // DIGITAL SIGNATURE WORKFLOW — PDF BRIDGE TO MINDIGITAL WEBSIGN
 // ════════════════════════════════════════════════════════════════
 let _sigOrderId = null;
-let _bulkSelected = new Set();
 
 function openSigModal(id){
   _sigOrderId = id;
@@ -3085,173 +3247,6 @@ function showTab(tab){
   renderAll();
 }
 
-function toggleBulkSelect(orderId){
-  if(_bulkSelected.has(orderId)) _bulkSelected.delete(orderId);
-  else _bulkSelected.add(orderId);
-  updateBulkBar(); renderOrders();
-}
-function clearBulkSelection(){
-  _bulkSelected.clear(); updateBulkBar(); renderOrders();
-}
-function updateBulkBar(){
-  const bar=document.getElementById('bulkBar');
-  const cnt=document.getElementById('bulkCount');
-  if(!bar)return;
-  const n=_bulkSelected.size;
-  if(n>=1){
-    bar.style.display='flex';
-    cnt.textContent=n+' εντολ'+(n===1?'ή':'ές')+' επιλεγμέν'+(n===1?'η':'ες');
-    const btns=bar.querySelectorAll('.btn');
-    if(btns[0]) btns[0].style.display=n>=2?'':'none';
-  } else { bar.style.display='none'; }
-}
-function openBulkSigModal(){
-  if(_bulkSelected.size<2){toast('Επιλέξτε τουλάχιστον 2 εντολές');return;}
-  const orders=workOrders.filter(w=>_bulkSelected.has(w.id));
-  _sigOrderId=null;
-  window._bulkWo={id:'BULK',_edgeResult:null,signedPdfData:null,signedPdfName:null};
-  document.getElementById('sigModalTitle').textContent='✍ Μαζικό Πρωτόκολλο — '+orders.length+' Εντολές';
-  renderBulkSigModal(orders);
-  document.getElementById('sigWrap').style.display='flex';
-}
-function renderBulkSigModal(orders){
-  const total=orders.reduce((s,w)=>s+woTotal(w),0);
-  let html='<div style="background:var(--sec);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">';
-  html+='<div style="font-weight:700;font-size:13px;color:var(--navy);margin-bottom:8px;">📋 Εντολές ('+orders.length+'):</div>';
-  html+='<div style="max-height:130px;overflow-y:auto;">';
-  orders.forEach(w=>{
-    html+='<div style="font-size:11px;padding:3px 6px;background:#fff;border-radius:3px;margin-bottom:2px;display:flex;justify-content:space-between;">'
-      +'<span><strong>'+esc(w.orderNum)+'</strong> — '+esc(w.location)+'</span>'
-      +'<span style="color:var(--muted)">'+fmt(woTotal(w))+' €</span></div>';
-  });
-  html+='</div><div style="margin-top:8px;font-weight:700;font-size:12px;color:var(--navy);">Σύνολο: '+fmt(total)+' €</div></div>';
-  const steps=[
-    {n:1,title:'Εκτύπωση Μαζικού Πρωτοκόλλου',btn:'<button class="btn btn-p" style="margin-left:30px;" onclick="printBulkProtocol()">🖨 Εκτύπωση</button>'},
-    {n:2,title:'Ψηφιακή Υπογραφή (Mindigital)',btn:'<button class="btn" style="background:#1a3a5c;color:#fff;margin-left:30px;" onclick="window.open(settings.eSignUrl||\'https://webapp.mindigital-shde.gr/login\',\'_blank\')">🔏 Mindigital</button>'},
-    {n:3,title:'Ανέβασμα Υπογεγραμμένου PDF',btn:'<input type="file" id="bulkPdfInput" accept=".pdf" style="display:none" onchange="importBulkSignedPdf(this)"><button class="btn" style="background:#198754;color:#fff;border-color:#198754;margin-left:30px;" onclick="document.getElementById(\'bulkPdfInput\').click()">📎 Επιλογή PDF</button>'},
-  ];
-  steps.forEach(s=>{
-    html+='<div style="background:var(--sec);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">'
-      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
-      +'<div style="background:#1a3a5c;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">'+s.n+'</div>'
-      +'<p style="font-weight:700;font-size:12px;color:var(--navy);margin:0;">'+s.title+'</p></div>'
-      +s.btn+'</div>';
-  });
-  document.getElementById('sigModalBody').innerHTML=html;
-}
-async function importBulkSignedPdf(input){
-  const file=input.files[0]; if(!file)return;
-  const orders=workOrders.filter(w=>_bulkSelected.has(w.id));
-  toast('🔍 Έλεγχος υπογραφών μαζικού πρωτοκόλλου...');
-  const b64=await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file);});
-  if(!window._bulkWo) window._bulkWo={};
-  window._bulkWo.signedPdfData=b64; window._bulkWo.signedPdfName=file.name; window._bulkWo.signedAt=new Date().toISOString();
-  let edgeResult=null;
-  const edgeUrl=(settings.edgeFnUrl||'').trim(), anonKey=(localStorage.getItem('sb_key')||'').trim();
-  if(edgeUrl&&anonKey){
-    try{const resp=await fetch(edgeUrl,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+anonKey,'apikey':anonKey},body:JSON.stringify({pdfBase64:b64})});
-      if(resp.ok)edgeResult=await resp.json();}catch(e){}
-  }
-  window._bulkWo._edgeResult=edgeResult;
-  renderBulkResultModal(orders,edgeResult,file.name,b64);
-}
-function renderBulkResultModal(orders,edgeResult,fname,b64){
-  const committee=(settings.eSignUsers||[]).filter(u=>u.name&&u.name.trim());
-  const sigCount=countPdfSignatures(b64), req=Math.max(1,committee.length||3);
-  const edgeOk=edgeResult?edgeResult.verified===true:null;
-  const edgeSigners=edgeResult?(edgeResult.signers||[]):[];
-  const allMatched=edgeSigners.length>0&&committee.length>0&&committee.every(mb=>edgeSigners.some(n=>mb.name.split(' ').filter(p=>p.length>2).every(p=>n.toUpperCase().includes(p.toUpperCase()))));
-  const edgeFailed=(edgeOk===false)||(edgeSigners.length>0&&committee.length>0&&!allMatched);
-  const isValid=sigCount>=req&&edgeOk===true&&!edgeFailed;
-  const sc=isValid?'#198754':'#856404', sb=isValid?'#d1e7dd':'#fff3cd', sbr=isValid?'#198754':'#ffc107';
-  let html='<div style="background:'+sb+';border:2px solid '+sbr+';border-radius:8px;padding:14px;margin-bottom:14px;">'
-    +'<div style="font-size:24px;margin-bottom:6px;">'+(isValid?'✅':'⚠️')+'</div>'
-    +'<div style="font-weight:700;color:'+sc+';font-size:13px;">'+(isValid?'Μαζικό Πρωτόκολλο — Έγκυρο':'Έλεγχος Υπογραφών')+'</div>'
-    +'<div style="font-size:11px;margin-top:4px;">📄 '+esc(fname)+' — '+sigCount+'/'+req+' υπογραφές</div>';
-  committee.forEach(mb=>{
-    const m=edgeSigners.length>0?edgeSigners.some(n=>mb.name.split(' ').filter(p=>p.length>2).every(p=>n.toUpperCase().includes(p.toUpperCase()))):null;
-    html+='<div style="font-size:11px;margin-top:3px;">'+(m===true?'✅':m===false?'❌':'⏳')+' '+esc(mb.name)+'</div>';
-  });
-  if(edgeResult&&edgeResult.message) html+='<div style="font-size:10px;margin-top:6px;color:'+sc+';">🔐 '+esc(edgeResult.message)+'</div>';
-  html+='</div>';
-  const total=orders.reduce((s,w)=>s+Math.max(0,woTotal(w)-(w.penaltyAmount||0)),0);
-  html+='<div style="background:var(--sec);border-radius:6px;padding:10px;margin-bottom:14px;">'
-    +'<div style="font-size:11px;font-weight:600;margin-bottom:6px;">Εντολές ('+orders.length+'):</div>';
-  orders.forEach(w=>{html+='<div style="font-size:11px;">• <strong>'+esc(w.orderNum)+'</strong> '+esc(w.location)+' ('+fmt(Math.max(0,woTotal(w)-(w.penaltyAmount||0)))+' €)</div>';});
-  html+='<div style="font-weight:700;margin-top:6px;">Σύνολο: '+fmt(total)+' €</div></div>';
-  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">';
-  if(edgeFailed){
-    html+='<div style="background:#fee2e2;border:2px solid #dc2626;border-radius:8px;padding:10px;font-size:12px;color:#991b1b;text-align:center;width:100%;">🚫 Μη έγκυρο πρωτόκολλο — Ανεβάστε το σωστό PDF</div>';
-  } else if(isValid){
-    html+='<button class="btn btn-p" style="font-size:13px;" onclick="finalizeBulkAcceptance()">✅ Ολοκλήρωση Μαζικής Παραλαβής & Χρεώσεις</button>';
-  } else {
-    html+='<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px;font-size:12px;color:#856404;text-align:center;">⏳ Χρειάζονται '+Math.max(0,req-sigCount)+' ακόμη υπογραφές</div>';
-  }
-  html+='<button class="btn" style="border-color:var(--amber);color:var(--amber);" onclick="renderBulkSigModal(workOrders.filter(w=>_bulkSelected.has(w.id)))">↩ Επανεκκίνηση</button></div>';
-  document.getElementById('sigModalBody').innerHTML=html;
-}
-async function finalizeBulkAcceptance(){
-  const orders=workOrders.filter(w=>_bulkSelected.has(w.id));
-  if(!orders.length)return;
-  if(!confirm('Ολοκλήρωση μαζικής παραλαβής για '+orders.length+' εντολές;\nΘα δημιουργηθούν '+orders.length+' χρεώσεις αυτόματα.'))return;
-  const bulkWo=window._bulkWo||{};
-  const today=todayStr(); const d=new Date();
-  orders.forEach(wo=>{
-    wo.status='Παραλήφθηκε'; wo.completionDate=today;
-    wo.signedPdfData=bulkWo.signedPdfData||null; wo.signedPdfUrl=bulkWo.signedPdfUrl||null;
-    wo.signedPdfName=bulkWo.signedPdfName||''; wo.signedAt=bulkWo.signedAt||new Date().toISOString();
-    wo._edgeResult=bulkWo._edgeResult||null; wo._isBulkProtocol=true;
-    if(!payments.some(p=>p.orderId===wo.id&&!p.isPenalty)){
-      const net=Math.max(0,woTotal(wo)-(wo.penaltyAmount||0));
-      payments.push({id:genId(),date:today,amount:net,orderId:wo.id,invoiceNum:'',
-        month:d.toLocaleDateString('el-GR',{month:'long',year:'numeric'}),
-        notes:'Μαζική παραλαβή ('+orders.length+' εντολές) — '+esc(wo.orderNum),
-        isPenalty:false,autoCreated:true});
-    }
-  });
-  _bulkSelected.clear(); window._bulkWo=null;
-  closeSigModal(); save(); renderAll(); updateBulkBar();
-  toast('✅ Μαζική παραλαβή '+orders.length+' εντολών ολοκληρώθηκε!');
-}
-function printBulkProtocol(){
-  const orders=workOrders.filter(w=>_bulkSelected.has(w.id));
-  if(!orders.length){toast('Δεν υπάρχουν επιλεγμένες εντολές');return;}
-  const today=todayStr(), vatR=settings.vatRate||24;
-  const committee=(settings.eSignUsers||[]).filter(u=>u.name);
-  const totalGross=orders.reduce((s,w)=>s+woTotal(w),0);
-  const totalPen=orders.reduce((s,w)=>s+(w.penaltyAmount||0),0);
-  const totalNet=orders.reduce((s,w)=>s+Math.max(0,woTotal(w)-(w.penaltyAmount||0)),0);
-  let rows='';
-  orders.forEach((wo,i)=>{
-    const items=wo.items||[];
-    let itemRows='';
-    items.forEach((it,j)=>{
-      const qty=parseFloat(it.qty)||0,up=parseFloat(it.unitPrice)||0,net=qty*up;
-      itemRows+='<tr><td>'+(j+1)+'</td><td>'+esc(it.code||'')+'</td><td>'+esc(it.description||it.name||it.desc||'')+'</td><td>'+qty+'</td><td>'+fmt(up)+' €</td><td><strong>'+fmt(net)+' €</strong></td></tr>';
-    });
-    rows+='<tr style="background:#1a3a5c;color:#fff;"><td colspan="6"><strong>'+esc(wo.orderNum)+'</strong> — '+esc(wo.location)+(wo.penaltyAmount>0?' | ⚠ Ρήτρα: -'+fmt(wo.penaltyAmount)+' €':'')+'</td></tr>'+itemRows
-      +'<tr style="background:#f8f9fa;"><td colspan="5" style="text-align:right;">Σύνολο εντολής:</td><td><strong>'+fmt(Math.max(0,woTotal(wo)-(wo.penaltyAmount||0)))+' €</strong></td></tr>';
-  });
-  let sigCells='';
-  committee.forEach(m=>{sigCells+='<td style="border:1px solid #333;padding:10px;text-align:center;height:60px;vertical-align:bottom;"><strong>'+esc(m.name)+'</strong><br><span style="font-size:8pt;color:#555;">'+esc(m.role)+'</span><br><br>Υπογραφή:<br></td>';});
-  if(committee.length<3) for(let i=committee.length;i<3;i++) sigCells+='<td style="border:1px solid #333;padding:10px;"></td>';
-  const html='<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Μαζικό Πρωτόκολλο</title>'
-    +'<style>body{font-family:Arial,sans-serif;font-size:10pt;margin:20px;}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:9pt;}th,td{border:1px solid #ddd;padding:4px 6px;}th{background:#e0e0e0;}</style>'
-    +'</head><body>'
-    +'<div style="text-align:center;margin-bottom:16px;"><div style="font-size:13pt;font-weight:700;">ΔΗΜΟΣ ΡΟΔΟΥ</div><div>ΠΡΩΤΟΚΟΛΛΟ ΟΡΙΣΤΙΚΗΣ ΤΜΗΜΑΤΙΚΗΣ ΠΑΡΑΛΑΒΗΣ (ΜΑΖΙΚΗ)</div>'
-    +'<div>Ημερομηνία: '+fmtDate(today)+' | Εντολές: '+orders.length+'</div></div>'
-    +'<p><strong>Ανάδοχος:</strong> '+esc(settings.contractor||'—')+'</p>'
-    +'<table><thead><tr><th>#</th><th>Κωδ.</th><th>Περιγραφή</th><th>Ποσ.</th><th>Τιμή</th><th>Αξία</th></tr></thead><tbody>'+rows
-    +'<tr style="background:#1a3a5c;color:#fff;font-weight:700;"><td colspan="5" style="text-align:right;">ΓΕΝΙΚΟ ΣΥΝΟΛΟ ΜΕ ΦΠΑ '+vatR+'%:</td><td>'+fmt(totalNet*(1+vatR/100))+' €</td></tr>'
-    +'</tbody></table>'
-    +'<p style="margin-top:20px;"><strong>Η Επιτροπή Παραλαβής:</strong></p>'
-    +'<table><tr>'+sigCells+'</tr></table>'
-    +'</body></html>';
-  const win=window.open('','_blank','width=900,height=1000');
-  win.document.write(html); win.document.close();
-  setTimeout(()=>win.print(),600);
-}
-
 function renderAll(){
   updateHeader();
   // Citizen mode UI
@@ -3260,6 +3255,7 @@ function renderAll(){
   if(isCitizenMode()){
     if(citizenBar) citizenBar.style.display='flex';
     if(navEl) navEl.style.display='none';
+    document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='none');
     return;
   } else {
     if(citizenBar) citizenBar.style.display='none';
@@ -3343,10 +3339,15 @@ function renderIssues(){
   const search=(document.getElementById('iSearch')?.value||'').toLowerCase();
   const fs=document.getElementById('iStatus')?.value||'';
   const fp=document.getElementById('iPrio')?.value||'';
-  const fc=document.getElementById('i_cat')?.value||'';
+  const fc=document.getElementById('iCat')?.value||'';
   const dateFrom=document.getElementById('iDateFrom')?.value||'';
   const dateTo=document.getElementById('iDateTo')?.value||'';
+  const citizenPhone = getCitizenSessionPhone();
   let list=issues.filter(i=>{
+    if(isCitizenMode()){
+      const issuePhone = normalizeGreekPhone(i.citizenMobile || i.mobile || i.contactInfo || '');
+      if(!citizenPhone || issuePhone!==citizenPhone) return false;
+    }
     if(fs&&i.status!==fs)return false;
     if(fp&&i.priority!==fp)return false;
     if(fc&&i.category!==fc)return false;
@@ -3405,12 +3406,12 @@ function renderIssues(){
         <td style="font-size:11px">${days}η</td>
         <td><div class="abtns">
           <button class="btn btn-sm" onclick="viewIssueDetail('${i.id}')" style="font-size:10px;padding:3px 8px;" title="Προβολή πλήρων στοιχείων">👁</button>
-          ${wo ? '<span style="font-size:10px;color:var(--amber);font-weight:600;">🔒 Κλειδωμένο</span>' : `
+          ${isCitizenMode() ? '' : (wo ? '<span style="font-size:10px;color:var(--amber);font-weight:600;">🔒 Κλειδωμένο</span>' : `
           ${i.status!=='Ολοκληρωμένο'?`<button class="ab-done" onclick="chStatus('${i.id}','Ολοκληρωμένο')">✓ Τέλος</button>`:''}
           ${i.status==='Προς ενέργεια'?`<button class="ab-order" onclick="chStatus('${i.id}','Συνεχιζόμενο')">↻ Συνεχίζεται</button>`:''}
           <button class="ab-edit" onclick="editIssue('${i.id}')">✎</button>
           <button class="ab-del" onclick="delIssue('${i.id}')">🗑</button>
-          `}
+          `)}
         </div></td>
       </tr>`;
     }).join('')}</tbody>
@@ -3627,11 +3628,7 @@ function renderOrders(){
       +(_isOverdue?'<div style="font-size:9px;color:#dc2626;font-weight:700;margin-top:2px;">🔴 ΕΚΤΟΣ ΧΡΟΝΟΥ</div>':'');
     // Penalty lock indicator
     const lockBadge = w.penaltyApplied ? ' <span style="font-size:10px;background:var(--rbg);color:var(--red);padding:1px 5px;border-radius:3px;font-weight:600;">🔒 ΚΛΕΙΔΩΜΑ</span>' : '';
-    const _isEligibleBulk = w.orderType!=='service' && w.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές' && !w.signedPdfData && !w.signedPdfUrl;
-    const _isChecked = _bulkSelected.has(w.id);
-    const _chk = _isEligibleBulk ? '<input type="checkbox" data-oid="'+w.id+'" '+(_isChecked?'checked':'')+' onchange="toggleBulkSelect(this.dataset.oid)" style="width:16px;height:16px;cursor:pointer;accent-color:#1a2744;">' : '';
-    rows+='<tr style="'+(_isChecked?'background:#eff6ff;outline:2px solid #3b82f6;':'')+'">'
-      +'<td style="width:30px;text-align:center;">'+_chk+'</td>'
+    rows+='<tr>'
       +'<td><strong>'+esc(w.orderNum)+'</strong>'+(w.orderType==='service'?'<br><span style="font-size:10px;background:#d1fae5;color:#065f46;padding:1px 5px;border-radius:3px;font-weight:600;">🔧 Υπηρεσίας</span>':'<br><span style="font-size:10px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:3px;font-weight:600;">📄 Αναδόχου</span>')+(issue?'<br><span style="font-size:10px;font-weight:700;color:var(--amber);">📋 '+(issue.issueNum||issue.id.slice(-4).toUpperCase())+'</span><br><span style="font-size:10px;color:var(--muted)">'+esc(issue.title.slice(0,28))+'</span>':'')+'</td>'
       +'<td style="white-space:nowrap">'+fmtDate(w.date)+'<br><span style="font-size:10px;color:var(--muted)">🕐 '+(w.issuedTime||'—')+'</span>'+'</td>'
       +'<td>'+esc(w.location)+'</td>'
@@ -3646,7 +3643,7 @@ function renderOrders(){
       +'</tr>';
   });
   document.getElementById('ordersTbl').innerHTML='<div class="tbl-wrap"><table>'
-    +'<thead><tr><th style="width:30px"></th><th>Αρ. Εντολής</th><th>Ημ/νία</th><th>Τοποθεσία</th><th>Προτ.</th><th>Εργασίες</th><th>Κόστος (χ.ΦΠΑ)</th><th>Κατάσταση</th><th>Ενέργειες</th></tr></thead>'
+    +'<thead><tr><th>Αρ. Εντολής</th><th>Ημ/νία</th><th>Τοποθεσία</th><th>Προτ.</th><th>Εργασίες</th><th>Κόστος (χ.ΦΠΑ)</th><th>Κατάσταση</th><th>Ενέργειες</th></tr></thead>'
     +'<tbody>'+rows+'</tbody>'
     +'</table></div>';
 }
@@ -4628,31 +4625,13 @@ function editIssue(id){
 function saveIssue(){
   const mobileVal = (document.getElementById('i_mobile')?.value||'').trim();
   const editingId = document.getElementById('issueModal')?.dataset?.editId||null;
-  // Citizen mode always requires OTP verification before saving
-  if(isCitizenMode() && !editingId){
-    if(!mobileVal || mobileVal.length < 10){
-      alert('⚠️ Παρακαλώ συμπληρώστε έγκυρο αριθμό κινητού τηλεφώνου για την επαλήθευση.');
-      document.getElementById('i_mobile')?.focus();
-      return;
-    }
+  if(mobileVal && mobileVal.length >= 10 && !editingId){
     let p = mobileVal.replace(/[\s\-\.\(\)]/g,'');
     if(p.startsWith('0')) p = '+30' + p.slice(1);
     if(!p.startsWith('+') && p.length===10) p = '+30' + p;
-    if(!_otpVerified.has(p)){
-      if(!window._fbReady){
-        toast('⚠️ Η υπηρεσία επαλήθευσης δεν είναι διαθέσιμη τοπικά. Χρησιμοποιήστε το GitHub site.');
-        // Allow save anyway in local mode for testing
-        _doSaveIssue();
-        return;
-      }
-      requirePhoneVerification(mobileVal, ()=>{ _doSaveIssue(); });
-      return;
-    }
-  } else if(mobileVal && mobileVal.length >= 10 && !editingId && window._fbReady){
-    let p = mobileVal.replace(/[\s\-\.\(\)]/g,'');
-    if(p.startsWith('0')) p = '+30' + p.slice(1);
-    if(!p.startsWith('+') && p.length===10) p = '+30' + p;
-    if(!_otpVerified.has(p)){
+    // Always require OTP for citizen mode; optionally for staff if Firebase ready
+    const needOtp = isCitizenMode() || window._fbReady;
+    if(needOtp && !_otpVerified.has(p)){
       requirePhoneVerification(mobileVal, ()=>{ _doSaveIssue(); });
       return;
     }
@@ -4700,10 +4679,22 @@ function _doSaveIssue(){
     municipalDate:document.getElementById('i_municipalDate')?.value||'',
     completionDate:''
   };
+  data.citizenPhoneKey = normalizeGreekPhone(data.citizenMobile);
+  if(isCitizenMode()){
+    if(!data.citizenMobile){ alert('Συμπληρώστε το κινητό τηλέφωνο για την ταυτοποίηση του πολίτη.'); return; }
+    if(!data.description){ alert('Συμπληρώστε την αναλυτική περιγραφή του αιτήματος.'); return; }
+    if(data.citizenPhoneKey) setCitizenSessionPhone(data.citizenPhoneKey);
+  }
   if(!data.date||!data.category||!data.title||!data.location){alert('Συμπληρώστε τα υποχρεωτικά πεδία (*).');return;}
   if(id){const idx=issues.findIndex(x=>x.id===id);if(idx>=0){data.completionDate=issues[idx].completionDate||'';issues[idx]=data;}}
   else issues.push(data);
-  save();closeM('issueModal');renderAll();toast(id?'Αίτημα ενημερώθηκε':'Νέο αίτημα προστέθηκε');
+  save();closeM('issueModal');renderAll();
+  if(isCitizenMode()){
+    openCitizenMyIssues();
+    toast(id?'Το αίτημά σας ενημερώθηκε':'Το αίτημά σας καταχωρίστηκε');
+  }else{
+    toast(id?'Αίτημα ενημερώθηκε':'Νέο αίτημα προστέθηκε');
+  }
 }
 
 // ================================================================
@@ -4760,10 +4751,22 @@ function _doSaveIssue(){
     municipalDate:document.getElementById('i_municipalDate')?.value||'',
     completionDate:''
   };
+  data.citizenPhoneKey = normalizeGreekPhone(data.citizenMobile);
+  if(isCitizenMode()){
+    if(!data.citizenMobile){ alert('Συμπληρώστε το κινητό τηλέφωνο για την ταυτοποίηση του πολίτη.'); return; }
+    if(!data.description){ alert('Συμπληρώστε την αναλυτική περιγραφή του αιτήματος.'); return; }
+    if(data.citizenPhoneKey) setCitizenSessionPhone(data.citizenPhoneKey);
+  }
   if(!data.date||!data.category||!data.title||!data.location){alert('Συμπληρώστε τα υποχρεωτικά πεδία (*).');return;}
   if(id){const idx=issues.findIndex(x=>x.id===id);if(idx>=0){data.completionDate=issues[idx].completionDate||'';issues[idx]=data;}}
   else issues.push(data);
-  save();closeM('issueModal');renderAll();toast(id?'Αίτημα ενημερώθηκε':'Νέο αίτημα προστέθηκε');
+  save();closeM('issueModal');renderAll();
+  if(isCitizenMode()){
+    openCitizenMyIssues();
+    toast(id?'Το αίτημά σας ενημερώθηκε':'Το αίτημά σας καταχωρίστηκε');
+  }else{
+    toast(id?'Αίτημα ενημερώθηκε':'Νέο αίτημα προστέθηκε');
+  }
 }
 
 // ================================================================
@@ -6035,8 +6038,8 @@ function checkCitizenDuplicate(){
   const matches = issues.filter(iss=>{
     if(editingId && iss.id===editingId) return false;
     const iName=(iss.citizenName||'').toLowerCase();
-    const iMob=(iss.mobile||'').replace(/\s+/g,'');
-    const iEmail=(iss.citizenEmail||'').toLowerCase();
+    const iMob=normalizeGreekPhone(iss.citizenMobile || iss.mobile || '').replace(/\s+/g,'');
+    const iEmail=(iss.citizenEmail||iss.email||'').toLowerCase();
     if(name&&name.length>2&&iName&&iName.includes(name)) return true;
     if(mobile&&mobile.length>6&&iMob&&(iMob.includes(mobile.replace('+30',''))||mobile.includes(iMob.replace('+30','')))) return true;
     if(email&&email.length>4&&iEmail===email) return true;
@@ -6289,12 +6292,36 @@ function otpCancel(){
       <span style="font-size:11px;color:#9ca3af;">ή</span>
       <div style="flex:1;height:1px;background:#e5e7eb;"></div>
     </div>
-    <button class="login-btn" onclick="loginAsCitizen()" style="margin-top:12px;background:#27ae60;color:#fff;border-color:#27ae60;">
+    <button class="login-btn" onclick="openCitizenPhoneLogin()" style="margin-top:12px;background:#27ae60;color:#fff;border-color:#27ae60;">
       👤 Είσοδος Πολίτη
     </button>
-    <p style="font-size:10px;color:#9ca3af;text-align:center;margin-top:8px;">Για υποβολή αιτήματος χωρίς λογαριασμό</p>
+    <p style="font-size:10px;color:#9ca3af;text-align:center;margin-top:8px;">Για υποβολή και παρακολούθηση αιτημάτων με ταυτοποίηση κινητού</p>
   </div>
   <div class="login-version">v2.0 · Δήμος Ρόδου 2026</div>
+</div>
+
+<div id="citizenLoginWrap" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9998;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)closeCitizenPhoneLogin()">
+  <div style="width:min(460px,100%);background:#fff;border-radius:16px;box-shadow:0 16px 40px rgba(0,0,0,.2);overflow:hidden;">
+    <div style="padding:16px 18px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <div>
+        <div style="font-weight:800;color:#1f2d3d;">Είσοδος Πολίτη</div>
+        <div style="font-size:12px;color:#6b7280;">Με τον ίδιο αριθμό κινητού βλέπετε τα δικά σας αιτήματα.</div>
+      </div>
+      <button type="button" onclick="closeCitizenPhoneLogin()" style="border:none;background:none;font-size:20px;cursor:pointer;color:#6b7280;">✕</button>
+    </div>
+    <div style="padding:18px;">
+      <label style="display:block;font-size:12px;font-weight:700;color:#4b5563;margin-bottom:6px;">Κινητό τηλέφωνο</label>
+      <input id="citizenLoginPhone" type="tel" placeholder="69xxxxxxxx" style="width:100%;border:2px solid #e5e7eb;border-radius:10px;padding:12px 14px;font-size:15px;" onkeydown="if(event.key==='Enter')citizenAuthStart()">
+      <div id="citizenLoginError" style="display:none;margin-top:10px;padding:10px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:10px;color:#991b1b;font-size:12px;"></div>
+      <div style="margin-top:12px;font-size:12px;color:#6b7280;line-height:1.45;">
+        Την πρώτη φορά γίνεται ταυτοποίηση με SMS και, από το πρώτο αίτημα που καταχωρίζετε, το κινητό σας γίνεται το κλειδί αναγνώρισης των αιτημάτων σας.
+      </div>
+    </div>
+    <div style="padding:14px 18px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px;background:#fafafa;">
+      <button type="button" class="btn" onclick="closeCitizenPhoneLogin()">Ακύρωση</button>
+      <button type="button" class="btn btn-p" onclick="citizenAuthStart()">Συνέχεια με SMS</button>
+    </div>
+  </div>
 </div>
 
 <!-- LOGOUT POPUP -->
