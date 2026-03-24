@@ -2214,6 +2214,7 @@ function loginSuccess(u){
       document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='none');
       const citizenBar = document.getElementById('citizenBar');
       if(citizenBar) citizenBar.style.display='flex';
+      renderCitizenDashboard();
     }
   });
   toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
@@ -3363,6 +3364,74 @@ function getCitizenGpsLocation(){
   );
 }
 
+function upgradeCitizenIssue(id){
+  // Open the issue for editing with full form (staff mode)
+  editIssue(id);
+  toast('📋 Αναβάθμιση αιτήματος πολίτη — συμπληρώστε τα επιπλέον στοιχεία');
+}
+
+function renderCitizenDashboard(){
+  if(!isCitizenMode()) return;
+  const phone = (currentUser.citizenPhone||'').replace(/[\s\-\.]/g,'');
+  const myIssues = issues.filter(iss=>{
+    const issPhone = (iss.mobile||'').replace(/[\s\-\.]/g,'').replace('+30','');
+    const myClean = phone.replace('+30','');
+    return issPhone && myClean && (issPhone.endsWith(myClean) || myClean.endsWith(issPhone));
+  });
+  
+  // Show citizen dashboard in the main content area
+  const main = document.querySelector('main') || document.body;
+  let dashDiv = document.getElementById('citizenDashboard');
+  if(!dashDiv){
+    dashDiv = document.createElement('div');
+    dashDiv.id = 'citizenDashboard';
+    dashDiv.style.cssText = 'padding:16px;max-width:900px;margin:0 auto;';
+    main.prepend(dashDiv);
+  }
+  
+  const total = issues.length;
+  let html = '<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;">';
+  html += '<div><div style="font-size:15px;font-weight:700;color:#0369a1;">👤 Τα Αιτήματά μου</div>';
+  html += '<div style="font-size:12px;color:#0284c7;margin-top:2px;">Σύνολο αιτημάτων συστήματος: <strong>'+total+'</strong></div></div>';
+  html += '<button class="btn" style="background:#27ae60;color:#fff;border-color:#27ae60;font-weight:700;" onclick="openAddIssue()">✚ Νέο Αίτημα</button>';
+  html += '</div>';
+  
+  if(!myIssues.length){
+    html += '<div style="text-align:center;padding:40px;background:#fff;border-radius:10px;border:1px solid #e5e7eb;">';
+    html += '<div style="font-size:48px;margin-bottom:12px;">📋</div>';
+    html += '<div style="font-size:15px;font-weight:600;color:#374151;">Δεν έχετε αιτήματα ακόμα</div>';
+    html += '<div style="font-size:13px;color:#6b7280;margin-top:6px;">Πατήστε «Νέο Αίτημα» για να υποβάλετε το πρώτο σας αίτημα</div>';
+    html += '</div>';
+  } else {
+    html += '<div style="display:flex;flex-direction:column;gap:10px;">';
+    myIssues.slice().reverse().forEach(iss=>{
+      const statusColors = {
+        'Προς ενέργεια':'#fef3c7;color:#92400e',
+        'Συνεχιζόμενο':'#dbeafe;color:#1e40af',
+        'Ολοκληρωμένο':'#d1fae5;color:#065f46',
+        'Δεν προχώρησε':'#fee2e2;color:#991b1b'
+      };
+      const stColor = statusColors[iss.status] || '#f3f4f6;color:#374151';
+      html += '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px;border-left:4px solid #27ae60;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">';
+      html += '<div style="flex:1;">';
+      html += '<div style="font-weight:700;font-size:14px;color:#1a2744;">'+esc(iss.title||'—')+'</div>';
+      html += '<div style="font-size:12px;color:#6b7280;margin-top:3px;">📍 '+esc(iss.location||'—')+'</div>';
+      html += '<div style="font-size:11px;color:#9ca3af;margin-top:2px;">📅 '+fmtDate(iss.date)+(iss.time?' · '+iss.time:'')+'</div>';
+      if(iss.description) html += '<div style="font-size:12px;color:#374151;margin-top:6px;">'+esc(iss.description.slice(0,100))+(iss.description.length>100?'...':'')+'</div>';
+      html += '</div>';
+      html += '<span style="background:'+stColor+';padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;">'+esc(iss.status)+'</span>';
+      html += '</div>';
+      if(iss.issueNum) html += '<div style="font-size:10px;color:#9ca3af;margin-top:6px;">Αρ. Αιτήματος: '+esc(iss.issueNum)+'</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+  
+  dashDiv.innerHTML = html;
+  dashDiv.style.display = 'block';
+}
+
 function renderAll(){
   updateHeader();
   // Citizen mode UI
@@ -3520,6 +3589,7 @@ function renderIssues(){
           ${i.status!=='Ολοκληρωμένο'?`<button class="ab-done" onclick="chStatus('${i.id}','Ολοκληρωμένο')">✓ Τέλος</button>`:''}
           ${i.status==='Προς ενέργεια'?`<button class="ab-order" onclick="chStatus('${i.id}','Συνεχιζόμενο')">↻ Συνεχίζεται</button>`:''}
           <button class="ab-edit" onclick="editIssue('${i.id}')">✎</button>
+          \${i.source==='citizen'?'<button style="background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:3px;padding:3px 8px;font-size:10px;cursor:pointer;" onclick="upgradeCitizenIssue(\''+i.id+'\')">⬆ Αναβάθμιση</button>':''}
           <button class="ab-del" onclick="delIssue('${i.id}')">🗑</button>
           `}
         </div></td>
@@ -4754,6 +4824,7 @@ function _doSaveIssue(){
   const data={
     id:id||genId(),
     issueNum: id ? (issues.find(x=>x.id===id)?.issueNum || nextIssueNum()) : nextIssueNum(),
+    source: isCitizenMode() ? 'citizen' : (id ? (issues.find(x=>x.id===id)?.source||'staff') : 'staff'),
     date:document.getElementById('i_date').value,
     time:document.getElementById('i_time')?.value||'',
     receiptMethod:document.getElementById('i_receipt').value,
