@@ -2532,7 +2532,12 @@ function renderSigModal(){
   const _edgeOk = wo._edgeResult ? (wo._edgeResult.verified === true) : null;
   const _allMembersMatched = _edgeSigners.length > 0 && _committee.length > 0
     && _committee.every(mb => _edgeSigners.some(n =>
-        mb.name.split(' ').filter(p=>p.length>2).every(p=>n.toUpperCase().includes(p.toUpperCase()))
+        (()=>{
+        const mbParts=mb.name.toUpperCase().trim().split(/\s+/).filter(p=>p.length>2);
+        const sigN=n.toUpperCase().trim();
+        // All parts of committee name must appear in signer name
+        return mbParts.length>0 && mbParts.every(p=>sigN.includes(p));
+      })()
       ));
   const _edgeFailed = (_edgeOk === false)
     || (_edgeSigners.length > 0 && _committee.length > 0 && !_allMembersMatched);
@@ -6099,7 +6104,12 @@ function renderBulkResultModal(orders,edgeResult,fname,b64){
   const sigCount=countPdfSignatures(b64), req=Math.max(1,committee.length||3);
   const edgeOk=edgeResult?edgeResult.verified===true:null;
   const edgeSigners=edgeResult?(edgeResult.signers||[]):[];
-  const allMatched=edgeSigners.length>0&&committee.length>0&&committee.every(mb=>edgeSigners.some(n=>mb.name.split(' ').filter(p=>p.length>2).every(p=>n.toUpperCase().includes(p.toUpperCase()))));
+  const allMatched=edgeSigners.length>0&&committee.length>0&&committee.every(mb=>edgeSigners.some(n=>(()=>{
+        const mbParts=mb.name.toUpperCase().trim().split(/\s+/).filter(p=>p.length>2);
+        const sigN=n.toUpperCase().trim();
+        // All parts of committee name must appear in signer name
+        return mbParts.length>0 && mbParts.every(p=>sigN.includes(p));
+      })()));
   const edgeFailed=(edgeOk===false)||(edgeSigners.length>0&&committee.length>0&&!allMatched);
   const isValid=sigCount>=req&&edgeOk===true&&!edgeFailed;
   const sc=isValid?'#198754':'#856404',sb=isValid?'#d1e7dd':'#fff3cd',sbr=isValid?'#198754':'#ffc107';
@@ -6108,7 +6118,12 @@ function renderBulkResultModal(orders,edgeResult,fname,b64){
     +'<div style="font-weight:700;color:'+sc+';font-size:13px;">'+(isValid?'Μαζικό Πρωτόκολλο — Έγκυρο':'Έλεγχος Υπογραφών')+'</div>'
     +'<div style="font-size:11px;margin-top:4px;">📄 '+esc(fname)+' — '+sigCount+'/'+req+' υπογραφές</div>';
   committee.forEach(mb=>{
-    const m=edgeSigners.length>0?edgeSigners.some(n=>mb.name.split(' ').filter(p=>p.length>2).every(p=>n.toUpperCase().includes(p.toUpperCase()))):null;
+    const m=edgeSigners.length>0?edgeSigners.some(n=>(()=>{
+        const mbParts=mb.name.toUpperCase().trim().split(/\s+/).filter(p=>p.length>2);
+        const sigN=n.toUpperCase().trim();
+        // All parts of committee name must appear in signer name
+        return mbParts.length>0 && mbParts.every(p=>sigN.includes(p));
+      })()):null;
     html+='<div style="font-size:11px;margin-top:3px;">'+(m===true?'✅':m===false?'❌':'⏳')+' '+esc(mb.name)+'</div>';
   });
   if(edgeResult&&edgeResult.message) html+='<div style="font-size:10px;margin-top:6px;color:'+sc+';">🔐 '+esc(edgeResult.message)+'</div>';
