@@ -2,8 +2,8 @@
   "name": "Δημότης — Δήμος Ρόδου",
   "short_name": "Δημότης",
   "description": "Σύστημα Αυτεπιστασίας & Αιτημάτων Πολιτών — Δήμος Ρόδου",
-  "start_url": "/dimotiki-enotita-rhodes/dimotiki_enotita_rhodes.html",
-  "scope": "/dimotiki-enotita-rhodes/",
+  "start_url": "index.html",
+  "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#1a2744",
@@ -23,6 +23,8 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["productivity", "utilities"],
-  "screenshots": []
+  "categories": [
+    "productivity",
+    "utilities"
+  ]
 }

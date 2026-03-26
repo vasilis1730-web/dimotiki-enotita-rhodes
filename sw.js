@@ -1,16 +1,10 @@
-const CACHE_NAME = 'dimotis-v1';
-const ASSETS = [
-  '/dimotiki-enotita-rhodes/dimotiki_enotita_rhodes.html'
-];
+const CACHE_NAME = 'dimotis-v3';
+const ASSETS = ['index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
-// Install: cache app shell
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
-  );
+  e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(ASSETS)));
 });
 
-// Activate: clean old caches
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
@@ -20,16 +14,14 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 
-// Fetch: network-first (always fresh), fallback to cache
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
     fetch(e.request)
       .then(res => {
-        // Cache the fresh response
         if (res.ok) {
           const clone = res.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
         }
         return res;
       })
@@ -37,7 +29,6 @@ self.addEventListener('fetch', e => {
   );
 });
 
-// Skip waiting when update is confirmed
 self.addEventListener('message', e => {
   if (e.data && e.data.action === 'skipWaiting') self.skipWaiting();
 });
