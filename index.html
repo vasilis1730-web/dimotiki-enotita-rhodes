@@ -311,28 +311,6 @@ tr:hover td{background:#faf9f7;}
 .huser-name{font-size:12px;font-weight:600;color:#fff;}
 
 .app-credit{position:fixed;bottom:6px;right:12px;font-size:10px;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:4px;padding:3px 8px;z-index:5;letter-spacing:.3px;opacity:.8;}
-
-/* Google Places Autocomplete styling */
-.pac-container {
-  border-radius: 6px;
-  border: 1px solid #d8d4cc;
-  box-shadow: 0 4px 16px rgba(0,0,0,.12);
-  font-family: 'Segoe UI', system-ui, sans-serif;
-  font-size: 13px;
-  margin-top: 2px;
-  z-index: 9999 !important;
-}
-.pac-item {
-  padding: 8px 12px;
-  cursor: pointer;
-  border-top: 1px solid #f0ede8;
-  color: #1a1a1a;
-}
-.pac-item:hover { background: #eceae4; }
-.pac-item-query { font-weight: 600; color: #1a3a5c; }
-.pac-matched { font-weight: 700; color: #1a3a5c; }
-.pac-icon { display: none; }
-
 </style>
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
@@ -343,48 +321,116 @@ tr:hover td{background:#faf9f7;}
     window._signInWithPhoneNumber=signInWithPhoneNumber; window._fbReady=true;
   </script>
   <link rel="manifest" href="manifest.json">
-<script>
-function initGooglePlaces(){
-  const input = document.getElementById('i_location');
-  if(!input || !window.google) return;
-  const ac = new google.maps.places.Autocomplete(input, {
-    componentRestrictions: {country: 'gr'},
-    fields: ['formatted_address','geometry','address_components'],
-    types: ['address']
-  });
-  ac.addListener('place_changed', function(){
-    const place = ac.getPlace();
-    if(!place.formatted_address) return;
-    // Extract street + number
-    const comps = place.address_components || [];
-    const route = comps.find(c=>c.types.includes('route'));
-    const num   = comps.find(c=>c.types.includes('street_number'));
-    const locality = comps.find(c=>c.types.includes('locality')||c.types.includes('administrative_area_level_3'));
-    let addr = '';
-    if(route) addr = route.long_name;
-    if(num)   addr += ' ' + num.long_name;
-    if(addr.trim()) input.value = addr.trim();
-    // Set coords if map fields exist
-    if(place.geometry){
-      const lat = place.geometry.location.lat();
-      const lng = place.geometry.location.lng();
-      const latEl = document.getElementById('i_mapLat');
-      const lngEl = document.getElementById('i_mapLng');
-      const disp  = document.getElementById('i_coordsDisplay');
-      if(latEl) latEl.value = lat;
-      if(lngEl) lngEl.value = lng;
-      if(disp)  disp.textContent = lat.toFixed(5)+', '+lng.toFixed(5);
-    }
-  });
-}
-</script>
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyATvkHqSyyVxVD8UujQQnj_wdR2Kc306wA&libraries=places&callback=initGooglePlaces&loading=async" async defer></script>
   <meta name="theme-color" content="#1a2744">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Δημότης">
   <link rel="apple-touch-icon" href="icon-192.png">
+
+<style>
+.autocomplete-list{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #d8d4cc;border-top:none;border-radius:0 0 6px 6px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:9999;max-height:220px;overflow-y:auto;font-size:12px;}
+.autocomplete-list div{padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0ede8;color:#1a1a1a;line-height:1.4;}
+.autocomplete-list div:hover{background:#eceae4;}
+.autocomplete-list div strong{color:#1a3a5c;}
+.autocomplete-list div small{color:#888;font-size:11px;display:block;}
+.ac-wrap{position:relative;}
+</style>
+<script>
+(function(){
+  var _acTimer = null;
+  var _acEl = null;
+
+  function removeList(){
+    if(_acEl){ _acEl.remove(); _acEl=null; }
+  }
+
+  function showList(input, items){
+    removeList();
+    if(!items.length) return;
+    var wrap = input.parentNode;
+    var div = document.createElement('div');
+    div.className = 'autocomplete-list';
+    items.forEach(function(item){
+      var row = document.createElement('div');
+      var addr = item.address || {};
+      var road = addr.road || addr.pedestrian || addr.footway || '';
+      var num  = addr.house_number || '';
+      var city = addr.city || addr.town || addr.village || addr.suburb || '';
+      var main = road + (num ? ' ' + num : '');
+      var sub  = city || item.display_name.split(',').slice(1,3).join(',').trim();
+      row.innerHTML = '<strong>' + (main||item.display_name.split(',')[0]) + '</strong><small>' + sub + '</small>';
+      row.addEventListener('mousedown', function(e){
+        e.preventDefault();
+        input.value = main || item.display_name.split(',')[0];
+        // Set coords if fields exist
+        var latEl = document.getElementById('i_mapLat');
+        var lngEl = document.getElementById('i_mapLng');
+        var dispEl = document.getElementById('i_coordsDisplay');
+        if(latEl) latEl.value = item.lat;
+        if(lngEl) lngEl.value = item.lon;
+        if(dispEl) dispEl.textContent = parseFloat(item.lat).toFixed(5)+', '+parseFloat(item.lon).toFixed(5);
+        removeList();
+        input.dispatchEvent(new Event('change'));
+      });
+      div.appendChild(row);
+    });
+    wrap.appendChild(div);
+    _acEl = div;
+  }
+
+  function initLocationAC(){
+    var input = document.getElementById('i_location');
+    if(!input) return;
+    // Wrap in relative div
+    if(!input.parentNode.classList.contains('ac-wrap')){
+      var wrap = document.createElement('div');
+      wrap.className = 'ac-wrap';
+      wrap.style.cssText = 'position:relative;width:100%;';
+      input.parentNode.insertBefore(wrap, input);
+      wrap.appendChild(input);
+    }
+    input.setAttribute('autocomplete','off');
+    input.setAttribute('placeholder','Πληκτρολογήστε οδό...');
+    input.addEventListener('input', function(){
+      var val = this.value.trim();
+      clearTimeout(_acTimer);
+      if(val.length < 3){ removeList(); return; }
+      var inp = this;
+      _acTimer = setTimeout(function(){
+        fetch('https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&countrycodes=gr&q=' + encodeURIComponent(val + ' Ρόδος'))
+          .then(function(r){ return r.json(); })
+          .then(function(data){ showList(inp, data); })
+          .catch(function(){});
+      }, 350);
+    });
+    input.addEventListener('blur', function(){
+      setTimeout(removeList, 200);
+    });
+    document.addEventListener('click', function(e){
+      if(!e.target.closest('.ac-wrap')) removeList();
+    });
+  }
+
+  // Init when modal opens
+  document.addEventListener('DOMContentLoaded', function(){
+    // Also patch openAddIssue
+    var _orig = window.openAddIssue;
+    function patchAC(){
+      setTimeout(initLocationAC, 200);
+    }
+    if(typeof window.openAddIssue === 'function'){
+      var origFn = window.openAddIssue;
+      window.openAddIssue = function(){
+        origFn.apply(this, arguments);
+        patchAC();
+      };
+    }
+    // Try immediately too
+    patchAC();
+  });
+})();
+</script>
 </head>
 <body>
 
@@ -660,14 +706,7 @@ function initGooglePlaces(){
         <div class="fg"><label>Σταθερό Τηλέφωνο</label><input type="tel" id="i_phone" placeholder="224xxxxxxx"></div>
         <div class="fg"><label>Email Πολίτη</label><input type="email" id="i_email" placeholder="email@example.com"></div>
         <input type="hidden" id="i_contact">
-        <div class="fg full"><label>Τοποθεσία / Οδός *</label>
-          <div style="position:relative;">
-            <input type="text" id="i_location" required 
-              placeholder="Πληκτρολογήστε οδό..." 
-              autocomplete="off"
-              style="width:100%;">
-          </div>
-          </div>
+        <div class="fg full"><label>Τοποθεσία / Οδός *</label><input type="text" id="i_location" required></div>
         <div class="fg"><label>Δημοτική / Τοπική Κοινότητα</label>
           <select id="i_unit">
             <option value="">— Επιλογή —</option>
