@@ -3,13 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#1a2744">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Δημότης">
-<link rel="apple-touch-icon" href="icon-192.png">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <title>Σύστημα Διαχείρισης Αυτεπιστασίας – Δήμος Ρόδου</title>
@@ -318,6 +311,28 @@ tr:hover td{background:#faf9f7;}
 .huser-name{font-size:12px;font-weight:600;color:#fff;}
 
 .app-credit{position:fixed;bottom:6px;right:12px;font-size:10px;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:4px;padding:3px 8px;z-index:5;letter-spacing:.3px;opacity:.8;}
+
+/* Google Places Autocomplete styling */
+.pac-container {
+  border-radius: 6px;
+  border: 1px solid #d8d4cc;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
+  margin-top: 2px;
+  z-index: 9999 !important;
+}
+.pac-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-top: 1px solid #f0ede8;
+  color: #1a1a1a;
+}
+.pac-item:hover { background: #eceae4; }
+.pac-item-query { font-weight: 600; color: #1a3a5c; }
+.pac-matched { font-weight: 700; color: #1a3a5c; }
+.pac-icon { display: none; }
+
 </style>
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
@@ -328,6 +343,42 @@ tr:hover td{background:#faf9f7;}
     window._signInWithPhoneNumber=signInWithPhoneNumber; window._fbReady=true;
   </script>
   <link rel="manifest" href="manifest.json">
+<script>
+function initGooglePlaces(){
+  const input = document.getElementById('i_location');
+  if(!input || !window.google) return;
+  const ac = new google.maps.places.Autocomplete(input, {
+    componentRestrictions: {country: 'gr'},
+    fields: ['formatted_address','geometry','address_components'],
+    types: ['address']
+  });
+  ac.addListener('place_changed', function(){
+    const place = ac.getPlace();
+    if(!place.formatted_address) return;
+    // Extract street + number
+    const comps = place.address_components || [];
+    const route = comps.find(c=>c.types.includes('route'));
+    const num   = comps.find(c=>c.types.includes('street_number'));
+    const locality = comps.find(c=>c.types.includes('locality')||c.types.includes('administrative_area_level_3'));
+    let addr = '';
+    if(route) addr = route.long_name;
+    if(num)   addr += ' ' + num.long_name;
+    if(addr.trim()) input.value = addr.trim();
+    // Set coords if map fields exist
+    if(place.geometry){
+      const lat = place.geometry.location.lat();
+      const lng = place.geometry.location.lng();
+      const latEl = document.getElementById('i_mapLat');
+      const lngEl = document.getElementById('i_mapLng');
+      const disp  = document.getElementById('i_coordsDisplay');
+      if(latEl) latEl.value = lat;
+      if(lngEl) lngEl.value = lng;
+      if(disp)  disp.textContent = lat.toFixed(5)+', '+lng.toFixed(5);
+    }
+  });
+}
+</script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyATvkHqSyyVxVD8UujQQnj_wdR2Kc306wA&libraries=places&callback=initGooglePlaces&loading=async" async defer></script>
   <meta name="theme-color" content="#1a2744">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -609,7 +660,14 @@ tr:hover td{background:#faf9f7;}
         <div class="fg"><label>Σταθερό Τηλέφωνο</label><input type="tel" id="i_phone" placeholder="224xxxxxxx"></div>
         <div class="fg"><label>Email Πολίτη</label><input type="email" id="i_email" placeholder="email@example.com"></div>
         <input type="hidden" id="i_contact">
-        <div class="fg full"><label>Τοποθεσία / Οδός *</label><input type="text" id="i_location" required></div>
+        <div class="fg full"><label>Τοποθεσία / Οδός *</label>
+          <div style="position:relative;">
+            <input type="text" id="i_location" required 
+              placeholder="Πληκτρολογήστε οδό..." 
+              autocomplete="off"
+              style="width:100%;">
+          </div>
+          </div>
         <div class="fg"><label>Δημοτική / Τοπική Κοινότητα</label>
           <select id="i_unit">
             <option value="">— Επιλογή —</option>
