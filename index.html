@@ -329,130 +329,113 @@ tr:hover td{background:#faf9f7;}
   <link rel="apple-touch-icon" href="icon-192.png">
 
 <style>
-.geo-dropdown{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #bab6ae;border-radius:0 0 8px 8px;box-shadow:0 6px 20px rgba(0,0,0,.15);z-index:99999;max-height:280px;overflow-y:auto;margin-top:1px;}
-.geo-dropdown .geo-row{padding:10px 13px;cursor:pointer;border-bottom:1px solid #f0ede8;line-height:1.5;}
-.geo-dropdown .geo-row:last-child{border-bottom:none;}
-.geo-dropdown .geo-row:hover,.geo-dropdown .geo-row.geo-sel{background:#e8f2fc;}
-.geo-dropdown .geo-row b{color:#1a3a5c;display:block;font-size:12px;}
-.geo-dropdown .geo-row span{color:#888;font-size:11px;}
-.geo-dropdown .geo-row .geo-pk{background:#1a3a5c;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;}
-#i_location{position:relative;}
+#geo-drop{position:fixed;background:#fff;border:1px solid #bab6ae;border-radius:0 0 8px 8px;box-shadow:0 6px 20px rgba(0,0,0,.18);z-index:999999;max-height:280px;overflow-y:auto;min-width:300px;}
+#geo-drop .gi{padding:10px 13px;cursor:pointer;border-bottom:1px solid #f0ede8;}
+#geo-drop .gi:last-child{border-bottom:none;}
+#geo-drop .gi:hover,#geo-drop .gi.gsel{background:#e8f2fc;}
+#geo-drop .gm{display:block;font-weight:600;color:#1a3a5c;font-size:13px;}
+#geo-drop .gs{display:block;color:#888;font-size:11px;margin-top:1px;}
+#geo-drop .gtk{background:#1a3a5c;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;}
 </style>
 <script>
-// ── Geoapify Address Autocomplete ──────────────────────────────
 (function(){
-  var API='6f466ee4363445e7a19cd6628b414b7b';
-  var timer=null, drop=null, selIdx=-1;
+  var K='6f466ee4363445e7a19cd6628b414b7b', drop=null, timer=null, idx=-1;
 
-  function removeDrop(){
-    if(drop){drop.parentNode&&drop.parentNode.removeChild(drop);drop=null;}
-    selIdx=-1;
-  }
+  function rm(){if(drop){drop.remove();drop=null;}idx=-1;}
 
-  function selectItem(inp, item){
+  function pick(inp,item){
     var p=item.properties||{};
     var road=p.street||p.address_line1||p.name||'';
     var num=p.housenumber||'';
-    var full=(road+(num?' '+num:'')).trim();
-    if(!full) full=(p.formatted||'').split(',')[0].trim();
-    inp.value=full;
-    // Postcode
-    var tk=p.postcode||'';
-    var pkEl=document.getElementById('i_postcode');
-    if(pkEl&&tk) pkEl.value=tk;
-    // Coords
+    var main=(road+(num?' '+num:'')).trim()||p.formatted.split(',')[0];
+    inp.value=main;
+    var tk=document.getElementById('i_postcode');
+    if(tk&&p.postcode)tk.value=p.postcode;
     var g=item.geometry;
     if(g&&g.coordinates){
-      var lat=g.coordinates[1], lng=g.coordinates[0];
-      var latEl=document.getElementById('i_mapLat');
-      var lngEl=document.getElementById('i_mapLng');
-      var dEl=document.getElementById('i_coordsDisplay');
-      if(latEl)latEl.value=lat;
-      if(lngEl)lngEl.value=lng;
-      if(dEl)dEl.textContent=lat.toFixed(5)+', '+lng.toFixed(5);
+      var la=g.coordinates[1],lo=g.coordinates[0];
+      ['i_mapLat','i_mapLng','i_coordsDisplay'].forEach(function(id){
+        var el=document.getElementById(id);
+        if(!el)return;
+        if(id==='i_coordsDisplay')el.textContent=la.toFixed(5)+', '+lo.toFixed(5);
+        else el.value=id==='i_mapLat'?la:lo;
+      });
     }
-    removeDrop();
+    rm();
   }
 
-  function showDrop(inp, features){
-    removeDrop();
-    if(!features||!features.length) return;
-    var wrap=inp.parentNode;
-    // Make sure wrap is relative
-    wrap.style.position='relative';
+  function show(inp,feats){
+    rm();
+    if(!feats||!feats.length)return;
     drop=document.createElement('div');
-    drop.className='geo-dropdown';
-    features.forEach(function(item,i){
+    drop.id='geo-drop';
+    var r=inp.getBoundingClientRect();
+    drop.style.cssText='left:'+r.left+'px;top:'+(r.bottom+window.scrollY)+'px;width:'+r.width+'px;';
+    feats.forEach(function(item,i){
       var p=item.properties||{};
       var road=p.street||p.address_line1||p.name||'';
       var num=p.housenumber||'';
-      var main=(road+(num?' '+num:'')).trim()||(p.formatted||'').split(',')[0];
-      var city=p.city||p.town||p.village||p.municipality||'';
+      var main=(road+(num?' '+num:'')).trim()||p.formatted.split(',')[0];
+      var city=p.city||p.town||p.village||'';
       var tk=p.postcode||'';
       var row=document.createElement('div');
-      row.className='geo-row';
-      row.innerHTML='<b>'+main+'</b><span>'+city+(tk?'<span class="geo-pk">'+tk+'</span>':'')+'</span>';
-      row.addEventListener('mousedown',function(e){e.preventDefault();selectItem(inp,item);});
+      row.className='gi';
+      row.innerHTML='<span class="gm">'+main+'</span><span class="gs">'+city+(tk?'<span class="gtk">ΤΚ '+tk+'</span>':'')+'</span>';
+      (function(it){row.addEventListener('mousedown',function(e){e.preventDefault();pick(inp,it);})})(item);
       drop.appendChild(row);
     });
-    wrap.appendChild(drop);
+    document.body.appendChild(drop);
   }
 
-  function doSearch(inp,val){
-    var url='https://api.geoapify.com/v1/geocode/autocomplete'
-      +'?text='+encodeURIComponent(val)
-      +'&filter=countrycode:gr'
-      +'&bias=proximity:28.2270,36.4341'
-      +'&lang=el'
-      +'&limit=8'
-      +'&apiKey='+API;
-    fetch(url)
+  function search(inp,val){
+    fetch('https://api.geoapify.com/v1/geocode/autocomplete?text='+encodeURIComponent(val)+'&filter=countrycode:gr&bias=proximity:28.2270,36.4341&lang=el&limit=7&apiKey='+K)
       .then(function(r){return r.json();})
-      .then(function(d){showDrop(inp,d.features||[]);})
-      .catch(function(e){console.warn('Geoapify err:',e);});
+      .then(function(d){show(inp,d.features||[]);})
+      .catch(function(e){console.error('Geo:',e);});
   }
 
-  function attachAC(inp){
-    if(!inp||inp.dataset.geoOk) return;
-    inp.dataset.geoOk='1';
-    inp.setAttribute('autocomplete','off');
-    inp.setAttribute('placeholder','Π.χ. Πίνδου 27...');
+  function setup(){
+    var inp=document.getElementById('i_location');
+    if(!inp||inp._geo)return;
+    inp._geo=1;
     inp.addEventListener('input',function(){
       var v=this.value.trim();
-      clearTimeout(timer);selIdx=-1;
-      if(v.length<3){removeDrop();return;}
+      clearTimeout(timer);idx=-1;
+      if(v.length<3){rm();return;}
       var el=this;
-      timer=setTimeout(function(){doSearch(el,v);},350);
+      timer=setTimeout(function(){search(el,v);},350);
     });
     inp.addEventListener('keydown',function(e){
-      if(!drop) return;
-      var rows=drop.querySelectorAll('.geo-row');
-      if(!rows.length) return;
-      if(e.key==='ArrowDown'){e.preventDefault();selIdx=Math.min(selIdx+1,rows.length-1);}
-      else if(e.key==='ArrowUp'){e.preventDefault();selIdx=Math.max(selIdx-1,0);}
-      else if(e.key==='Enter'&&selIdx>=0){e.preventDefault();rows[selIdx].dispatchEvent(new Event('mousedown'));return;}
-      else if(e.key==='Escape'){removeDrop();return;}
-      rows.forEach(function(r,i){r.classList.toggle('geo-sel',i===selIdx);});
+      if(!drop)return;
+      var rows=drop.querySelectorAll('.gi');
+      if(e.key==='ArrowDown'){e.preventDefault();idx=Math.min(idx+1,rows.length-1);}
+      else if(e.key==='ArrowUp'){e.preventDefault();idx=Math.max(idx-1,0);}
+      else if(e.key==='Enter'&&idx>=0){e.preventDefault();rows[idx].dispatchEvent(new Event('mousedown'));return;}
+      else if(e.key==='Escape'){rm();return;}
+      rows.forEach(function(r,i){r.classList.toggle('gsel',i===idx);});
     });
-    inp.addEventListener('blur',function(){setTimeout(removeDrop,200);});
+    inp.addEventListener('blur',function(){setTimeout(rm,200);});
+    console.log('Geoapify AC ready on i_location');
   }
 
-  // MutationObserver: watches for i_location to appear in DOM
-  var obs=new MutationObserver(function(muts){
-    var inp=document.getElementById('i_location');
-    if(inp&&!inp.dataset.geoOk) attachAC(inp);
+  // Setup on load AND when openAddIssue is called
+  window.addEventListener('load',function(){
+    setup();
+    // Patch openAddIssue
+    if(typeof openAddIssue==='function'){
+      var orig=openAddIssue;
+      window.openAddIssue=function(){
+        orig.apply(this,arguments);
+        setTimeout(function(){
+          var inp=document.getElementById('i_location');
+          if(inp){inp._geo=0;setup();}
+        },100);
+      };
+    }
   });
-  obs.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class']});
 
-  // Also try on load
-  document.addEventListener('DOMContentLoaded',function(){
-    var inp=document.getElementById('i_location');
-    if(inp) attachAC(inp);
-  });
-
-  // Click outside closes
   document.addEventListener('click',function(e){
-    if(drop&&!e.target.closest('.geo-dropdown')&&e.target.id!=='i_location') removeDrop();
+    if(drop&&e.target.id!=='i_location')rm();
   });
 })();
 </script>
@@ -731,7 +714,7 @@ tr:hover td{background:#faf9f7;}
         <div class="fg"><label>Σταθερό Τηλέφωνο</label><input type="tel" id="i_phone" placeholder="224xxxxxxx"></div>
         <div class="fg"><label>Email Πολίτη</label><input type="email" id="i_email" placeholder="email@example.com"></div>
         <input type="hidden" id="i_contact">
-        <div class="fg full"><label>Τοποθεσία / Οδός *</label><input type="text" id="i_location" required placeholder="Π.χ. Πίνδου 27..."></div>
+        <div class="fg full"><label>Τοποθεσία / Οδός *</label><input type="text" id="i_location" required autocomplete="off" placeholder="Π.χ. Πίνδου 27..."></div>
         <div class="fg"><label>Ταχυδρομικός Κώδικας</label><input type="text" id="i_postcode" placeholder="π.χ. 85100" style="background:#f8f9fa;"></div>
         <div class="fg"><label>Δημοτική / Τοπική Κοινότητα</label>
           <select id="i_unit">
