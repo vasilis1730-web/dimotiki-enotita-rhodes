@@ -329,114 +329,89 @@ tr:hover td{background:#faf9f7;}
   <link rel="apple-touch-icon" href="icon-192.png">
 
 <style>
-#geo-drop{position:fixed;background:#fff;border:1px solid #bab6ae;border-radius:0 0 8px 8px;box-shadow:0 6px 20px rgba(0,0,0,.18);z-index:999999;max-height:280px;overflow-y:auto;min-width:300px;}
+#geo-drop{position:fixed;background:#fff;border:1px solid #bab6ae;border-radius:0 0 8px 8px;box-shadow:0 6px 20px rgba(0,0,0,.18);z-index:999999;max-height:280px;overflow-y:auto;min-width:280px;}
 #geo-drop .gi{padding:10px 13px;cursor:pointer;border-bottom:1px solid #f0ede8;}
 #geo-drop .gi:last-child{border-bottom:none;}
 #geo-drop .gi:hover,#geo-drop .gi.gsel{background:#e8f2fc;}
-#geo-drop .gm{display:block;font-weight:600;color:#1a3a5c;font-size:13px;}
+#geo-drop .gm{display:block;font-weight:600;color:#1a3a5c;font-size:12px;}
 #geo-drop .gs{display:block;color:#888;font-size:11px;margin-top:1px;}
 #geo-drop .gtk{background:#1a3a5c;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;}
 </style>
 <script>
 (function(){
-  var K='6f466ee4363445e7a19cd6628b414b7b', drop=null, timer=null, idx=-1;
-
-  function rm(){if(drop){drop.remove();drop=null;}idx=-1;}
-
+  var K='6f466ee4363445e7a19cd6628b414b7b',drop=null,timer=null,selIdx=-1;
+  function rm(){if(drop){drop.remove();drop=null;}selIdx=-1;}
   function pick(inp,item){
     var p=item.properties||{};
     var road=p.street||p.address_line1||p.name||'';
     var num=p.housenumber||'';
     var main=(road+(num?' '+num:'')).trim()||p.formatted.split(',')[0];
     inp.value=main;
-    var tk=document.getElementById('i_postcode');
-    if(tk&&p.postcode)tk.value=p.postcode;
+    var tkEl=document.getElementById('i_postcode');
+    if(tkEl&&p.postcode)tkEl.value=p.postcode;
     var g=item.geometry;
     if(g&&g.coordinates){
       var la=g.coordinates[1],lo=g.coordinates[0];
-      ['i_mapLat','i_mapLng','i_coordsDisplay'].forEach(function(id){
-        var el=document.getElementById(id);
-        if(!el)return;
-        if(id==='i_coordsDisplay')el.textContent=la.toFixed(5)+', '+lo.toFixed(5);
-        else el.value=id==='i_mapLat'?la:lo;
-      });
+      var lEl=document.getElementById('i_mapLat');
+      var nEl=document.getElementById('i_mapLng');
+      var dEl=document.getElementById('i_coordsDisplay');
+      if(lEl)lEl.value=la;if(nEl)nEl.value=lo;
+      if(dEl)dEl.textContent=la.toFixed(5)+', '+lo.toFixed(5);
     }
     rm();
   }
-
   function show(inp,feats){
-    rm();
-    if(!feats||!feats.length)return;
-    drop=document.createElement('div');
-    drop.id='geo-drop';
+    rm();if(!feats||!feats.length)return;
+    drop=document.createElement('div');drop.id='geo-drop';
     var r=inp.getBoundingClientRect();
     drop.style.cssText='left:'+r.left+'px;top:'+(r.bottom+window.scrollY)+'px;width:'+r.width+'px;';
-    feats.forEach(function(item,i){
+    feats.forEach(function(item){
       var p=item.properties||{};
       var road=p.street||p.address_line1||p.name||'';
       var num=p.housenumber||'';
-      var main=(road+(num?' '+num:'')).trim()||p.formatted.split(',')[0];
+      var main=(road+(num?' '+num:'')).trim()||(p.formatted||'').split(',')[0];
       var city=p.city||p.town||p.village||'';
       var tk=p.postcode||'';
-      var row=document.createElement('div');
-      row.className='gi';
+      var row=document.createElement('div');row.className='gi';
       row.innerHTML='<span class="gm">'+main+'</span><span class="gs">'+city+(tk?'<span class="gtk">ΤΚ '+tk+'</span>':'')+'</span>';
       (function(it){row.addEventListener('mousedown',function(e){e.preventDefault();pick(inp,it);})})(item);
       drop.appendChild(row);
     });
     document.body.appendChild(drop);
   }
-
   function search(inp,val){
     fetch('https://api.geoapify.com/v1/geocode/autocomplete?text='+encodeURIComponent(val)+'&filter=countrycode:gr&bias=proximity:28.2270,36.4341&lang=el&limit=7&apiKey='+K)
-      .then(function(r){return r.json();})
-      .then(function(d){show(inp,d.features||[]);})
-      .catch(function(e){console.error('Geo:',e);});
+      .then(function(r){return r.json();}).then(function(d){show(inp,d.features||[]);}).catch(function(){});
   }
-
   function setup(){
     var inp=document.getElementById('i_location');
-    if(!inp||inp._geo)return;
-    inp._geo=1;
+    if(!inp||inp._geoOk)return;inp._geoOk=1;
+    inp.setAttribute('autocomplete','off');
+    inp.setAttribute('placeholder','Π.χ. Πίνδου 27...');
     inp.addEventListener('input',function(){
-      var v=this.value.trim();
-      clearTimeout(timer);idx=-1;
+      var v=this.value.trim();clearTimeout(timer);selIdx=-1;
       if(v.length<3){rm();return;}
-      var el=this;
-      timer=setTimeout(function(){search(el,v);},350);
+      var el=this;timer=setTimeout(function(){search(el,v);},350);
     });
     inp.addEventListener('keydown',function(e){
-      if(!drop)return;
-      var rows=drop.querySelectorAll('.gi');
-      if(e.key==='ArrowDown'){e.preventDefault();idx=Math.min(idx+1,rows.length-1);}
-      else if(e.key==='ArrowUp'){e.preventDefault();idx=Math.max(idx-1,0);}
-      else if(e.key==='Enter'&&idx>=0){e.preventDefault();rows[idx].dispatchEvent(new Event('mousedown'));return;}
+      if(!drop)return;var rows=drop.querySelectorAll('.gi');
+      if(e.key==='ArrowDown'){e.preventDefault();selIdx=Math.min(selIdx+1,rows.length-1);}
+      else if(e.key==='ArrowUp'){e.preventDefault();selIdx=Math.max(selIdx-1,0);}
+      else if(e.key==='Enter'&&selIdx>=0){e.preventDefault();rows[selIdx].dispatchEvent(new Event('mousedown'));return;}
       else if(e.key==='Escape'){rm();return;}
-      rows.forEach(function(r,i){r.classList.toggle('gsel',i===idx);});
+      rows.forEach(function(r,i){r.classList.toggle('gsel',i===selIdx);});
     });
     inp.addEventListener('blur',function(){setTimeout(rm,200);});
-    console.log('Geoapify AC ready on i_location');
+    console.log('Geoapify ready ✓');
   }
-
-  // Setup on load AND when openAddIssue is called
   window.addEventListener('load',function(){
     setup();
-    // Patch openAddIssue
     if(typeof openAddIssue==='function'){
       var orig=openAddIssue;
-      window.openAddIssue=function(){
-        orig.apply(this,arguments);
-        setTimeout(function(){
-          var inp=document.getElementById('i_location');
-          if(inp){inp._geo=0;setup();}
-        },100);
-      };
+      window.openAddIssue=function(){orig.apply(this,arguments);setTimeout(function(){var i=document.getElementById('i_location');if(i){i._geoOk=0;setup();}},150);};
     }
   });
-
-  document.addEventListener('click',function(e){
-    if(drop&&e.target.id!=='i_location')rm();
-  });
+  document.addEventListener('click',function(e){if(drop&&e.target.id!=='i_location')rm();});
 })();
 </script>
 </head>
@@ -5109,23 +5084,49 @@ function printOrder(id){
 let _emailOrderId = null;
 
 function openEmail(email, subject, body){
-  // Gmail compose URL has no length limit (unlike mailto: which breaks at ~2000 chars)
-  const isGmail = email.toLowerCase().includes('gmail') ||
-                  email.toLowerCase().includes('googlemail');
-  if(isGmail || true){ // Always use Gmail compose URL — works for all providers via webmail
-    const gmailUrl = 'https://mail.google.com/mail/?view=cm&fs=1'
-      + '&to=' + encodeURIComponent(email)
-      + '&su=' + encodeURIComponent(subject)
-      + '&body=' + encodeURIComponent(body);
-    // If URL is short enough, also try mailto as fallback
-    const mailtoUrl = 'mailto:' + email + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
-    if(mailtoUrl.length < 1800){
-      window.open(mailtoUrl, '_blank');
+  // Try to send via Supabase Edge Function first (direct SMTP)
+  const edgeUrl = 'https://nzrdcgmrsfdmocyhfrod.supabase.co/functions/v1/send-email';
+  const anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56cmRjZ21yc2ZkbW9jeWhmcm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MTg5MDMsImV4cCI6MjA4OTQ5NDkwM30.irU9tlBluAeTGcI0i3cc080OY7_nqR5js4ZPW8MC7b4';
+  
+  // Show sending indicator
+  toast('📧 Αποστολή email...');
+  
+  fetch(edgeUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': anonKey
+    },
+    body: JSON.stringify({
+      to: email,
+      subject: subject,
+      body: body,
+      html: '<pre style="font-family:Arial,sans-serif;font-size:13px;white-space:pre-wrap;">' + body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</pre>'
+    })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if(d.success){
+      toast('✅ Email στάλθηκε από diakolios@1491.syzefxis.gov.gr');
     } else {
-      window.open(gmailUrl, '_blank');
+      // Fallback to mailto
+      toast('⚠️ Άνοιγμα email client...');
+      _openEmailFallback(email, subject, body);
     }
-  }
+  })
+  .catch(function(){
+    _openEmailFallback(email, subject, body);
+  });
 }
+
+function _openEmailFallback(email, subject, body){
+  const gmailUrl = 'https://mail.google.com/mail/?view=cm&fs=1'
+    + '&to=' + encodeURIComponent(email)
+    + '&su=' + encodeURIComponent(subject)
+    + '&body=' + encodeURIComponent(body);
+  window.open(gmailUrl, '_blank');
+}
+
 
 function buildEmailBody(wo){
   const netTotal=woTotal(wo);
