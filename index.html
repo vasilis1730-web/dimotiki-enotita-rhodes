@@ -329,138 +329,130 @@ tr:hover td{background:#faf9f7;}
   <link rel="apple-touch-icon" href="icon-192.png">
 
 <style>
-.geo-wrap{position:relative;width:100%;}
-.geo-list{position:absolute;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid #bab6ae;border-radius:0 0 6px 6px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:9999;max-height:260px;overflow-y:auto;font-size:12px;}
-.geo-item{padding:9px 12px;cursor:pointer;border-bottom:1px solid #f0ede8;line-height:1.5;}
-.geo-item:last-child{border-bottom:none;}
-.geo-item:hover,.geo-item.active{background:#eceae4;}
-.geo-item .geo-main{font-weight:600;color:#1a3a5c;display:block;}
-.geo-item .geo-sub{color:#888;font-size:11px;}
-.geo-item .geo-tk{display:inline-block;background:#e8f2fc;color:#1a5fa0;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:4px;font-weight:600;}
+.geo-dropdown{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #bab6ae;border-radius:0 0 8px 8px;box-shadow:0 6px 20px rgba(0,0,0,.15);z-index:99999;max-height:280px;overflow-y:auto;margin-top:1px;}
+.geo-dropdown .geo-row{padding:10px 13px;cursor:pointer;border-bottom:1px solid #f0ede8;line-height:1.5;}
+.geo-dropdown .geo-row:last-child{border-bottom:none;}
+.geo-dropdown .geo-row:hover,.geo-dropdown .geo-row.geo-sel{background:#e8f2fc;}
+.geo-dropdown .geo-row b{color:#1a3a5c;display:block;font-size:12px;}
+.geo-dropdown .geo-row span{color:#888;font-size:11px;}
+.geo-dropdown .geo-row .geo-pk{background:#1a3a5c;color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;}
+#i_location{position:relative;}
 </style>
 <script>
+// ── Geoapify Address Autocomplete ──────────────────────────────
 (function(){
-  var KEY='6f466ee4363445e7a19cd6628b414b7b';
-  var _t=null,_list=null,_idx=-1,_inp=null;
+  var API='6f466ee4363445e7a19cd6628b414b7b';
+  var timer=null, drop=null, selIdx=-1;
 
-  function close(){if(_list){_list.remove();_list=null;}_idx=-1;}
+  function removeDrop(){
+    if(drop){drop.parentNode&&drop.parentNode.removeChild(drop);drop=null;}
+    selIdx=-1;
+  }
 
-  function pick(item){
+  function selectItem(inp, item){
     var p=item.properties||{};
-    var road=p.street||p.address_line1||'';
+    var road=p.street||p.address_line1||p.name||'';
     var num=p.housenumber||'';
-    var addr=(road+(num?' '+num:'')).trim()||p.formatted||'';
-    var postcode=p.postcode||'';
-    var city=p.city||p.town||p.village||p.county||'';
-    var lat=item.geometry&&item.geometry.coordinates?item.geometry.coordinates[1]:null;
-    var lng=item.geometry&&item.geometry.coordinates?item.geometry.coordinates[0]:null;
-    
-    if(_inp) _inp.value=addr;
-    
-    // Fill postcode field if exists
-    var tkEl=document.getElementById('i_postcode');
-    if(tkEl&&postcode) tkEl.value=postcode;
-    
-    // Fill coords
-    var latEl=document.getElementById('i_mapLat');
-    var lngEl=document.getElementById('i_mapLng');
-    var dispEl=document.getElementById('i_coordsDisplay');
-    if(latEl&&lat) latEl.value=lat;
-    if(lngEl&&lng) lngEl.value=lng;
-    if(dispEl&&lat) dispEl.textContent=parseFloat(lat).toFixed(5)+', '+parseFloat(lng).toFixed(5);
-    
-    close();
-    if(_inp) _inp.dispatchEvent(new Event('change'));
+    var full=(road+(num?' '+num:'')).trim();
+    if(!full) full=(p.formatted||'').split(',')[0].trim();
+    inp.value=full;
+    // Postcode
+    var tk=p.postcode||'';
+    var pkEl=document.getElementById('i_postcode');
+    if(pkEl&&tk) pkEl.value=tk;
+    // Coords
+    var g=item.geometry;
+    if(g&&g.coordinates){
+      var lat=g.coordinates[1], lng=g.coordinates[0];
+      var latEl=document.getElementById('i_mapLat');
+      var lngEl=document.getElementById('i_mapLng');
+      var dEl=document.getElementById('i_coordsDisplay');
+      if(latEl)latEl.value=lat;
+      if(lngEl)lngEl.value=lng;
+      if(dEl)dEl.textContent=lat.toFixed(5)+', '+lng.toFixed(5);
+    }
+    removeDrop();
   }
 
-  function show(features){
-    close();
-    if(!features||!features.length||!_inp) return;
-    var d=document.createElement('div');
-    d.className='geo-list';
-    features.slice(0,8).forEach(function(item){
+  function showDrop(inp, features){
+    removeDrop();
+    if(!features||!features.length) return;
+    var wrap=inp.parentNode;
+    // Make sure wrap is relative
+    wrap.style.position='relative';
+    drop=document.createElement('div');
+    drop.className='geo-dropdown';
+    features.forEach(function(item,i){
       var p=item.properties||{};
-      var road=p.street||p.address_line1||'';
+      var road=p.street||p.address_line1||p.name||'';
       var num=p.housenumber||'';
-      var main=(road+(num?' '+num:'')).trim()||p.formatted.split(',')[0];
-      var city=p.city||p.town||p.village||'';
-      var postcode=p.postcode||'';
+      var main=(road+(num?' '+num:'')).trim()||(p.formatted||'').split(',')[0];
+      var city=p.city||p.town||p.village||p.municipality||'';
+      var tk=p.postcode||'';
       var row=document.createElement('div');
-      row.className='geo-item';
-      row.innerHTML='<span class="geo-main">'+main+'</span>'
-        +'<span class="geo-sub">'+city+(postcode?'<span class="geo-tk">'+postcode+'</span>':'')+'</span>';
-      row.addEventListener('mousedown',function(e){e.preventDefault();pick(item);});
-      d.appendChild(row);
+      row.className='geo-row';
+      row.innerHTML='<b>'+main+'</b><span>'+city+(tk?'<span class="geo-pk">'+tk+'</span>':'')+'</span>';
+      row.addEventListener('mousedown',function(e){e.preventDefault();selectItem(inp,item);});
+      drop.appendChild(row);
     });
-    _inp.parentNode.appendChild(d);
-    _list=d;
+    wrap.appendChild(drop);
   }
 
-  function search(val){
-    // Bias to Rhodes area
-    var url='https://api.geoapify.com/v1/geocode/autocomplete?text='+encodeURIComponent(val)
+  function doSearch(inp,val){
+    var url='https://api.geoapify.com/v1/geocode/autocomplete'
+      +'?text='+encodeURIComponent(val)
       +'&filter=countrycode:gr'
-      +'&bias=proximity:28.2270,36.4341'  // Rhodes coords
+      +'&bias=proximity:28.2270,36.4341'
       +'&lang=el'
       +'&limit=8'
-      +'&type=street,building'
-      +'&apiKey='+KEY;
+      +'&apiKey='+API;
     fetch(url)
       .then(function(r){return r.json();})
-      .then(function(d){show(d.features||[]);})
-      .catch(function(){});
+      .then(function(d){showDrop(inp,d.features||[]);})
+      .catch(function(e){console.warn('Geoapify err:',e);});
   }
 
-  function initAC(){
-    var input=document.getElementById('i_location');
-    if(!input||input.dataset.geoAc) return;
-    input.dataset.geoAc='1';
-    _inp=input;
-    
-    // Wrap in relative container
-    if(!input.parentNode.classList.contains('geo-wrap')){
-      var w=document.createElement('div');
-      w.className='geo-wrap';
-      input.parentNode.insertBefore(w,input);
-      w.appendChild(input);
-    }
-    input.setAttribute('autocomplete','off');
-    input.setAttribute('placeholder','Π.χ. Πίνδου 27...');
-
-    input.addEventListener('input',function(){
-      _inp=this;
+  function attachAC(inp){
+    if(!inp||inp.dataset.geoOk) return;
+    inp.dataset.geoOk='1';
+    inp.setAttribute('autocomplete','off');
+    inp.setAttribute('placeholder','Π.χ. Πίνδου 27...');
+    inp.addEventListener('input',function(){
       var v=this.value.trim();
-      clearTimeout(_t);_idx=-1;
-      if(v.length<3){close();return;}
+      clearTimeout(timer);selIdx=-1;
+      if(v.length<3){removeDrop();return;}
       var el=this;
-      _t=setTimeout(function(){search(v);},350);
+      timer=setTimeout(function(){doSearch(el,v);},350);
     });
-
-    input.addEventListener('keydown',function(e){
-      if(!_list) return;
-      var rows=_list.querySelectorAll('.geo-item');
-      if(e.key==='ArrowDown'){e.preventDefault();_idx=Math.min(_idx+1,rows.length-1);}
-      else if(e.key==='ArrowUp'){e.preventDefault();_idx=Math.max(_idx-1,0);}
-      else if(e.key==='Enter'&&_idx>=0){e.preventDefault();rows[_idx].dispatchEvent(new Event('mousedown'));return;}
-      else if(e.key==='Escape'){close();return;}
-      rows.forEach(function(r,i){r.classList.toggle('active',i===_idx);});
+    inp.addEventListener('keydown',function(e){
+      if(!drop) return;
+      var rows=drop.querySelectorAll('.geo-row');
+      if(!rows.length) return;
+      if(e.key==='ArrowDown'){e.preventDefault();selIdx=Math.min(selIdx+1,rows.length-1);}
+      else if(e.key==='ArrowUp'){e.preventDefault();selIdx=Math.max(selIdx-1,0);}
+      else if(e.key==='Enter'&&selIdx>=0){e.preventDefault();rows[selIdx].dispatchEvent(new Event('mousedown'));return;}
+      else if(e.key==='Escape'){removeDrop();return;}
+      rows.forEach(function(r,i){r.classList.toggle('geo-sel',i===selIdx);});
     });
-    input.addEventListener('blur',function(){setTimeout(close,250);});
-    document.addEventListener('click',function(e){if(!e.target.closest('.geo-wrap'))close();});
+    inp.addEventListener('blur',function(){setTimeout(removeDrop,200);});
   }
 
-  // Hook into openAddIssue
-  window.addEventListener('load',function(){
-    setTimeout(function(){
-      if(typeof openAddIssue==='function'){
-        var orig=openAddIssue;
-        window.openAddIssue=function(){
-          orig.apply(this,arguments);
-          setTimeout(initAC,300);
-        };
-      }
-      initAC();
-    },600);
+  // MutationObserver: watches for i_location to appear in DOM
+  var obs=new MutationObserver(function(muts){
+    var inp=document.getElementById('i_location');
+    if(inp&&!inp.dataset.geoOk) attachAC(inp);
+  });
+  obs.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class']});
+
+  // Also try on load
+  document.addEventListener('DOMContentLoaded',function(){
+    var inp=document.getElementById('i_location');
+    if(inp) attachAC(inp);
+  });
+
+  // Click outside closes
+  document.addEventListener('click',function(e){
+    if(drop&&!e.target.closest('.geo-dropdown')&&e.target.id!=='i_location') removeDrop();
   });
 })();
 </script>
@@ -739,7 +731,8 @@ tr:hover td{background:#faf9f7;}
         <div class="fg"><label>Σταθερό Τηλέφωνο</label><input type="tel" id="i_phone" placeholder="224xxxxxxx"></div>
         <div class="fg"><label>Email Πολίτη</label><input type="email" id="i_email" placeholder="email@example.com"></div>
         <input type="hidden" id="i_contact">
-        <div class="fg full"><label>Τοποθεσία / Οδός *</label><input type="text" id="i_location" required></div>
+        <div class="fg full"><label>Τοποθεσία / Οδός *</label><input type="text" id="i_location" required placeholder="Π.χ. Πίνδου 27..."></div>
+        <div class="fg"><label>Ταχυδρομικός Κώδικας</label><input type="text" id="i_postcode" placeholder="π.χ. 85100" style="background:#f8f9fa;"></div>
         <div class="fg"><label>Δημοτική / Τοπική Κοινότητα</label>
           <select id="i_unit">
             <option value="">— Επιλογή —</option>
