@@ -352,9 +352,7 @@ tr:hover td{background:#faf9f7;}
     var g=item.geometry;
     if(g&&g.coordinates){
       var la=g.coordinates[1],lo=g.coordinates[0];
-      var lEl=document.getElementById('i_mapLat');
-      var nEl=document.getElementById('i_mapLng');
-      var dEl=document.getElementById('i_coordsDisplay');
+      var lEl=document.getElementById('i_mapLat'),nEl=document.getElementById('i_mapLng'),dEl=document.getElementById('i_coordsDisplay');
       if(lEl)lEl.value=la;if(nEl)nEl.value=lo;
       if(dEl)dEl.textContent=la.toFixed(5)+', '+lo.toFixed(5);
     }
@@ -370,8 +368,7 @@ tr:hover td{background:#faf9f7;}
       var road=p.street||p.address_line1||p.name||'';
       var num=p.housenumber||'';
       var main=(road+(num?' '+num:'')).trim()||(p.formatted||'').split(',')[0];
-      var city=p.city||p.town||p.village||'';
-      var tk=p.postcode||'';
+      var city=p.city||p.town||p.village||'';var tk=p.postcode||'';
       var row=document.createElement('div');row.className='gi';
       row.innerHTML='<span class="gm">'+main+'</span><span class="gs">'+city+(tk?'<span class="gtk">ΤΚ '+tk+'</span>':'')+'</span>';
       (function(it){row.addEventListener('mousedown',function(e){e.preventDefault();pick(inp,it);})})(item);
@@ -386,8 +383,7 @@ tr:hover td{background:#faf9f7;}
   function setup(){
     var inp=document.getElementById('i_location');
     if(!inp||inp._geoOk)return;inp._geoOk=1;
-    inp.setAttribute('autocomplete','off');
-    inp.setAttribute('placeholder','Π.χ. Πίνδου 27...');
+    inp.setAttribute('autocomplete','off');inp.setAttribute('placeholder','Π.χ. Πίνδου 27...');
     inp.addEventListener('input',function(){
       var v=this.value.trim();clearTimeout(timer);selIdx=-1;
       if(v.length<3){rm();return;}
@@ -5082,21 +5078,36 @@ function printOrder(id){
 
 let _emailOrderId = null;
 
-function openEmail(email, subject, body){
-  // Use mailto: - opens the default email client (Outlook/Thunderbird with diakolios@rhodes.gr)
-  var mailtoUrl = 'mailto:' + encodeURIComponent(email)
-    + '?subject=' + encodeURIComponent(subject)
-    + '&body=' + encodeURIComponent(body);
-  
-  // mailto: has ~2000 char limit in some clients - if too long, truncate body
-  if(mailtoUrl.length > 1900){
-    var shortBody = body.substring(0, 800) + '\n\n[... βλέπε πλήρες κείμενο στην εφαρμογή ...]';
-    mailtoUrl = 'mailto:' + encodeURIComponent(email)
-      + '?subject=' + encodeURIComponent(subject)
-      + '&body=' + encodeURIComponent(shortBody);
-  }
-  
-  window.location.href = mailtoUrl;
+function openEmail(email, subject, body, onSuccess){
+  // Send via SMTP Edge Function
+  // Status changes to 'Εστάλη' ONLY if email confirmed sent (200 OK)
+  toast('📧 Αποστολή email...');
+  fetch('https://nzrdcgmrsfdmocyhfrod.supabase.co/functions/v1/send-email', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56cmRjZ21yc2ZkbW9jeWhmcm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MTg5MDMsImV4cCI6MjA4OTQ5NDkwM30.irU9tlBluAeTGcI0i3cc080OY7_nqR5js4ZPW8MC7b4'},
+    body:JSON.stringify({to:email,subject:subject,body:body})
+  })
+  .then(function(r){return r.json().then(function(d){return {ok:r.ok,data:d}});})
+  .then(function(res){
+    if(res.ok && res.data.success){
+      toast('✅ Email στάλθηκε από '+res.data.from);
+      if(typeof onSuccess==='function') onSuccess();
+    } else {
+      toast('⚠️ Αποτυχία — ανοίγει το email client...');
+      _openMailto(email,subject,body);
+      // Do NOT call onSuccess - status stays unchanged
+    }
+  })
+  .catch(function(){
+    toast('⚠️ Σφάλμα σύνδεσης — ανοίγει το email client...');
+    _openMailto(email,subject,body);
+  });
+}
+
+function _openMailto(email,subject,body){
+  var url='mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body.substring(0,800));
+  var a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
 }
 
 
@@ -5265,9 +5276,9 @@ function doSendEmail(){
   if(!email){alert('Δεν έχει οριστεί email αναδόχου στις Ρυθμίσεις.');return;}
   const subject='Εντολή Εργασίας '+wo.orderNum+' – Δήμος Ρόδου';
   const body=buildEmailBody(wo);
-  openEmail(email, subject, body);
-  closeEconf();
-  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderAll();}
+  openEmail(email, subject, body, function(){
+    closeEconf();
+    if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderAll();}
   else if(!wo.sentAt){wo.sentAt=new Date().toISOString();save();renderAll();}
   toast('✉ Email ανοίχτηκε για αποστολή στο: '+email);
 }
@@ -5455,8 +5466,9 @@ function autoMsgNewOrder(orderId){
   if(settings.contractorEmail){
     const subject='Εντολή Εργασίας '+wo.orderNum+' – Δήμος Ρόδου';
     const body=buildEmailBody(wo);
-    openEmail(settings.contractorEmail, subject, body);
+    openEmail(settings.contractorEmail, subject, body, function(){
     if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();}
+  });
     toast('✉ Email αποστολή + 📱 Χρησιμοποιήστε το κουμπί ✉ για Viber/WhatsApp');
   }
 }
@@ -5467,8 +5479,9 @@ function autoEmailNewOrder(orderId){
   if(!wo||!settings.contractorEmail)return;
   const subject='Εντολή Εργασίας '+wo.orderNum+' – Δήμος Ρόδου';
   const body=buildEmailBody(wo);
-  openEmail(settings.contractorEmail, subject, body);
+  openEmail(settings.contractorEmail, subject, body, function(){
   if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();}
+  });
 }
 
 // ================================================================
