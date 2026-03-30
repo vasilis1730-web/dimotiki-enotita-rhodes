@@ -2355,6 +2355,21 @@ function saveUsers(users){
   }
 }
 
+
+function changeAdminPass(){
+  const newPass = prompt('Νέος κωδικός πρόσβασης για Admin:');
+  if(!newPass || newPass.length < 6){ alert('Ο κωδικός πρέπει να έχει τουλάχιστον 6 χαρακτήρες.'); return; }
+  const users = JSON.parse(localStorage.getItem('app_users')||'null');
+  if(users){
+    const adm = users.find(u=>u.id==='admin');
+    if(adm){ adm.password=newPass; localStorage.setItem('app_users',JSON.stringify(users)); }
+  } else {
+    const adm = APP_USERS.find(u=>u.id==='admin');
+    if(adm) adm.password=newPass;
+  }
+  toast('✅ Κωδικός Admin άλλαξε επιτυχώς');
+}
+
 function renderUsersList(){
   const card = document.getElementById('userMgmtCard');
   if(!card) return;
@@ -2382,7 +2397,7 @@ function renderUsersList(){
       +'<div style="display:flex;gap:5px;flex-shrink:0;">'
         +(u.id!=='admin'?'<button class="btn btn-sm ab-edit" onclick="editUser('+idx+')" title="Επεξεργασία">✎</button>':'')
         +(u.id!=='admin'?'<button class="btn btn-sm ab-del" onclick="delUser('+idx+')" title="Διαγραφή">🗑</button>':'')
-        +(u.id==='admin'?'<span style="font-size:10px;color:var(--muted);padding:4px 8px;">🔒 Admin</span>':'')
+        +(u.id==='admin'?'<button class="btn btn-sm" onclick="changeAdminPass()" title="Αλλαγή Κωδικού" style="font-size:10px;">🔑 Κωδικός</button>':'')
       +'</div>'
     +'</div>';
   }).join('');
@@ -5080,7 +5095,6 @@ function openEmail(email, subject, body) {
   var url = 'mailto:' + encodeURIComponent(email)
     + '?subject=' + encodeURIComponent(subject)
     + '&body=' + encodeURIComponent(b);
-  // Open in new window - app stays in background
   window.open(url, '_blank');
 }
 
@@ -5666,6 +5680,7 @@ function delStaff(idx){
 // ================================================================
 function loadSettings(){
   renderUsersList();
+  renderStaffList();
   document.getElementById('sDate').value=settings.listDate||todayStr();
   document.getElementById('sContract').value=settings.contractValue||322564;
   document.getElementById('sContractor').value=settings.contractor||'';
@@ -6586,8 +6601,7 @@ function printBulkProtocol(){
     </div>
     <div class="mfoot">
       <button class="btn" onclick="closeStaffModal()">Ακύρωση</button>
-      <butto
-      <button class="btn btn-p" onclick="saveStaff()">Αποθήκευση</button>
+      <button class="btn btn-p" onclick="saveStaffMember()">Αποθήκευση</button>
     </div>
   </div>
 </div>
