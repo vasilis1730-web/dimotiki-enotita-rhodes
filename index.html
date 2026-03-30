@@ -5080,9 +5080,8 @@ function openEmail(email, subject, body) {
   var url = 'mailto:' + encodeURIComponent(email)
     + '?subject=' + encodeURIComponent(subject)
     + '&body=' + encodeURIComponent(b);
-  var a = document.createElement('a');
-  a.href = url; a.target = '_blank'; a.rel = 'noopener';
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  // Open in new window - app stays in background
+  window.open(url, '_blank');
 }
 
 
