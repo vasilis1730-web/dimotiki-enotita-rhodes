@@ -402,7 +402,6 @@ tr:hover td{background:#faf9f7;}
       rows.forEach(function(r,i){r.classList.toggle('gsel',i===selIdx);});
     });
     inp.addEventListener('blur',function(){setTimeout(rm,200);});
-    console.log('Geoapify ready ✓');
   }
   window.addEventListener('load',function(){
     setup();
@@ -5084,47 +5083,20 @@ function printOrder(id){
 let _emailOrderId = null;
 
 function openEmail(email, subject, body){
-  // Try to send via Supabase Edge Function first (direct SMTP)
-  const edgeUrl = 'https://nzrdcgmrsfdmocyhfrod.supabase.co/functions/v1/send-email';
-  const anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56cmRjZ21yc2ZkbW9jeWhmcm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MTg5MDMsImV4cCI6MjA4OTQ5NDkwM30.irU9tlBluAeTGcI0i3cc080OY7_nqR5js4ZPW8MC7b4';
-  
-  // Show sending indicator
-  toast('📧 Αποστολή email...');
-  
-  fetch(edgeUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': anonKey
-    },
-    body: JSON.stringify({
-      to: email,
-      subject: subject,
-      body: body,
-      html: '<pre style="font-family:Arial,sans-serif;font-size:13px;white-space:pre-wrap;">' + body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</pre>'
-    })
-  })
-  .then(function(r){ return r.json(); })
-  .then(function(d){
-    if(d.success){
-      toast('✅ Email στάλθηκε από diakolios@1491.syzefxis.gov.gr');
-    } else {
-      // Fallback to mailto
-      toast('⚠️ Άνοιγμα email client...');
-      _openEmailFallback(email, subject, body);
-    }
-  })
-  .catch(function(){
-    _openEmailFallback(email, subject, body);
-  });
-}
-
-function _openEmailFallback(email, subject, body){
-  const gmailUrl = 'https://mail.google.com/mail/?view=cm&fs=1'
-    + '&to=' + encodeURIComponent(email)
-    + '&su=' + encodeURIComponent(subject)
+  // Use mailto: - opens the default email client (Outlook/Thunderbird with diakolios@rhodes.gr)
+  var mailtoUrl = 'mailto:' + encodeURIComponent(email)
+    + '?subject=' + encodeURIComponent(subject)
     + '&body=' + encodeURIComponent(body);
-  window.open(gmailUrl, '_blank');
+  
+  // mailto: has ~2000 char limit in some clients - if too long, truncate body
+  if(mailtoUrl.length > 1900){
+    var shortBody = body.substring(0, 800) + '\n\n[... βλέπε πλήρες κείμενο στην εφαρμογή ...]';
+    mailtoUrl = 'mailto:' + encodeURIComponent(email)
+      + '?subject=' + encodeURIComponent(subject)
+      + '&body=' + encodeURIComponent(shortBody);
+  }
+  
+  window.location.href = mailtoUrl;
 }
 
 
