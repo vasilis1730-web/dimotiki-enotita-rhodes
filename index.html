@@ -2198,6 +2198,11 @@ function applyTabPermissions(u){
   const navBtns = document.querySelectorAll('nav button');
   const tabNames = ['dashboard','issues','orders','finance','catalog','reports','settings'];
   const restrictedTabs = ['orders','finance','catalog','reports','settings'];
+  // Settings: admin only
+  if(tab==='settings' && currentUser && currentUser.id!=='admin'){
+    toast('⛔ Στις Ρυθμίσεις έχει πρόσβαση μόνο ο Admin.');
+    return;
+  }
   // Reset all first, then hide restricted
   navBtns.forEach((btn, i) => {
     const tab = tabNames[i];
@@ -3091,6 +3096,13 @@ function renderAll(){
 }
 
 function updateHeader(){
+  // Show/hide Settings nav button based on admin role
+  var navBtns = document.querySelectorAll('nav button');
+  navBtns.forEach(function(btn){
+    if(btn.textContent.includes('Ρυθμίσεις')){
+      btn.style.display = (currentUser && currentUser.id==='admin') ? '' : 'none';
+    }
+  });
   const days=['Κυριακή','Δευτέρα','Τρίτη','Τετάρτη','Πέμπτη','Παρασκευή','Σάββατο'];
   const months=['Ιαν','Φεβ','Μαρ','Απρ','Μαΐ','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ'];
   const d=new Date();
