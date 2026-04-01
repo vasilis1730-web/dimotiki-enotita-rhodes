@@ -340,69 +340,11 @@ tr:hover td{background:#faf9f7;}
 (function(){
   var K='6f466ee4363445e7a19cd6628b414b7b',drop=null,timer=null,si=-1;
   function rm(){if(drop){drop.remove();drop=null;}si=-1;}
-  function pick(inp,item){
-    var p=item.properties||{};
-    var road=p.street||p.address_line1||p.name||'';
-    var num=p.housenumber||'';
-    var main=(road+(num?' '+num:'')).trim()||p.formatted.split(',')[0];
-    inp.value=main;
-    var t=document.getElementById('i_postcode');if(t&&p.postcode)t.value=p.postcode;
-    var g=item.geometry;
-    if(g&&g.coordinates){
-      var la=g.coordinates[1],lo=g.coordinates[0];
-      var l=document.getElementById('i_mapLat'),n=document.getElementById('i_mapLng'),d=document.getElementById('i_coordsDisplay');
-      if(l)l.value=la;if(n)n.value=lo;if(d)d.textContent=la.toFixed(5)+', '+lo.toFixed(5);
-    }
-    rm();
-  }
-  function show(inp,ff){
-    rm();if(!ff||!ff.length)return;
-    drop=document.createElement('div');drop.id='geo-drop';
-    var r=inp.getBoundingClientRect();
-    drop.style.cssText='left:'+r.left+'px;top:'+(r.bottom+window.scrollY)+'px;width:'+r.width+'px;';
-    ff.forEach(function(item){
-      var p=item.properties||{};
-      var road=p.street||p.address_line1||p.name||'';
-      var num=p.housenumber||'';
-      var main=(road+(num?' '+num:'')).trim()||(p.formatted||'').split(',')[0];
-      var city=p.city||p.town||p.village||'';var tk=p.postcode||'';
-      var row=document.createElement('div');row.className='gi';
-      row.innerHTML='<span class="gm">'+main+'</span><span class="gs">'+city+(tk?'<span class="gtk">ΤΚ '+tk+'</span>':'')+'</span>';
-      (function(it){row.addEventListener('mousedown',function(e){e.preventDefault();pick(inp,it);})})(item);
-      drop.appendChild(row);
-    });
-    document.body.appendChild(drop);
-  }
-  function search(inp,val){
-    fetch('https://api.geoapify.com/v1/geocode/autocomplete?text='+encodeURIComponent(val)+'&filter=countrycode:gr&bias=proximity:28.2270,36.4341&lang=el&limit=7&apiKey='+K)
-      .then(function(r){return r.json();}).then(function(d){show(inp,d.features||[]);}).catch(function(){});
-  }
-  function setup(){
-    var inp=document.getElementById('i_location');
-    if(!inp||inp._go)return;inp._go=1;
-    inp.setAttribute('autocomplete','off');inp.setAttribute('placeholder','Π.χ. Πίνδου 27...');
-    inp.addEventListener('input',function(){
-      var v=this.value.trim();clearTimeout(timer);si=-1;
-      if(v.length<3){rm();return;}
-      var el=this;timer=setTimeout(function(){search(el,v);},350);
-    });
-    inp.addEventListener('keydown',function(e){
-      if(!drop)return;var rr=drop.querySelectorAll('.gi');
-      if(e.key==='ArrowDown'){e.preventDefault();si=Math.min(si+1,rr.length-1);}
-      else if(e.key==='ArrowUp'){e.preventDefault();si=Math.max(si-1,0);}
-      else if(e.key==='Enter'&&si>=0){e.preventDefault();rr[si].dispatchEvent(new Event('mousedown'));return;}
-      else if(e.key==='Escape'){rm();return;}
-      rr.forEach(function(r,i){r.classList.toggle('gsel',i===si);});
-    });
-    inp.addEventListener('blur',function(){setTimeout(rm,200);});
-  }
-  window.addEventListener('load',function(){
-    setup();
-    if(typeof openAddIssue==='function'){
-      var orig=openAddIssue;
-      window.openAddIssue=function(){orig.apply(this,arguments);setTimeout(function(){var i=document.getElementById('i_location');if(i){i._go=0;setup();}},150);};
-    }
-  });
+  function pick(inp,item){var p=item.properties||{};var road=p.street||p.address_line1||p.name||'';var num=p.housenumber||'';var main=(road+(num?' '+num:'')).trim()||p.formatted.split(',')[0];inp.value=main;var t=document.getElementById('i_postcode');if(t&&p.postcode)t.value=p.postcode;var g=item.geometry;if(g&&g.coordinates){var la=g.coordinates[1],lo=g.coordinates[0];var l=document.getElementById('i_mapLat'),n=document.getElementById('i_mapLng'),d=document.getElementById('i_coordsDisplay');if(l)l.value=la;if(n)n.value=lo;if(d)d.textContent=la.toFixed(5)+', '+lo.toFixed(5);}rm();}
+  function show(inp,ff){rm();if(!ff||!ff.length)return;drop=document.createElement('div');drop.id='geo-drop';var r=inp.getBoundingClientRect();drop.style.cssText='left:'+r.left+'px;top:'+(r.bottom+window.scrollY)+'px;width:'+r.width+'px;';ff.forEach(function(item){var p=item.properties||{};var road=p.street||p.address_line1||p.name||'';var num=p.housenumber||'';var main=(road+(num?' '+num:'')).trim()||(p.formatted||'').split(',')[0];var city=p.city||p.town||p.village||'';var tk=p.postcode||'';var row=document.createElement('div');row.className='gi';row.innerHTML='<span class="gm">'+main+'</span><span class="gs">'+city+(tk?'<span class="gtk">ΤΚ '+tk+'</span>':'')+'</span>';(function(it){row.addEventListener('mousedown',function(e){e.preventDefault();pick(inp,it);})})(item);drop.appendChild(row);});document.body.appendChild(drop);}
+  function search(inp,val){fetch('https://api.geoapify.com/v1/geocode/autocomplete?text='+encodeURIComponent(val)+'&filter=countrycode:gr&bias=proximity:28.2270,36.4341&lang=el&limit=7&apiKey='+K).then(function(r){return r.json();}).then(function(d){show(inp,d.features||[]);}).catch(function(){});}
+  function setup(){var inp=document.getElementById('i_location');if(!inp||inp._go)return;inp._go=1;inp.setAttribute('autocomplete','off');inp.setAttribute('placeholder','Π.χ. Πίνδου 27...');inp.addEventListener('input',function(){var v=this.value.trim();clearTimeout(timer);si=-1;if(v.length<3){rm();return;}var el=this;timer=setTimeout(function(){search(el,v);},350);});inp.addEventListener('keydown',function(e){if(!drop)return;var rr=drop.querySelectorAll('.gi');if(e.key==='ArrowDown'){e.preventDefault();si=Math.min(si+1,rr.length-1);}else if(e.key==='ArrowUp'){e.preventDefault();si=Math.max(si-1,0);}else if(e.key==='Enter'&&si>=0){e.preventDefault();rr[si].dispatchEvent(new Event('mousedown'));return;}else if(e.key==='Escape'){rm();return;}rr.forEach(function(r,i){r.classList.toggle('gsel',i===si);});});inp.addEventListener('blur',function(){setTimeout(rm,200);});}
+  window.addEventListener('load',function(){setup();if(typeof openAddIssue==='function'){var orig=openAddIssue;window.openAddIssue=function(){orig.apply(this,arguments);setTimeout(function(){var i=document.getElementById('i_location');if(i){i._go=0;setup();}},150);};}});
   document.addEventListener('click',function(e){if(drop&&e.target.id!=='i_location')rm();});
 })();
 </script>
@@ -2356,19 +2298,7 @@ function saveUsers(users){
 }
 
 
-function changeAdminPass(){
-  const newPass = prompt('Νέος κωδικός πρόσβασης για Admin:');
-  if(!newPass || newPass.length < 6){ alert('Ο κωδικός πρέπει να έχει τουλάχιστον 6 χαρακτήρες.'); return; }
-  const users = JSON.parse(localStorage.getItem('app_users')||'null');
-  if(users){
-    const adm = users.find(u=>u.id==='admin');
-    if(adm){ adm.password=newPass; localStorage.setItem('app_users',JSON.stringify(users)); }
-  } else {
-    const adm = APP_USERS.find(u=>u.id==='admin');
-    if(adm) adm.password=newPass;
-  }
-  toast('✅ Κωδικός Admin άλλαξε επιτυχώς');
-}
+function changeAdminPass(){const p=prompt("Νέος κωδικός Admin:");if(!p||p.length<6){alert("Τουλάχιστον 6 χαρακτήρες.");return;}const us=JSON.parse(localStorage.getItem("app_users")||"null");if(us){const a=us.find(u=>u.id==="admin");if(a){a.password=p;localStorage.setItem("app_users",JSON.stringify(us));}}else{const a=APP_USERS.find(u=>u.id==="admin");if(a)a.password=p;}toast("Κωδικός Admin άλλαξε");}
 
 function renderUsersList(){
   const card = document.getElementById('userMgmtCard');
@@ -4272,6 +4202,269 @@ function previewMunicipalText(){
     +'</div>';
 }
 
+// ── MUNICIPAL IMPORT FUNCTIONS ──────────────────────────────────
+
+function munReset(){
+  ['mf_num','mf_desc','mf_cat','mf_loc','mf_resp','mf_notes','mf_cname','mf_caddr','mf_mobile','mf_phone','mf_email','mf_status'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.value='';
+  });
+  var d=document.getElementById('mf_date'); if(d) d.value='';
+  var dept=document.getElementById('mf_dept'); if(dept) dept.value='ΔΙΕΥΘΥΝΣΗ ΤΕΧΝΙΚΩΝ ΕΡΓΩΝ & ΥΠΟΔΟΜΩΝ';
+  var st=document.getElementById('munAiStatus'); if(st) st.innerHTML='Ανεβάστε PDF αιτήματος.';
+}
+
+function munFill(k,v){
+  if(!v||!v.toString().trim()) return 0;
+  var el=document.getElementById(k);
+  if(!el) return 0;
+  el.value=v.toString().trim();
+  return 1;
+}
+
+async function munLoadFile(input){
+  var file=input.files[0]; if(!file) return;
+  var st=document.getElementById('munAiStatus');
+  st.innerHTML='<span style="color:var(--blue);">&#8987; AI αναλύει PDF... (~10 δευτ.)</span>';
+  var reader=new FileReader();
+  reader.onload=async function(ev){
+    var b64=ev.target.result.split(',')[1];
+    var mtype=file.type.includes('pdf')?'application/pdf':file.type;
+    try{
+      var resp=await fetch('https://nzrdcgmrsfdmocyhfrod.supabase.co/functions/v1/parse-municipal-pdf',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','apikey':'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56cmRjZ21yc2ZkbW9jeWhmcm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MTg5MDMsImV4cCI6MjA4OTQ5NDkwM30.irU9tlBluAeTGcI0i3cc080OY7_nqR5js4ZPW8MC7b4'},
+        body:JSON.stringify({fileData:b64,mediaType:mtype})
+      });
+      var result=await resp.json();
+      if(result.error) throw new Error(result.error);
+      var p=result.data;
+      var n=0;
+      function mf(id,val){if(!val||!val.toString().trim())return;var el=document.getElementById(id);if(el){el.value=val.toString().trim();n++;}}
+      mf('mf_num',p.num);
+      mf('mf_date',p.date);
+      mf('mf_desc',p.description);
+      mf('mf_cat',p.category);
+      mf('mf_loc',p.location);
+      mf('mf_resp',p.responsible);
+      mf('mf_cname',p.cname);
+      mf('mf_caddr',p.caddr);
+      mf('mf_mobile',p.mobile);
+      mf('mf_phone',p.phone);
+      mf('mf_email',p.email);
+      if(p.priority){var ps=document.getElementById('mf_priority');var pv=(p.priority||'').toLowerCase();
+        if(pv.includes('metro')||pv.includes('μέτ'))ps.value='ΚΑΤ. 3 - ΜΕΤΡΙΟ';
+        else if(pv.includes('υψ'))ps.value='ΚΑΤ. 2 - ΥΨΗΛΗ';
+        else if(pv.includes('κατεπ'))ps.value='ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ';
+        else if(pv.includes('χαμ'))ps.value='ΚΑΤ. 4 - ΧΑΜΗΛΗ';}
+      st.innerHTML='<span style="color:var(--green);">AI: '+n+' πεδία συμπληρώθηκαν. Ελέγξτε και πατήστε Εισαγωγή.</span>';
+      toast('AI: '+n+' πεδία αναγνώστηκαν');
+    }catch(err){
+      st.innerHTML='<span style="color:var(--amber);">'+err.message+'</span>';
+      toast('Σφάλμα: '+err.message.substring(0,60));
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+
+function munApply(){
+  // Step 1: Read ALL mf_ fields into a local object
+  var d={
+    num:    (document.getElementById('mf_num').value||'').trim(),
+    date:   (document.getElementById('mf_date').value||''),
+    prio:   (document.getElementById('mf_priority').value||''),
+    loc:    (document.getElementById('mf_loc').value||'').trim(),
+    notes:  (document.getElementById('mf_notes').value||'').trim(),
+    ctype:  (document.getElementById('mf_ctype').value||''),
+    cname:  (document.getElementById('mf_cname').value||'').trim(),
+    caddr:  (document.getElementById('mf_caddr').value||'').trim(),
+    mobile: (document.getElementById('mf_mobile').value||'').trim(),
+    phone:  (document.getElementById('mf_phone').value||'').trim(),
+    email:  (document.getElementById('mf_email').value||'').trim(),
+    desc:   (document.getElementById('mf_desc').value||'').trim(),
+    cat:    (document.getElementById('mf_cat').value||'').trim()
+  };
+  if(!d.desc && !d.num){ alert('Συμπληρώστε Περιγραφή ή Αρ. Αιτήματος.'); return; }
+
+  // Step 2: Close modal and open issue form
+  closeMunicipalImport();
+  openAddIssue();
+
+  // Step 3: Fill fields after 400ms (openAddIssue has setTimeout(150ms) that resets fields)
+  setTimeout(function(){
+    function sf(id,val){ if(val){ var el=document.getElementById(id); if(el) el.value=val; } }
+    sf('i_municipalNum', d.num);
+    sf('i_location',     d.loc);
+    sf('i_citizen',      d.cname);
+    sf('i_addr',         d.caddr);
+    sf('i_mobile',       d.mobile);
+    sf('i_phone',        d.phone);
+    sf('i_email',        d.email);
+    sf('i_desc',         d.desc);
+    sf('i_prio',         d.prio);
+    sf('i_notes',        d.notes);
+    sf('i_receipt',      d.ctype||'Ιστοσελίδα Δήμου (αιτήματα πολιτών)');
+    sf('i_unit',         'Δημοτική Κοινότητα Ρόδου');
+    sf('i_date',         todayStr());
+    if(d.date){
+      if(!document.getElementById('i_municipalDate')){
+        var h=document.createElement('input');h.type='hidden';h.id='i_municipalDate';
+        document.getElementById('issueModal').appendChild(h);
+      }
+      document.getElementById('i_municipalDate').value=d.date;
+    }
+    if(d.cat){ sf('i_cat',d.cat); onCategoryChange(); }
+    var filled=[d.num,d.loc,d.cname,d.desc,d.mobile,d.phone,d.email].filter(Boolean).length;
+    toast('✅ '+filled+' στοιχεία μεταφέρθηκαν στη φόρμα');
+  }, 400);
+}
+
+function openMunicipalImport(){
+  munReset();
+  document.getElementById('municipalImportWrap').style.display='flex';
+}
+
+function closeMunicipalImport(){
+  document.getElementById('municipalImportWrap').style.display='none';
+}
+
+// Keep old names as aliases for backward compatibility
+function applyMunicipalIssue(){ munApply(); }
+function loadMunicipalFile(input){ munLoadFile(input); }
+async function previewMunicipalText(){ }
+
+
+
+function parseMunicipalText(text){
+  // Parser for Δήμος Ρόδου request PDFs (e.g. Αίτηµα 794243 format)
+  const data = {municipalNum:'', location:'', citizenName:'', contactInfo:'',
+                description:'', date:'', category:'', priority:''};
+  const lines = text.split(/[\n\r]+/).map(l=>l.trim()).filter(l=>l);
+
+  // 1. Request number "Αίτηµα 794243" or "Αίτημα 794243"
+  for(const line of lines){
+    const m = line.match(/αίτ[ηι][μµ]α\s+(\d{4,})/i);
+    if(m){ data.municipalNum = m[1]; break; }
+  }
+  if(!data.municipalNum){ const m=text.match(/\b(\d{5,7})\b/); if(m) data.municipalNum=m[1]; }
+
+  // 2. Date: find "Ηµερ. Αιτήµατος" label, value on same or next line
+  for(let i=0;i<lines.length;i++){
+    if(/ηµερ|ημερ/i.test(lines[i])){
+      const combined = lines[i]+' '+(lines[i+1]||'');
+      const dm = combined.match(/(\d{1,2})[\/](\d{1,2})[\/](\d{2,4})/);
+      if(dm){ const y=dm[3].length===2?'20'+dm[3]:dm[3]; data.date=y+'-'+dm[2].padStart(2,'0')+'-'+dm[1].padStart(2,'0'); break; }
+    }
+  }
+  if(!data.date){ const m=text.match(/(\d{1,2})[\/](\d{1,2})[\/](\d{4})/); if(m){ data.date=m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'); } }
+
+  // 3. Description: "Περιγραφή" label
+  for(let i=0;i<lines.length;i++){
+    if(/^περιγραφ/i.test(lines[i])){
+      const rest = lines[i].replace(/^περιγραφή\s*/i,'').trim();
+      data.description = rest || (lines[i+1]||'');
+      break;
+    }
+  }
+
+  // 4. Address/Location: "Διεύθυνση" label
+  for(let i=0;i<lines.length;i++){
+    if(/^διεύθυνση/i.test(lines[i])){
+      const rest = lines[i].replace(/^διεύθυνση\s*/i,'').trim();
+      data.location = rest || (lines[i+1]||'');
+      break;
+    }
+  }
+
+  // 5. Citizen name: "Ονοµατεπώνυµο Πολίτη" label
+  for(let i=0;i<lines.length;i++){
+    if(/ονοµατεπ|ονοματεπ/i.test(lines[i])){
+      const rest = lines[i].replace(/ονοµατεπώνυµο πολίτη\s*/i,'').replace(/ονοματεπώνυμο πολίτη\s*/i,'').trim();
+      data.citizenName = rest || (lines[i+1]||'');
+      break;
+    }
+  }
+
+  // 6. Contact: email, mobile, phone separately
+  for(const line of lines){
+    const m = line.match(/([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/);
+    if(m){ data.citizenEmail = m[1]; data.contactInfo = m[1]; break; }
+  }
+  for(const line of lines){
+    if(/κινητό/i.test(line)){
+      const m=line.match(/[0-9+][\d\s\-]{7,}/);
+      if(m){ data.citizenMobile=m[0].trim(); if(!data.contactInfo)data.contactInfo=data.citizenMobile; break; }
+    }
+  }
+  for(const line of lines){
+    if(/τηλέφωνο|σταθερό|τηλ[^έ]/i.test(line)){
+      const m=line.match(/[0-9+][\d\s\-]{7,}/);
+      if(m){ data.citizenPhone=m[0].trim(); if(!data.contactInfo)data.contactInfo=data.citizenPhone; break; }
+    }
+  }
+  // Citizen address (separate from issue location)
+  for(let i=0;i<lines.length;i++){
+    if(/^(?:διεύθυνση|address)\s*$/i.test(lines[i]) && lines[i+1] && !/^[Α-ΩA-Z]{5,}/.test(lines[i+1])){
+      data.citizenAddr = lines[i+1];
+    }
+  }
+
+  // 7. Category → map to our categories
+  for(let i=0;i<lines.length;i++){
+    if(/^κατηγορία/i.test(lines[i])){
+      const cat = (lines[i].replace(/^κατηγορία\s*/i,'').trim() || (lines[i+1]||'')).toUpperCase();
+      if(/λαµπτ|λαμπτ|φωτ|ηλεκτρ/i.test(cat)) data.category='Ηλεκτροφωτισμός';
+      else if(/οδοστρ|λακ|ασφαλτ/i.test(cat)) data.category='Οδοστρωσία';
+      else if(/πεζοδρ|πλατε/i.test(cat)) data.category='Πεζοδρόμια/Πλατείες';
+      else if(/υδρ|νερ|σωλ/i.test(cat)) data.category='Υδραυλικά';
+      else if(/σχολ/i.test(cat)) data.category='Σχολικά Κτίρια';
+      else if(/κτίρ|κτιρ/i.test(cat)) data.category='Κτιριακές Εγκαταστάσεις';
+      else if(/παιδ.*χαρ/i.test(cat)) data.category='Παιδικές Χαρές';
+      else if(/εξοπλ|σήµανσ/i.test(cat)) data.category='Αστικός Εξοπλισμός';
+      else data.category='Λοιπές Εργασίες';
+      break;
+    }
+  }
+
+  // 8. Priority → map to our scale
+  for(let i=0;i<lines.length;i++){
+    if(/^προτεραι/i.test(lines[i])){
+      const pr = (lines[i].replace(/^προτεραιότητα\s*/i,'').trim() || (lines[i+1]||'')).toLowerCase();
+      if(/κρίσιµ|επείγ|υψηλ|high|urgent/i.test(pr)) data.priority='ΚΑΤ. 2 - ΕΠΕΙΓΟΝ';
+      else if(/µέτρ|μέτρ|medium/i.test(pr)) data.priority='ΚΑΤ. 3 - ΥΨΗΛΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ';
+      else if(/χαµηλ|χαμηλ|low/i.test(pr)) data.priority='ΚΑΤ. 4 - ΚΑΝΟΝΙΚΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ';
+      else data.priority='ΚΑΤ. 3 - ΥΨΗΛΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ';
+      break;
+    }
+  }
+  if(!data.priority) data.priority='ΚΑΤ. 3 - ΥΨΗΛΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ';
+
+  return data;
+}
+
+function previewMunicipalText(){
+  const text = document.getElementById('municipalPasteArea').value;
+  if(!text.trim()){
+    document.getElementById('municipalPreview').innerHTML='<p style="color:var(--red);">Δεν υπάρχει κείμενο.</p>';
+    return;
+  }
+  const data = parseMunicipalText(text);
+  const allOk = data.municipalNum && data.location && data.description;
+  document.getElementById('municipalPreview').innerHTML =
+    '<div style="font-size:11px;line-height:1.8;border-left:3px solid '+(allOk?'var(--green)':'var(--amber)')+';padding-left:10px;">'
+    +(allOk?'<div style="color:var(--green);font-weight:700;margin-bottom:6px;">✅ Αναγνωρίστηκαν τα στοιχεία — πατήστε Εισαγωγή</div>'
+           :'<div style="color:var(--amber);font-weight:700;margin-bottom:6px;">⚠ Μερική ανάγνωση — ελέγξτε τα πεδία</div>')
+    +'<div>📋 <strong>Αρ. Αιτήματος Δήμου:</strong> <span style="color:var(--navy);font-weight:700;">'+(data.municipalNum||'—')+'</span></div>'
+    +'<div>📅 <strong>Ημερομηνία:</strong> '+(data.date?fmtDate(data.date):'—')+'</div>'
+    +'<div>📍 <strong>Διεύθυνση:</strong> '+(data.location||'—')+'</div>'
+    +'<div>👤 <strong>Πολίτης:</strong> '+(data.citizenName||'—')+'</div>'
+    +'<div>📞 <strong>Επικοινωνία:</strong> '+(data.contactInfo||'—')+'</div>'
+    +'<div>🏷 <strong>Κατηγορία →</strong> <span style="color:var(--navy);">'+(data.category||'—')+'</span></div>'
+    +'<div>⚡ <strong>Προτεραιότητα →</strong> <span style="color:var(--navy);">'+(data.priority||'—')+'</span></div>'
+    +'<div>📝 <strong>Περιγραφή:</strong> '+(data.description||'—').slice(0,200)+'</div>'
+    +'</div>';
+}
+
 function applyMunicipalIssue(){
   const text = document.getElementById('municipalPasteArea').value;
   if(!text.trim()){alert('Δεν υπάρχει κείμενο αιτήματος.');return;}
@@ -5090,13 +5283,7 @@ function printOrder(id){
 
 let _emailOrderId = null;
 
-function openEmail(email, subject, body) {
-  var b = body.length > 1500 ? body.substring(0, 1500) + '...' : body;
-  var url = 'mailto:' + encodeURIComponent(email)
-    + '?subject=' + encodeURIComponent(subject)
-    + '&body=' + encodeURIComponent(b);
-  window.open(url, '_blank');
-}
+function openEmail(email,subject,body){var b=body.length>1500?body.substring(0,1500)+'...':body;var url='mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(b);window.open(url,'_blank');}
 
 
 function buildEmailBody(wo){
@@ -6538,27 +6725,53 @@ function printBulkProtocol(){
 
 <!-- MUNICIPAL ISSUE IMPORT MODAL -->
 <div class="overlay" id="municipalImportWrap" style="display:none" onclick="if(event.target.classList.contains('overlay'))closeMunicipalImport()">
-  <div class="modal md">
+  <div class="modal lg" style="max-height:93vh;display:flex;flex-direction:column;">
     <div class="mhdr">
-      <h2>🏛 Εισαγωγή Αιτήματος Δήμου Ρόδου</h2>
+      <h2>🏛 Αίτημα Δήμου Ρόδου — Εισαγωγή</h2>
       <button class="mclose" onclick="closeMunicipalImport()">✕</button>
     </div>
-    <div class="mbody">
-      <p style="font-size:12px;color:var(--muted);margin-bottom:12px;">Επικολλήστε το κείμενο του αιτήματος από την πλατφόρμα του Δήμου Ρόδου ή ανεβάστε το αρχείο. Η εφαρμογή θα διαβάσει αυτόματα τα στοιχεία.</p>
-      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-        <input type="file" id="municipalFileInput" accept=".pdf,.txt,.png,.jpg,.jpeg" style="display:none" onchange="loadMunicipalFile(this)">
-        <button class="btn btn-sm" onclick="document.getElementById('municipalFileInput').click()">📎 Ανέβασμα Αρχείου (PDF/εικόνα/txt)</button>
-        <button class="btn btn-sm" onclick="previewMunicipalText()">🔍 Ανάγνωση Κειμένου</button>
+    <div class="mbody" style="overflow-y:auto;flex:1;">
+      <!-- AI PDF strip -->
+      <div style="background:#f0f4ff;border:1px solid #c8d8f0;border-radius:8px;padding:10px 14px;margin-bottom:14px;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+          <span style="font-size:12px;color:#1a3a5c;font-weight:700;">🤖 Αυτόματη ανάγνωση με AI:</span>
+          <input type="file" id="municipalFileInput" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="munLoadFile(this)">
+          <button class="btn btn-sm btn-p" onclick="document.getElementById('municipalFileInput').click()">📎 Ανέβασμα PDF</button>
+        </div>
+        <div id="munAiStatus" style="font-size:11px;color:var(--muted);margin-top:4px;">Ανεβάστε PDF αιτήματος — το AI θα συμπληρώσει αυτόματα.</div>
       </div>
-      <textarea id="municipalPasteArea" placeholder="Επικολλήστε εδώ το κείμενο του αιτήματος από την εφαρμογή Αιτημάτων Δήμου Ρόδου..." style="width:100%;height:140px;padding:8px;border-radius:6px;border:1px solid var(--border);font-size:12px;resize:vertical;"></textarea>
-      <div style="background:var(--sec);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:10px;">
-        <p style="font-size:11px;font-weight:600;color:var(--navy);margin:0 0 8px;">📋 Αναγνωρισμένα Στοιχεία:</p>
-        <div id="municipalPreview"><p style="color:var(--muted);font-size:11px;">Επικολλήστε κείμενο ή ανεβάστε αρχείο και πατήστε «Ανάγνωση»</p></div>
+      <!-- SECTION 1: Αίτημα -->
+      <div style="margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy);border-bottom:2px solid var(--navy);padding-bottom:4px;margin-bottom:10px;">📋 Στοιχεία Αιτήματος</div>
+        <div class="fgrid">
+          <div class="fg"><label>Αρ. Αιτήματος Δήμου</label><input type="text" id="mf_num" placeholder="π.χ. 567408"></div>
+          <div class="fg"><label>Ημερομηνία Αιτήματος</label><input type="date" id="mf_date"></div>
+          <div class="fg"><label>Κατάσταση</label><input type="text" id="mf_status" placeholder="Σε εξέλιξη"></div>
+          <div class="fg"><label>Προτεραιότητα</label><select id="mf_priority"><option value="ΚΑΤ. 3 - ΜΕΤΡΙΟ">Μέτριο</option><option value="ΚΑΤ. 2 - ΥΨΗΛΗ">Υψηλή</option><option value="ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ">Κατεπείγον</option><option value="ΚΑΤ. 4 - ΧΑΜΗΛΗ">Χαμηλή</option></select></div>
+          <div class="fg full"><label>Περιγραφή Αιτήματος *</label><textarea id="mf_desc" rows="3" placeholder="Περιγραφή προβλήματος..." style="width:100%;padding:7px 9px;border:1px solid var(--borderS);border-radius:var(--rs);font-size:12px;font-family:inherit;resize:vertical;"></textarea></div>
+          <div class="fg"><label>Κατηγορία</label><input type="text" id="mf_cat" placeholder="π.χ. ΑΝΤΙΚΑΤΑΣΤΑΣΗ ΛΑΜΠΤΗΡΩΝ"></div>
+          <div class="fg"><label>Διεύθυνση Προβλήματος</label><input type="text" id="mf_loc" placeholder="Οδός, αριθμός"></div>
+          <div class="fg full"><label>Υπεύθυνο Τμήμα / Υπηρεσία</label><input type="text" id="mf_dept" value="ΔΙΕΥΘΥΝΣΗ ΤΕΧΝΙΚΩΝ ΕΡΓΩΝ &amp; ΥΠΟΔΟΜΩΝ"></div>
+          <div class="fg full"><label>Θεματικοί Υπεύθυνοι</label><input type="text" id="mf_resp" placeholder="π.χ. Ιωάννης Λαμπριανός, Βασίλειος Διακολιός"></div>
+          <div class="fg full"><label>Σχόλια / Πρόταση Λύσης</label><textarea id="mf_notes" rows="2" placeholder="Σχόλια..." style="width:100%;padding:7px 9px;border:1px solid var(--borderS);border-radius:var(--rs);font-size:12px;font-family:inherit;resize:vertical;"></textarea></div>
+        </div>
+      </div>
+      <!-- SECTION 2: Πολίτης -->
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy);border-bottom:2px solid var(--navy);padding-bottom:4px;margin-bottom:10px;">👤 Στοιχεία Πολίτη / Αιτούντα</div>
+        <div class="fgrid">
+          <div class="fg"><label>Τρόπος Επικοινωνίας</label><select id="mf_ctype"><option value="Ιστοσελίδα Δήμου (αιτήματα πολιτών)">Ιστοσελίδα Δήμου</option><option value="Τηλέφωνο">Τηλέφωνο</option><option value="Email">Email</option><option value="Αυτοπροσώπως">Αυτοπροσώπως</option></select></div>
+          <div class="fg"><label>Ονοματεπώνυμο Πολίτη</label><input type="text" id="mf_cname" placeholder="Ονοματεπώνυμο"></div>
+          <div class="fg full"><label>Διεύθυνση Πολίτη</label><input type="text" id="mf_caddr" placeholder="Διεύθυνση κατοικίας"></div>
+          <div class="fg"><label>Κινητό Τηλέφωνο</label><input type="tel" id="mf_mobile" placeholder="69xxxxxxxx"></div>
+          <div class="fg"><label>Σταθερό Τηλέφωνο</label><input type="tel" id="mf_phone" placeholder="2241xxxxxx"></div>
+          <div class="fg full"><label>Email Πολίτη</label><input type="email" id="mf_email" placeholder="email@example.com"></div>
+        </div>
       </div>
     </div>
-    <div class="mfoot" style="display:flex;justify-content:flex-end;gap:8px;">
+    <div class="mfoot" style="padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;">
       <button class="btn" onclick="closeMunicipalImport()">Ακύρωση</button>
-      <button class="btn btn-p" onclick="applyMunicipalIssue()">✅ Εισαγωγή στη Φόρμα Αιτήματος</button>
+      <button class="btn btn-p" onclick="munApply()">✅ Εισαγωγή στη Φόρμα Αιτήματος</button>
     </div>
   </div>
 </div>
@@ -6601,6 +6814,7 @@ function printBulkProtocol(){
     </div>
     <div class="mfoot">
       <button class="btn" onclick="closeStaffModal()">Ακύρωση</button>
+      <butto
       <button class="btn btn-p" onclick="saveStaffMember()">Αποθήκευση</button>
     </div>
   </div>
