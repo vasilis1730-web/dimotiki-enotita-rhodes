@@ -518,6 +518,11 @@ tr:hover td{background:#faf9f7;}
   <!-- SETTINGS -->
   <div id="tab-settings" style="display:none">
     <div style="max-width:520px;">
+      <!-- ONLINE USERS CARD (admin only) -->
+      <div id="onlineUsersCard" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px;">
+        <h3 style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:12px;">🟢 Online Χρήστες</h3>
+        <div id="onlineUsersList" style="font-size:12px;"></div>
+      </div>
       <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:14px;">
         <h3 style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:14px;">Στοιχεία Σύμβασης & Αναδόχου</h3>
         <div class="fgrid">
@@ -5974,20 +5979,15 @@ function delStaff(idx){
 // SETTINGS
 // ================================================================
 function loadSettings(){
-  // Show online users (admin only)
-  if(currentUser && currentUser.id==='admin'){
-    var onlineDiv=document.getElementById('onlineUsersDiv');
-    if(!onlineDiv){
-      var card=document.querySelector('#tab-settings .section-block');
-      if(card){
-        onlineDiv=document.createElement('div');
-        onlineDiv.id='onlineUsersDiv';
-        onlineDiv.style.cssText='background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:14px;';
-        onlineDiv.innerHTML='<h3 style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:8px;">🟢 Online Χρήστες</h3><div id="onlineUsersList"></div>';
-        card.parentNode.insertBefore(onlineDiv,card);
-      }
+  // Show online users card for admin only
+  var onlineCard = document.getElementById('onlineUsersCard');
+  if(onlineCard){
+    if(currentUser && currentUser.id==='admin'){
+      onlineCard.style.display='block';
+      munUpdateOnline();
+    } else {
+      onlineCard.style.display='none';
     }
-    munUpdateOnline();
   }
   renderUsersList();
   renderStaffList();
