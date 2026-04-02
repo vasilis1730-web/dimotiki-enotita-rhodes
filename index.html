@@ -4236,9 +4236,45 @@ function munFill(k,v){
 async function munLoadFile(input){
   var file=input.files[0]; if(!file) return;
   var st=document.getElementById('munAiStatus');
-  st.innerHTML='<span style="color:var(--blue);">&#8987; AI αναλύει PDF... (~10 δευτ.)</span>';
-  var reader=new FileReader();
-  reader.onload=async function(ev){
+
+  // ── HTML file: parse directly, no AI needed ────────────────
+  if(file.name.toLowerCase().endsWith('.html')||file.name.toLowerCase().endsWith('.htm')||file.type.includes('html')){
+    st.innerHTML='<span style="color:var(--blue);">⏳ Ανάγνωση HTML...</span>';
+    var reader=new FileReader();
+    reader.onload=function(ev){
+      var html=ev.target.result;
+      var p=munParseHtml(html);
+      var n=0;
+      function mf(id,val){if(!val||!val.toString().trim())return;var el=document.getElementById(id);if(el){el.value=val.toString().trim();n++;}}
+      mf('mf_num',   p.num);
+      mf('mf_date',  p.date);
+      mf('mf_desc',  p.description);
+      mf('mf_cat',   p.category);
+      mf('mf_loc',   p.location);
+      mf('mf_resp',  p.responsible);
+      mf('mf_cname', p.cname);
+      mf('mf_caddr', p.caddr);
+      mf('mf_mobile',p.mobile);
+      mf('mf_phone', p.phone);
+      mf('mf_email', p.email);
+      if(p.priority){
+        var ps=document.getElementById('mf_priority');var pv=(p.priority||'').toLowerCase();
+        if(pv.includes('metro')||pv.includes('\u03bc\u03ad\u03c4'))ps.value='\u039a\u0391\u03a4. 3 - \u039c\u0395\u03a4\u03a1\u0399\u039f';
+        else if(pv.includes('\u03c5\u03c8'))ps.value='\u039a\u0391\u03a4. 2 - \u03a5\u03a8\u0397\u039b\u0397';
+        else if(pv.includes('\u03ba\u03b1\u03c4\u03b5\u03c0')||pv.includes('\u03b1\u03bc\u03b5\u03c3'))ps.value='\u039a\u0391\u03a4. 1 - \u0391\u039c\u0395\u03a3\u039f\u03a3 \u039a\u0399\u039d\u0394\u03a5\u039d\u039f\u03a3 \u0396\u03a9\u0397\u03a3';
+        else if(pv.includes('\u03c7\u03b1\u03bc'))ps.value='\u039a\u0391\u03a4. 4 - \u03a7\u0391\u039c\u0397\u039b\u0397';
+      }
+      st.innerHTML='<span style="color:var(--green);">\u2705 HTML: '+n+' \u03c0\u03b5\u03b4\u03af\u03b1 \u03c3\u03c5\u03bc\u03c0\u03bb\u03b7\u03c1\u03ce\u03b8\u03b7\u03ba\u03b1\u03bd. \u0395\u03bb\u03ad\u03b3\u03be\u03c4\u03b5 \u03ba\u03b1\u03b9 \u03c0\u03b1\u03c4\u03ae\u03c3\u03c4\u03b5 \u0395\u03b9\u03c3\u03b1\u03b3\u03c9\u03b3\u03ae.</span>';
+      toast(n+' \u03c0\u03b5\u03b4\u03af\u03b1 \u03b5\u03be\u03ae\u03c7\u03b8\u03b7\u03ba\u03b1\u03bd \u03b1\u03c0\u03cc HTML');
+    };
+    reader.readAsText(file,'utf-8');
+    return;
+  }
+
+  // ── PDF/Image: use Supabase Edge Function + AI ─────────────
+  st.innerHTML='<span style="color:var(--blue);">&#8987; AI \u03b1\u03bd\u03b1\u03bb\u03cd\u03b5\u03b9 PDF... (~10 \u03b4\u03b5\u03c5\u03c4.)</span>';
+  var reader2=new FileReader();
+  reader2.onload=async function(ev){
     var b64=ev.target.result.split(',')[1];
     var mtype=file.type.includes('pdf')?'application/pdf':file.type;
     try{
@@ -4251,31 +4287,91 @@ async function munLoadFile(input){
       if(result.error) throw new Error(result.error);
       var p=result.data;
       var n=0;
-      function mf(id,val){if(!val||!val.toString().trim())return;var el=document.getElementById(id);if(el){el.value=val.toString().trim();n++;}}
-      mf('mf_num',p.num);
-      mf('mf_date',p.date);
-      mf('mf_desc',p.description);
-      mf('mf_cat',p.category);
-      mf('mf_loc',p.location);
-      mf('mf_resp',p.responsible);
-      mf('mf_cname',p.cname);
-      mf('mf_caddr',p.caddr);
-      mf('mf_mobile',p.mobile);
-      mf('mf_phone',p.phone);
-      mf('mf_email',p.email);
+      function mf2(id,val){if(!val||!val.toString().trim())return;var el=document.getElementById(id);if(el){el.value=val.toString().trim();n++;}}
+      mf2('mf_num',p.num);mf2('mf_date',p.date);mf2('mf_desc',p.description);
+      mf2('mf_cat',p.category);mf2('mf_loc',p.location);mf2('mf_resp',p.responsible);
+      mf2('mf_cname',p.cname);mf2('mf_caddr',p.caddr);
+      mf2('mf_mobile',p.mobile);mf2('mf_phone',p.phone);mf2('mf_email',p.email);
       if(p.priority){var ps=document.getElementById('mf_priority');var pv=(p.priority||'').toLowerCase();
-        if(pv.includes('metro')||pv.includes('μέτ'))ps.value='ΚΑΤ. 3 - ΜΕΤΡΙΟ';
-        else if(pv.includes('υψ'))ps.value='ΚΑΤ. 2 - ΥΨΗΛΗ';
-        else if(pv.includes('κατεπ'))ps.value='ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ';
-        else if(pv.includes('χαμ'))ps.value='ΚΑΤ. 4 - ΧΑΜΗΛΗ';}
-      st.innerHTML='<span style="color:var(--green);">AI: '+n+' πεδία συμπληρώθηκαν. Ελέγξτε και πατήστε Εισαγωγή.</span>';
-      toast('AI: '+n+' πεδία αναγνώστηκαν');
+        if(pv.includes('metro')||pv.includes('\u03bc\u03ad\u03c4'))ps.value='\u039a\u0391\u03a4. 3 - \u039c\u0395\u03a4\u03a1\u0399\u039f';
+        else if(pv.includes('\u03c5\u03c8'))ps.value='\u039a\u0391\u03a4. 2 - \u03a5\u03a8\u0397\u039b\u0397';
+        else if(pv.includes('\u03ba\u03b1\u03c4\u03b5\u03c0'))ps.value='\u039a\u0391\u03a4. 1 - \u0391\u039c\u0395\u03a3\u039f\u03a3 \u039a\u0399\u039d\u0394\u03a5\u039d\u039f\u03a3 \u0396\u03a9\u0397\u03a3';
+        else if(pv.includes('\u03c7\u03b1\u03bc'))ps.value='\u039a\u0391\u03a4. 4 - \u03a7\u0391\u039c\u0397\u039b\u0397';}
+      st.innerHTML='<span style="color:var(--green);">\u2705 AI: '+n+' \u03c0\u03b5\u03b4\u03af\u03b1 \u03c3\u03c5\u03bc\u03c0\u03bb\u03b7\u03c1\u03ce\u03b8\u03b7\u03ba\u03b1\u03bd.</span>';
+      toast('AI: '+n+' \u03c0\u03b5\u03b4\u03af\u03b1 \u03b1\u03bd\u03b1\u03b3\u03bd\u03ce\u03c3\u03c4\u03b7\u03ba\u03b1\u03bd');
     }catch(err){
-      st.innerHTML='<span style="color:var(--amber);">'+err.message+'</span>';
-      toast('Σφάλμα: '+err.message.substring(0,60));
+      st.innerHTML='<span style="color:var(--amber);">\u26a0 '+err.message+'</span>';
+      toast('\u03a3\u03c6\u03ac\u03bb\u03bc\u03b1: '+err.message.substring(0,60));
     }
   };
-  reader.readAsDataURL(file);
+  reader2.readAsDataURL(file);
+}
+
+function munParseHtml(html){
+  // Create temporary DOM to parse HTML
+  var tmp=document.createElement('div');
+  tmp.innerHTML=html;
+  // Extract all text nodes
+  var texts=[];
+  var walk=document.createTreeWalker(tmp,NodeFilter.SHOW_TEXT,null);
+  var node;
+  while((node=walk.nextNode())){
+    var t=(node.textContent||'').trim();
+    if(t&&t.length>1&&!t.includes('{')&&!t.includes('Font:')) texts.push(t);
+  }
+
+  var data={num:'',date:'',description:'',category:'',status:'',priority:'',
+            location:'',responsible:'',cname:'',caddr:'',mobile:'',phone:'',email:''};
+  var citizenSection=false;
+  var citizenNameNext=false;
+  var prevLabel='';
+
+  for(var i=0;i<texts.length;i++){
+    var t=texts[i];
+
+    // Request number
+    var m=t.match(/[Αα]ίτ[ηι][μµ]α\s+(\d{4,})/);
+    if(m) data.num=m[1];
+
+    // Citizen section marker
+    if(t.includes('\u03a3\u03c4\u03bf\u03b9\u03c7\u03b5\u03af\u03b1 \u03a0\u03bf\u03bb\u03af\u03c4\u03b7')) citizenSection=true;
+
+    // Citizen name - follows "Ονοματεπώνυμο" + "Πολίτη"
+    if(t.includes('\u039f\u03bd\u03bf\u03bc\u03b1\u03c4\u03b5\u03c0\u03ce\u03bd\u03c5\u03bc\u03bf')||t.includes('\u039f\u03bd\u03bf\u03bc\u03b1\u03c4\u03b5\u03c0\u03ce\u03bd\u03c5\u03bc\u03bf')){
+      citizenNameNext=true;
+    }
+    if(citizenNameNext&&!t.includes('\u039f\u03bd\u03bf\u03bc\u03b1')&&t!=='\u03a0\u03bf\u03bb\u03af\u03c4\u03b7'&&!data.cname&&citizenSection){
+      data.cname=t; citizenNameNext=false;
+    }
+
+    // Label-value pairs
+    if(t==='\u03a0\u03b5\u03c1\u03b9\u03b3\u03c1\u03b1\u03c6\u03ae'||t==='\u03a0\u03b5\u03c1\u03b9\u03b3\u03c1\u03b1\u03c6\u03ae') prevLabel='description';
+    else if(t==='\u039a\u03b1\u03c4\u03b7\u03b3\u03bf\u03c1\u03af\u03b1') prevLabel='category';
+    else if(t==='\u039a\u03b1\u03c4\u03ac\u03c3\u03c4\u03b1\u03c3\u03b7') prevLabel='status';
+    else if(t==='\u03a0\u03c1\u03bf\u03c4\u03b5\u03c1\u03b1\u03b9\u03cc\u03c4\u03b7\u03c4\u03b1') prevLabel='priority';
+    else if(t.includes('\u0397\u03bc\u03b5\u03c1.\u0391\u03b9\u03c4')||t.includes('\u0397\u03bc\u03b5\u03c1\u03bf\u03bc\u03b7\u03bd\u03af\u03b1')||t.includes('\u0397\u03bc\u03b5\u03c1.')){
+      prevLabel='date';
+    }
+    else if(t==='\u0394\u03b9\u03b5\u03cd\u03b8\u03c5\u03bd\u03c3\u03b7'){
+      prevLabel= citizenSection ? 'caddr' : 'location';
+    }
+    else if(t.includes('\u0398\u03b5\u03bc\u03b1\u03c4\u03b9\u03ba\u03bf\u03af')) prevLabel='responsible';
+    else if(t==='\u039a\u03b9\u03bd\u03b7\u03c4\u03cc') prevLabel='mobile';
+    else if(t==='\u03a4\u03b7\u03bb\u03ad\u03c6\u03c9\u03bd\u03bf') prevLabel='phone';
+    else if(t==='Email') prevLabel='email';
+    else if(prevLabel&&!data[prevLabel]&&t.length>1&&t!=='\u03a0\u03bf\u03bb\u03af\u03c4\u03b7'){
+      // Convert date DD/MM/YYYY to YYYY-MM-DD
+      if(prevLabel==='date'){
+        var dm=t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if(dm) data.date=dm[3]+'-'+dm[2].padStart(2,'0')+'-'+dm[1].padStart(2,'0');
+        else data.date=t;
+      } else {
+        data[prevLabel]=t;
+      }
+      prevLabel='';
+    }
+  }
+  return data;
 }
 
 
@@ -5878,6 +5974,21 @@ function delStaff(idx){
 // SETTINGS
 // ================================================================
 function loadSettings(){
+  // Show online users (admin only)
+  if(currentUser && currentUser.id==='admin'){
+    var onlineDiv=document.getElementById('onlineUsersDiv');
+    if(!onlineDiv){
+      var card=document.querySelector('#tab-settings .section-block');
+      if(card){
+        onlineDiv=document.createElement('div');
+        onlineDiv.id='onlineUsersDiv';
+        onlineDiv.style.cssText='background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:14px;';
+        onlineDiv.innerHTML='<h3 style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:8px;">🟢 Online Χρήστες</h3><div id="onlineUsersList"></div>';
+        card.parentNode.insertBefore(onlineDiv,card);
+      }
+    }
+    munUpdateOnline();
+  }
   renderUsersList();
   renderStaffList();
   document.getElementById('sDate').value=settings.listDate||todayStr();
@@ -6747,7 +6858,7 @@ function printBulkProtocol(){
       <div style="background:#f0f4ff;border:1px solid #c8d8f0;border-radius:8px;padding:10px 14px;margin-bottom:14px;">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
           <span style="font-size:12px;color:#1a3a5c;font-weight:700;">🤖 Αυτόματη ανάγνωση με AI:</span>
-          <input type="file" id="municipalFileInput" accept=".pdf,.jpg,.jpeg,.png" style="display:none" onchange="munLoadFile(this)">
+          <input type="file" id="municipalFileInput" accept=".pdf,.html,.htm,.jpg,.jpeg,.png" style="display:none" onchange="munLoadFile(this)">
           <button class="btn btn-sm btn-p" onclick="document.getElementById('municipalFileInput').click()">📎 Ανέβασμα PDF</button>
         </div>
         <div id="munAiStatus" style="font-size:11px;color:var(--muted);margin-top:4px;">Ανεβάστε PDF αιτήματος — το AI θα συμπληρώσει αυτόματα.</div>
@@ -6851,6 +6962,48 @@ function printBulkProtocol(){
     });
   });
 })();
+
+// ── Online user tracking ────────────────────────────────────────
+if(!window._onlineStart) window._onlineStart = Date.now();
+function munUpdateOnline(){
+  var el=document.getElementById('onlineUsersList');
+  if(!el) return;
+  // Track current user in localStorage with timestamp
+  try{
+    var key='online_'+currentUser.id;
+    localStorage.setItem(key,JSON.stringify({name:currentUser.name,ts:Date.now(),initials:currentUser.initials||'?',color:currentUser.color||'#1a3a5c'}));
+    // Read all online users (active in last 5 min)
+    var online=[];
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      if(k&&k.startsWith('online_')){
+        try{
+          var u=JSON.parse(localStorage.getItem(k));
+          if(u&&(Date.now()-u.ts)<300000) online.push(u); // 5 min
+        }catch(e){}
+      }
+    }
+    if(!online.length){el.innerHTML='<p style="font-size:11px;color:var(--muted);">Κανένας χρήστης online</p>';return;}
+    el.innerHTML=online.map(function(u){
+      var mins=Math.round((Date.now()-u.ts)/60000);
+      var ago=mins===0?'τώρα':mins+' λεπ. πριν';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">'
+        +'<div style="width:8px;height:8px;border-radius:50%;background:#2d7a4f;flex-shrink:0;"></div>'
+        +'<span style="font-size:12px;font-weight:600;">'+u.name+'</span>'
+        +'<span style="font-size:11px;color:var(--muted);margin-left:auto;">'+ago+'</span>'
+        +'</div>';
+    }).join('');
+  }catch(e){}
+}
+
+// Update online status every 60 seconds
+setInterval(function(){
+  if(currentUser){
+    try{localStorage.setItem('online_'+currentUser.id,JSON.stringify({name:currentUser.name,ts:Date.now(),initials:currentUser.initials||'?',color:currentUser.color||'#1a3a5c'}));}catch(e){}
+  }
+  if(currentTab==='settings'&&currentUser&&currentUser.id==='admin') munUpdateOnline();
+},60000);
+
 </script>
 </body>
 </html>
