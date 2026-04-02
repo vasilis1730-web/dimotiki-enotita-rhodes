@@ -6963,46 +6963,59 @@ function printBulkProtocol(){
   });
 })();
 
-// ── Online user tracking ────────────────────────────────────────
-if(!window._onlineStart) window._onlineStart = Date.now();
+// ── Online user tracking (Supabase) ─────────────────────────────
+var _presenceUrl = 'https://nzrdcgmrsfdmocyhfrod.supabase.co/functions/v1/user-presence';
+var _presenceAnon = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56cmRjZ21yc2ZkbW9jeWhmcm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MTg5MDMsImV4cCI6MjA4OTQ5NDkwM30.irU9tlBluAeTGcI0i3cc080OY7_nqR5js4ZPW8MC7b4';
+
+function munPingPresence(){
+  if(!currentUser) return;
+  fetch(_presenceUrl, {
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':_presenceAnon},
+    body:JSON.stringify({action:'ping',userId:currentUser.id,userName:currentUser.name,userColor:currentUser.color||'#1a3a5c'})
+  }).catch(function(){});
+}
+
 function munUpdateOnline(){
-  var el=document.getElementById('onlineUsersList');
+  var el = document.getElementById('onlineUsersList');
   if(!el) return;
-  // Track current user in localStorage with timestamp
-  try{
-    var key='online_'+currentUser.id;
-    localStorage.setItem(key,JSON.stringify({name:currentUser.name,ts:Date.now(),initials:currentUser.initials||'?',color:currentUser.color||'#1a3a5c'}));
-    // Read all online users (active in last 5 min)
-    var online=[];
-    for(var i=0;i<localStorage.length;i++){
-      var k=localStorage.key(i);
-      if(k&&k.startsWith('online_')){
-        try{
-          var u=JSON.parse(localStorage.getItem(k));
-          if(u&&(Date.now()-u.ts)<300000) online.push(u); // 5 min
-        }catch(e){}
-      }
+  fetch(_presenceUrl, {
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':_presenceAnon},
+    body:JSON.stringify({action:'list'})
+  })
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(!d.users||!d.users.length){
+      el.innerHTML='<p style="font-size:11px;color:var(--muted);">Κανένας χρήστης online</p>';
+      return;
     }
-    if(!online.length){el.innerHTML='<p style="font-size:11px;color:var(--muted);">Κανένας χρήστης online</p>';return;}
-    el.innerHTML=online.map(function(u){
-      var mins=Math.round((Date.now()-u.ts)/60000);
-      var ago=mins===0?'τώρα':mins+' λεπ. πριν';
-      return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">'
-        +'<div style="width:8px;height:8px;border-radius:50%;background:#2d7a4f;flex-shrink:0;"></div>'
-        +'<span style="font-size:12px;font-weight:600;">'+u.name+'</span>'
+    el.innerHTML = d.users.map(function(u){
+      var mins = Math.round((Date.now()-new Date(u.last_seen).getTime())/60000);
+      var ago = mins===0?'τώρα':mins+' λεπ. πριν';
+      var isMe = currentUser && u.user_id===currentUser.id;
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);">'
+        +'<div style="width:9px;height:9px;border-radius:50%;background:#2d7a4f;flex-shrink:0;"></div>'
+        +'<div style="width:28px;height:28px;border-radius:50%;background:'+(u.user_color||'#1a3a5c')+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700;">'+u.user_name.split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase()+'</div>'
+        +'<span style="font-size:12px;font-weight:600;">'+u.user_name+(isMe?' <span style=\"font-size:10px;color:var(--muted);\">(εσύ)</span>':'')+'</span>'
         +'<span style="font-size:11px;color:var(--muted);margin-left:auto;">'+ago+'</span>'
         +'</div>';
     }).join('');
-  }catch(e){}
+  })
+  .catch(function(e){
+    el.innerHTML='<p style="font-size:11px;color:var(--amber);">⚠ Σφάλμα φόρτωσης</p>';
+  });
 }
 
-// Update online status every 60 seconds
+// Ping every 2 minutes, show online when in settings
 setInterval(function(){
-  if(currentUser){
-    try{localStorage.setItem('online_'+currentUser.id,JSON.stringify({name:currentUser.name,ts:Date.now(),initials:currentUser.initials||'?',color:currentUser.color||'#1a3a5c'}));}catch(e){}
-  }
+  munPingPresence();
   if(currentTab==='settings'&&currentUser&&currentUser.id==='admin') munUpdateOnline();
-},60000);
+},120000);
+
+// Initial ping on load
+window.addEventListener('load',function(){setTimeout(munPingPresence,2000);});
+
 
 </script>
 </body>
