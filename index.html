@@ -2191,6 +2191,8 @@ function loginSuccess(u){
     if(u.isCitizen) applyCitizenMode();
   });
   toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
+  // Ping presence immediately on login
+  setTimeout(munPingPresence, 500);
 }
 
 function applyTabPermissions(u){
@@ -7007,14 +7009,11 @@ function munUpdateOnline(){
   });
 }
 
-// Ping every 2 minutes, show online when in settings
+// Ping every 90 seconds
 setInterval(function(){
   munPingPresence();
   if(currentTab==='settings'&&currentUser&&currentUser.id==='admin') munUpdateOnline();
-},120000);
-
-// Initial ping on load
-window.addEventListener('load',function(){setTimeout(munPingPresence,2000);});
+},90000);
 
 
 </script>
