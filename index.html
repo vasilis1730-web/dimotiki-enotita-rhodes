@@ -518,7 +518,6 @@ tr:hover td{background:#faf9f7;}
   <!-- SETTINGS -->
   <div id="tab-settings" style="display:none">
     <div style="max-width:520px;">
-      <!-- ONLINE USERS CARD (admin only) -->
       <div id="onlineUsersCard" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px;">
         <h3 style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:12px;">🟢 Online Χρήστες</h3>
         <div id="onlineUsersList" style="font-size:12px;"></div>
@@ -1073,6 +1072,7 @@ const PRIO_DATA = {
 // ================================================================
 let issues=[], workOrders=[], payments=[];
 let iSortCol='date', iSortDir='desc';
+let oSortCol='date', oSortDir='desc';
 let settings={listDate:todayStr(),contractValue:322564,contractor:'',contractorEmail:'',contractorPhone:'',contractorContact:'',vatRate:24,orderSeq:1,issueSeq:1,
   eSignUrl:'https://webapp.mindigital-shde.gr/login',
   eSignUsers:[
@@ -2191,8 +2191,7 @@ function loginSuccess(u){
     if(u.isCitizen) applyCitizenMode();
   });
   toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
-  // Ping presence immediately on login
-  setTimeout(munPingPresence, 500);
+  setTimeout(munPingPresence,1000);
 }
 
 function applyTabPermissions(u){
@@ -2205,11 +2204,7 @@ function applyTabPermissions(u){
   const navBtns = document.querySelectorAll('nav button');
   const tabNames = ['dashboard','issues','orders','finance','catalog','reports','settings'];
   const restrictedTabs = ['orders','finance','catalog','reports','settings'];
-  // Settings: admin only
-  if(tab==='settings' && currentUser && currentUser.id!=='admin'){
-    toast('⛔ Στις Ρυθμίσεις έχει πρόσβαση μόνο ο Admin.');
-    return;
-  }
+  if(tab==='settings'&&currentUser&&currentUser.id!=='admin'){toast('⛔ μόνο Admin.');return;}
   // Reset all first, then hide restricted
   navBtns.forEach((btn, i) => {
     const tab = tabNames[i];
@@ -3103,13 +3098,7 @@ function renderAll(){
 }
 
 function updateHeader(){
-  // Show/hide Settings nav button based on admin role
-  var navBtns = document.querySelectorAll('nav button');
-  navBtns.forEach(function(btn){
-    if(btn.textContent.includes('Ρυθμίσεις')){
-      btn.style.display = (currentUser && currentUser.id==='admin') ? '' : 'none';
-    }
-  });
+  var nb=document.querySelectorAll("nav button");nb.forEach(function(b){if(b.textContent.includes("Ρυθμίσεις")){b.style.display=(currentUser&&currentUser.id==="admin")?"":"none";}});
   const days=['Κυριακή','Δευτέρα','Τρίτη','Τετάρτη','Πέμπτη','Παρασκευή','Σάββατο'];
   const months=['Ιαν','Φεβ','Μαρ','Απρ','Μαΐ','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ'];
   const d=new Date();
@@ -3252,6 +3241,11 @@ function renderIssues(){
   </table></div>`;
 }
 
+function sortOrders(col){
+  if(oSortCol===col){oSortDir=oSortDir==='asc'?'desc':'asc';}
+  else{oSortCol=col;oSortDir=col==='date'?'desc':'asc';}
+  renderOrders();
+}
 function sortIssues(col){
   if(iSortCol===col){iSortDir=iSortDir==='asc'?'desc':'asc';}
   else{iSortCol=col;iSortDir=col==='date'?'desc':'asc';}
@@ -3368,15 +3362,13 @@ function renderOrders(){
     if(search&&!JSON.stringify(w).toLowerCase().includes(search))return false;
     return true;
   }).sort((a,b)=>{
-    const dir = oSortDir==='asc' ? 1 : -1;
-    switch(oSortCol){
-      case 'num':     return dir*((a.orderNum||'').localeCompare(b.orderNum||'',undefined,{numeric:true}));
-      case 'location':return dir*((a.location||'').localeCompare(b.location||''));
-      case 'prio':    return dir*((a.priority||'').localeCompare(b.priority||''));
-      case 'cost':    return dir*(woTotal(a)-woTotal(b));
-      case 'status':  return dir*((a.status||'').localeCompare(b.status||''));
-      default:        return dir*((b.date||'').localeCompare(a.date||''));
-    }
+    const dir=oSortDir==='asc'?1:-1;
+    if(oSortCol==='num')return dir*((a.orderNum||'').localeCompare(b.orderNum||'',undefined,{numeric:true}));
+    if(oSortCol==='location')return dir*((a.location||'').localeCompare(b.location||''));
+    if(oSortCol==='prio')return dir*((a.priority||'').localeCompare(b.priority||''));
+    if(oSortCol==='cost')return dir*(woTotal(a)-woTotal(b));
+    if(oSortCol==='status')return dir*((a.status||'').localeCompare(b.status||''));
+    return dir*((b.date||'').localeCompare(a.date||''));
   });
   document.getElementById('woCount').textContent=list.length;
   if(!list.length){document.getElementById('ordersTbl').innerHTML='<div class="empty"><div class="ico">📄</div><h3>Καμία εντολή</h3></div>';return;}
@@ -3491,7 +3483,7 @@ function renderOrders(){
       +'</tr>';
   });
   document.getElementById('ordersTbl').innerHTML='<div class="tbl-wrap"><table>'
-    +'<thead><tr><th style="width:30px"></th><th>Αρ. Εντολής</th><th>Ημ/νία</th><th>Τοποθεσία</th><th>Προτ.</th><th>Εργασίες</th><th>Κόστος (χ.ΦΠΑ)</th><th>Κατάσταση</th><th>Ενέργειες</th></tr></thead>'
+    +'<thead><tr><th style="width:30px"></th><th class="sortable" onclick="sortOrders(\"num\")">Αρ. Εντολής</th><th class="sortable" onclick="sortOrders(\"date\")">Ημ/νία</th><th class="sortable" onclick="sortOrders(\"location\")">Τοποθεσία</th><th class="sortable" onclick="sortOrders(\"prio\")">Προτ.</th><th>Εργασίες</th><th class="sortable" onclick="sortOrders(\"cost\")">Κόστος (χ.ΦΠΑ)</th><th class="sortable" onclick="sortOrders(\"status\")">Κατάσταση</th><th>Ενέργειες</th></tr></thead>'
     +'<tbody>'+rows+'</tbody>'
     +'</table></div>';
 }
@@ -4231,65 +4223,76 @@ function previewMunicipalText(){
     +'</div>';
 }
 
-// ── MUNICIPAL IMPORT FUNCTIONS ──────────────────────────────────
+function applyMunicipalIssue(){munApply();}
+function loadMunicipalFile(input){munLoadFile(input);}
+async function previewMunicipalText(){}
 
 function munReset(){
-  ['mf_num','mf_desc','mf_cat','mf_loc','mf_resp','mf_notes','mf_cname','mf_caddr','mf_mobile','mf_phone','mf_email','mf_status'].forEach(function(id){
-    var el=document.getElementById(id); if(el) el.value='';
-  });
-  var d=document.getElementById('mf_date'); if(d) d.value='';
-  var dept=document.getElementById('mf_dept'); if(dept) dept.value='ΔΙΕΥΘΥΝΣΗ ΤΕΧΝΙΚΩΝ ΕΡΓΩΝ & ΥΠΟΔΟΜΩΝ';
-  var st=document.getElementById('munAiStatus'); if(st) st.innerHTML='Ανεβάστε PDF αιτήματος.';
+  ['mf_num','mf_desc','mf_cat','mf_loc','mf_resp','mf_notes','mf_cname','mf_caddr','mf_mobile','mf_phone','mf_email','mf_status'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});
+  var d=document.getElementById('mf_date');if(d)d.value='';
+  var dept=document.getElementById('mf_dept');if(dept)dept.value='ΔΙΕΥΘΥΝΣΗ ΤΕΧΝΙΚΩΝ ΕΡΓΩΝ & ΥΠΟΔΟΜΩΝ';
+  var st=document.getElementById('munAiStatus');if(st)st.innerHTML='Ανεβάστε PDF ή HTML αιτήματος.';
 }
 
-function munFill(k,v){
-  if(!v||!v.toString().trim()) return 0;
-  var el=document.getElementById(k);
-  if(!el) return 0;
-  el.value=v.toString().trim();
-  return 1;
+function munApply(){
+  var d={
+    num:(document.getElementById('mf_num').value||'').trim(),
+    date:(document.getElementById('mf_date').value||''),
+    prio:(document.getElementById('mf_priority').value||''),
+    loc:(document.getElementById('mf_loc').value||'').trim(),
+    notes:(document.getElementById('mf_notes').value||'').trim(),
+    ctype:(document.getElementById('mf_ctype').value||''),
+    cname:(document.getElementById('mf_cname').value||'').trim(),
+    caddr:(document.getElementById('mf_caddr').value||'').trim(),
+    mobile:(document.getElementById('mf_mobile').value||'').trim(),
+    phone:(document.getElementById('mf_phone').value||'').trim(),
+    email:(document.getElementById('mf_email').value||'').trim(),
+    desc:(document.getElementById('mf_desc').value||'').trim(),
+    cat:(document.getElementById('mf_cat').value||'').trim()
+  };
+  if(!d.desc&&!d.num){alert('Συμπληρώστε Περιγραφή ή Αρ. Αιτήματος.');return;}
+  closeMunicipalImport();
+  openAddIssue();
+  setTimeout(function(){
+    function sf(id,val){if(val){var el=document.getElementById(id);if(el)el.value=val;}}
+    sf('i_municipalNum',d.num);
+    sf('i_location',d.loc);sf('i_citizen',d.cname);sf('i_addr',d.caddr);
+    sf('i_mobile',d.mobile);sf('i_phone',d.phone);sf('i_email',d.email);
+    sf('i_desc',d.desc);sf('i_prio',d.prio);sf('i_notes',d.notes);
+    sf('i_receipt',d.ctype||'Ιστοσελίδα Δήμου (αιτήματα πολιτών)');
+    sf('i_unit','Δημοτική Κοινότητα Ρόδου');sf('i_date',todayStr());
+    if(d.date){if(!document.getElementById('i_municipalDate')){var h=document.createElement('input');h.type='hidden';h.id='i_municipalDate';document.getElementById('issueModal').appendChild(h);}document.getElementById('i_municipalDate').value=d.date;}
+    if(d.cat){document.getElementById('i_cat').value=d.cat;onCategoryChange();}
+    toast('✅ '+[d.num,d.loc,d.cname,d.desc,d.mobile,d.phone,d.email].filter(Boolean).length+' στοιχεία μεταφέρθηκαν');
+  },400);
 }
 
 async function munLoadFile(input){
-  var file=input.files[0]; if(!file) return;
+  var file=input.files[0];if(!file)return;
   var st=document.getElementById('munAiStatus');
 
-  // ── HTML file: parse directly, no AI needed ────────────────
-  if(file.name.toLowerCase().endsWith('.html')||file.name.toLowerCase().endsWith('.htm')||file.type.includes('html')){
+  if(file.name.toLowerCase().endsWith('.html')||file.name.toLowerCase().endsWith('.htm')){
     st.innerHTML='<span style="color:var(--blue);">⏳ Ανάγνωση HTML...</span>';
     var reader=new FileReader();
     reader.onload=function(ev){
-      var html=ev.target.result;
-      var p=munParseHtml(html);
+      var p=munParseHtml(ev.target.result);
       var n=0;
       function mf(id,val){if(!val||!val.toString().trim())return;var el=document.getElementById(id);if(el){el.value=val.toString().trim();n++;}}
-      mf('mf_num',   p.num);
-      mf('mf_date',  p.date);
-      mf('mf_desc',  p.description);
-      mf('mf_cat',   p.category);
-      mf('mf_loc',   p.location);
-      mf('mf_resp',  p.responsible);
-      mf('mf_cname', p.cname);
-      mf('mf_caddr', p.caddr);
-      mf('mf_mobile',p.mobile);
-      mf('mf_phone', p.phone);
-      mf('mf_email', p.email);
-      if(p.priority){
-        var ps=document.getElementById('mf_priority');var pv=(p.priority||'').toLowerCase();
-        if(pv.includes('metro')||pv.includes('\u03bc\u03ad\u03c4'))ps.value='\u039a\u0391\u03a4. 3 - \u039c\u0395\u03a4\u03a1\u0399\u039f';
-        else if(pv.includes('\u03c5\u03c8'))ps.value='\u039a\u0391\u03a4. 2 - \u03a5\u03a8\u0397\u039b\u0397';
-        else if(pv.includes('\u03ba\u03b1\u03c4\u03b5\u03c0')||pv.includes('\u03b1\u03bc\u03b5\u03c3'))ps.value='\u039a\u0391\u03a4. 1 - \u0391\u039c\u0395\u03a3\u039f\u03a3 \u039a\u0399\u039d\u0394\u03a5\u039d\u039f\u03a3 \u0396\u03a9\u0397\u03a3';
-        else if(pv.includes('\u03c7\u03b1\u03bc'))ps.value='\u039a\u0391\u03a4. 4 - \u03a7\u0391\u039c\u0397\u039b\u0397';
-      }
-      st.innerHTML='<span style="color:var(--green);">\u2705 HTML: '+n+' \u03c0\u03b5\u03b4\u03af\u03b1 \u03c3\u03c5\u03bc\u03c0\u03bb\u03b7\u03c1\u03ce\u03b8\u03b7\u03ba\u03b1\u03bd. \u0395\u03bb\u03ad\u03b3\u03be\u03c4\u03b5 \u03ba\u03b1\u03b9 \u03c0\u03b1\u03c4\u03ae\u03c3\u03c4\u03b5 \u0395\u03b9\u03c3\u03b1\u03b3\u03c9\u03b3\u03ae.</span>';
-      toast(n+' \u03c0\u03b5\u03b4\u03af\u03b1 \u03b5\u03be\u03ae\u03c7\u03b8\u03b7\u03ba\u03b1\u03bd \u03b1\u03c0\u03cc HTML');
+      mf('mf_num',p.num);mf('mf_date',p.date);mf('mf_desc',p.description);
+      mf('mf_cat',p.category);mf('mf_loc',p.location);mf('mf_resp',p.responsible);
+      mf('mf_cname',p.cname);mf('mf_caddr',p.caddr);
+      mf('mf_mobile',p.mobile);mf('mf_phone',p.phone);mf('mf_email',p.email);
+      if(p.priority){var ps=document.getElementById('mf_priority');var pv=p.priority.toLowerCase();
+        if(pv.includes('metro')||pv.includes('μέτ'))ps.value='ΚΑΤ. 3 - ΜΕΤΡΙΟ';
+        else if(pv.includes('υψ'))ps.value='ΚΑΤ. 2 - ΥΨΗΛΗ';
+        else if(pv.includes('κατεπ'))ps.value='ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ';}
+      st.innerHTML='<span style="color:var(--green);">✅ HTML: '+n+' πεδία συμπληρώθηκαν. Ελέγξτε και πατήστε Εισαγωγή.</span>';
+      toast(n+' πεδία από HTML');
     };
-    reader.readAsText(file,'utf-8');
-    return;
+    reader.readAsText(file,'utf-8');return;
   }
 
-  // ── PDF/Image: use Supabase Edge Function + AI ─────────────
-  st.innerHTML='<span style="color:var(--blue);">&#8987; AI \u03b1\u03bd\u03b1\u03bb\u03cd\u03b5\u03b9 PDF... (~10 \u03b4\u03b5\u03c5\u03c4.)</span>';
+  st.innerHTML='<span style="color:var(--blue);">⌛ AI αναλύει PDF... (~10 δευτ.)</span>';
   var reader2=new FileReader();
   reader2.onload=async function(ev){
     var b64=ev.target.result.split(',')[1];
@@ -4301,147 +4304,63 @@ async function munLoadFile(input){
         body:JSON.stringify({fileData:b64,mediaType:mtype})
       });
       var result=await resp.json();
-      if(result.error) throw new Error(result.error);
-      var p=result.data;
-      var n=0;
+      if(result.error)throw new Error(result.error);
+      var p=result.data;var n=0;
       function mf2(id,val){if(!val||!val.toString().trim())return;var el=document.getElementById(id);if(el){el.value=val.toString().trim();n++;}}
       mf2('mf_num',p.num);mf2('mf_date',p.date);mf2('mf_desc',p.description);
       mf2('mf_cat',p.category);mf2('mf_loc',p.location);mf2('mf_resp',p.responsible);
       mf2('mf_cname',p.cname);mf2('mf_caddr',p.caddr);
       mf2('mf_mobile',p.mobile);mf2('mf_phone',p.phone);mf2('mf_email',p.email);
       if(p.priority){var ps=document.getElementById('mf_priority');var pv=(p.priority||'').toLowerCase();
-        if(pv.includes('metro')||pv.includes('\u03bc\u03ad\u03c4'))ps.value='\u039a\u0391\u03a4. 3 - \u039c\u0395\u03a4\u03a1\u0399\u039f';
-        else if(pv.includes('\u03c5\u03c8'))ps.value='\u039a\u0391\u03a4. 2 - \u03a5\u03a8\u0397\u039b\u0397';
-        else if(pv.includes('\u03ba\u03b1\u03c4\u03b5\u03c0'))ps.value='\u039a\u0391\u03a4. 1 - \u0391\u039c\u0395\u03a3\u039f\u03a3 \u039a\u0399\u039d\u0394\u03a5\u039d\u039f\u03a3 \u0396\u03a9\u0397\u03a3';
-        else if(pv.includes('\u03c7\u03b1\u03bc'))ps.value='\u039a\u0391\u03a4. 4 - \u03a7\u0391\u039c\u0397\u039b\u0397';}
-      st.innerHTML='<span style="color:var(--green);">\u2705 AI: '+n+' \u03c0\u03b5\u03b4\u03af\u03b1 \u03c3\u03c5\u03bc\u03c0\u03bb\u03b7\u03c1\u03ce\u03b8\u03b7\u03ba\u03b1\u03bd.</span>';
-      toast('AI: '+n+' \u03c0\u03b5\u03b4\u03af\u03b1 \u03b1\u03bd\u03b1\u03b3\u03bd\u03ce\u03c3\u03c4\u03b7\u03ba\u03b1\u03bd');
+        if(pv.includes('metro')||pv.includes('μέτ'))ps.value='ΚΑΤ. 3 - ΜΕΤΡΙΟ';
+        else if(pv.includes('υψ'))ps.value='ΚΑΤ. 2 - ΥΨΗΛΗ';
+        else if(pv.includes('κατεπ'))ps.value='ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ';}
+      st.innerHTML='<span style="color:var(--green);">✅ AI: '+n+' πεδία. Ελέγξτε και πατήστε Εισαγωγή.</span>';
+      toast('AI: '+n+' πεδία');
     }catch(err){
-      st.innerHTML='<span style="color:var(--amber);">\u26a0 '+err.message+'</span>';
-      toast('\u03a3\u03c6\u03ac\u03bb\u03bc\u03b1: '+err.message.substring(0,60));
+      st.innerHTML='<span style="color:var(--amber);">⚠ '+err.message+'</span>';
+      toast('Σφάλμα: '+err.message.substring(0,60));
     }
   };
   reader2.readAsDataURL(file);
 }
 
 function munParseHtml(html){
-  // Create temporary DOM to parse HTML
-  var tmp=document.createElement('div');
-  tmp.innerHTML=html;
-  // Extract all text nodes
+  var tmp=document.createElement('div');tmp.innerHTML=html;
   var texts=[];
   var walk=document.createTreeWalker(tmp,NodeFilter.SHOW_TEXT,null);
   var node;
   while((node=walk.nextNode())){
     var t=(node.textContent||'').trim();
-    if(t&&t.length>1&&!t.includes('{')&&!t.includes('Font:')) texts.push(t);
+    if(t&&t.length>1&&!t.includes('{')&&!t.includes('Font:'))texts.push(t);
   }
-
   var data={num:'',date:'',description:'',category:'',status:'',priority:'',
             location:'',responsible:'',cname:'',caddr:'',mobile:'',phone:'',email:''};
-  var citizenSection=false;
-  var citizenNameNext=false;
-  var prevLabel='';
-
+  var citizenSection=false,citizenNameNext=false,prevLabel='';
   for(var i=0;i<texts.length;i++){
     var t=texts[i];
-
-    // Request number
-    var m=t.match(/[Αα]ίτ[ηι][μµ]α\s+(\d{4,})/);
-    if(m) data.num=m[1];
-
-    // Citizen section marker
-    if(t.includes('\u03a3\u03c4\u03bf\u03b9\u03c7\u03b5\u03af\u03b1 \u03a0\u03bf\u03bb\u03af\u03c4\u03b7')) citizenSection=true;
-
-    // Citizen name - follows "Ονοματεπώνυμο" + "Πολίτη"
-    if(t.includes('\u039f\u03bd\u03bf\u03bc\u03b1\u03c4\u03b5\u03c0\u03ce\u03bd\u03c5\u03bc\u03bf')||t.includes('\u039f\u03bd\u03bf\u03bc\u03b1\u03c4\u03b5\u03c0\u03ce\u03bd\u03c5\u03bc\u03bf')){
-      citizenNameNext=true;
-    }
-    if(citizenNameNext&&!t.includes('\u039f\u03bd\u03bf\u03bc\u03b1')&&t!=='\u03a0\u03bf\u03bb\u03af\u03c4\u03b7'&&!data.cname&&citizenSection){
-      data.cname=t; citizenNameNext=false;
-    }
-
-    // Label-value pairs
-    if(t==='\u03a0\u03b5\u03c1\u03b9\u03b3\u03c1\u03b1\u03c6\u03ae'||t==='\u03a0\u03b5\u03c1\u03b9\u03b3\u03c1\u03b1\u03c6\u03ae') prevLabel='description';
-    else if(t==='\u039a\u03b1\u03c4\u03b7\u03b3\u03bf\u03c1\u03af\u03b1') prevLabel='category';
-    else if(t==='\u039a\u03b1\u03c4\u03ac\u03c3\u03c4\u03b1\u03c3\u03b7') prevLabel='status';
-    else if(t==='\u03a0\u03c1\u03bf\u03c4\u03b5\u03c1\u03b1\u03b9\u03cc\u03c4\u03b7\u03c4\u03b1') prevLabel='priority';
-    else if(t.includes('\u0397\u03bc\u03b5\u03c1.\u0391\u03b9\u03c4')||t.includes('\u0397\u03bc\u03b5\u03c1\u03bf\u03bc\u03b7\u03bd\u03af\u03b1')||t.includes('\u0397\u03bc\u03b5\u03c1.')){
-      prevLabel='date';
-    }
-    else if(t==='\u0394\u03b9\u03b5\u03cd\u03b8\u03c5\u03bd\u03c3\u03b7'){
-      prevLabel= citizenSection ? 'caddr' : 'location';
-    }
-    else if(t.includes('\u0398\u03b5\u03bc\u03b1\u03c4\u03b9\u03ba\u03bf\u03af')) prevLabel='responsible';
-    else if(t==='\u039a\u03b9\u03bd\u03b7\u03c4\u03cc') prevLabel='mobile';
-    else if(t==='\u03a4\u03b7\u03bb\u03ad\u03c6\u03c9\u03bd\u03bf') prevLabel='phone';
-    else if(t==='Email') prevLabel='email';
-    else if(prevLabel&&!data[prevLabel]&&t.length>1&&t!=='\u03a0\u03bf\u03bb\u03af\u03c4\u03b7'){
-      // Convert date DD/MM/YYYY to YYYY-MM-DD
-      if(prevLabel==='date'){
-        var dm=t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-        if(dm) data.date=dm[3]+'-'+dm[2].padStart(2,'0')+'-'+dm[1].padStart(2,'0');
-        else data.date=t;
-      } else {
-        data[prevLabel]=t;
-      }
+    var m=t.match(/[Αα]ίτ[ηι][μμ]α\s+(\d{4,})/);
+    if(m)data.num=m[1];
+    if(t.includes('Στοιχεία Πολίτη'))citizenSection=true;
+    if(t.includes('Ονοματεπώνυμο'))citizenNameNext=true;
+    if(citizenNameNext&&!t.includes('Ονομα')&&t!=='Πολίτη'&&!data.cname&&citizenSection){data.cname=t;citizenNameNext=false;}
+    if(t==='Περιγραφή')prevLabel='description';
+    else if(t==='Κατηγορία')prevLabel='category';
+    else if(t==='Κατάσταση')prevLabel='status';
+    else if(t==='Προτεραιότητα')prevLabel='priority';
+    else if(t.includes('Ημερ'))prevLabel='date';
+    else if(t==='Διεύθυνση')prevLabel=citizenSection?'caddr':'location';
+    else if(t.includes('Θεματικοί'))prevLabel='responsible';
+    else if(t==='Κινητό')prevLabel='mobile';
+    else if(t==='Τηλέφωνο')prevLabel='phone';
+    else if(t==='Email')prevLabel='email';
+    else if(prevLabel&&!data[prevLabel]&&t.length>1&&t!=='Πολίτη'){
+      if(prevLabel==='date'){var dm=t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);if(dm)data.date=dm[3]+'-'+dm[2].padStart(2,'0')+'-'+dm[1].padStart(2,'0');else data.date=t;}
+      else data[prevLabel]=t;
       prevLabel='';
     }
   }
   return data;
-}
-
-
-function munApply(){
-  // Step 1: Read ALL mf_ fields into a local object
-  var d={
-    num:    (document.getElementById('mf_num').value||'').trim(),
-    date:   (document.getElementById('mf_date').value||''),
-    prio:   (document.getElementById('mf_priority').value||''),
-    loc:    (document.getElementById('mf_loc').value||'').trim(),
-    notes:  (document.getElementById('mf_notes').value||'').trim(),
-    ctype:  (document.getElementById('mf_ctype').value||''),
-    cname:  (document.getElementById('mf_cname').value||'').trim(),
-    caddr:  (document.getElementById('mf_caddr').value||'').trim(),
-    mobile: (document.getElementById('mf_mobile').value||'').trim(),
-    phone:  (document.getElementById('mf_phone').value||'').trim(),
-    email:  (document.getElementById('mf_email').value||'').trim(),
-    desc:   (document.getElementById('mf_desc').value||'').trim(),
-    cat:    (document.getElementById('mf_cat').value||'').trim()
-  };
-  if(!d.desc && !d.num){ alert('Συμπληρώστε Περιγραφή ή Αρ. Αιτήματος.'); return; }
-
-  // Step 2: Close modal and open issue form
-  closeMunicipalImport();
-  openAddIssue();
-
-  // Step 3: Fill fields after 400ms (openAddIssue has setTimeout(150ms) that resets fields)
-  setTimeout(function(){
-    function sf(id,val){ if(val){ var el=document.getElementById(id); if(el) el.value=val; } }
-    sf('i_municipalNum', d.num);
-    sf('i_location',     d.loc);
-    sf('i_citizen',      d.cname);
-    sf('i_addr',         d.caddr);
-    sf('i_mobile',       d.mobile);
-    sf('i_phone',        d.phone);
-    sf('i_email',        d.email);
-    sf('i_desc',         d.desc);
-    sf('i_prio',         d.prio);
-    sf('i_notes',        d.notes);
-    sf('i_receipt',      d.ctype||'Ιστοσελίδα Δήμου (αιτήματα πολιτών)');
-    sf('i_unit',         'Δημοτική Κοινότητα Ρόδου');
-    sf('i_date',         todayStr());
-    if(d.date){
-      if(!document.getElementById('i_municipalDate')){
-        var h=document.createElement('input');h.type='hidden';h.id='i_municipalDate';
-        document.getElementById('issueModal').appendChild(h);
-      }
-      document.getElementById('i_municipalDate').value=d.date;
-    }
-    if(d.cat){ sf('i_cat',d.cat); onCategoryChange(); }
-    var filled=[d.num,d.loc,d.cname,d.desc,d.mobile,d.phone,d.email].filter(Boolean).length;
-    toast('✅ '+filled+' στοιχεία μεταφέρθηκαν στη φόρμα');
-  }, 400);
 }
 
 function openMunicipalImport(){
@@ -4453,10 +4372,37 @@ function closeMunicipalImport(){
   document.getElementById('municipalImportWrap').style.display='none';
 }
 
-// Keep old names as aliases for backward compatibility
-function applyMunicipalIssue(){ munApply(); }
-function loadMunicipalFile(input){ munLoadFile(input); }
-async function previewMunicipalText(){ }
+// ── Presence (Supabase) ────────────────────────────────────────
+var _pUrl='https://nzrdcgmrsfdmocyhfrod.supabase.co/functions/v1/user-presence',_pAnon='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56cmRjZ21yc2ZkbW9jeWhmcm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MTg5MDMsImV4cCI6MjA4OTQ5NDkwM30.irU9tlBluAeTGcI0i3cc080OY7_nqR5js4ZPW8MC7b4';
+
+function munPingPresence(){
+  if(!currentUser)return;
+  fetch(_pUrl,{method:'POST',headers:{'Content-Type':'application/json','apikey':_pAnon},
+    body:JSON.stringify({action:'ping',userId:currentUser.id,userName:currentUser.name,userColor:currentUser.color||'#1a3a5c'})}).catch(function(){});
+}
+
+function munUpdateOnline(){
+  var el=document.getElementById('onlineUsersList');if(!el)return;
+  fetch(_pUrl,{method:'POST',headers:{'Content-Type':'application/json','apikey':_pAnon},
+    body:JSON.stringify({action:'list'})})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(!d.users||!d.users.length){el.innerHTML='<p style="font-size:11px;color:var(--muted);">Κανένας online</p>';return;}
+    el.innerHTML=d.users.map(function(u){
+      var mins=Math.round((Date.now()-new Date(u.last_seen).getTime())/60000);
+      var ago=mins===0?'τώρα':mins+' λεπ. πριν';
+      var isMe=currentUser&&u.user_id===currentUser.id;
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);">'
+        +'<div style="width:8px;height:8px;border-radius:50%;background:#2d7a4f;flex-shrink:0;"></div>'
+        +'<div style="width:28px;height:28px;border-radius:50%;background:'+(u.user_color||'#1a3a5c')+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700;">'
+        +u.user_name.split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase()+'</div>'
+        +'<span style="font-size:12px;font-weight:600;">'+u.user_name+(isMe?' (εσύ)':'')+'</span>'
+        +'<span style="font-size:11px;color:var(--muted);margin-left:auto;">'+ago+'</span></div>';
+    }).join('');
+  }).catch(function(e){el.innerHTML='<p style="color:var(--amber);font-size:11px;">⚠ Σφάλμα</p>';});
+}
+
+setInterval(function(){munPingPresence();if(currentTab==='settings'&&currentUser&&currentUser.id==='admin')munUpdateOnline();},90000);
 
 
 
@@ -5991,18 +5937,9 @@ function delStaff(idx){
 // SETTINGS
 // ================================================================
 function loadSettings(){
-  // Show online users card for admin only
-  var onlineCard = document.getElementById('onlineUsersCard');
-  if(onlineCard){
-    if(currentUser && currentUser.id==='admin'){
-      onlineCard.style.display='block';
-      munUpdateOnline();
-    } else {
-      onlineCard.style.display='none';
-    }
-  }
   renderUsersList();
   renderStaffList();
+  var oc=document.getElementById('onlineUsersCard');if(oc){if(currentUser&&currentUser.id==='admin'){oc.style.display='block';munUpdateOnline();}else oc.style.display='none';}
   document.getElementById('sDate').value=settings.listDate||todayStr();
   document.getElementById('sContract').value=settings.contractValue||322564;
   document.getElementById('sContractor').value=settings.contractor||'';
@@ -6861,46 +6798,40 @@ function printBulkProtocol(){
 <!-- MUNICIPAL ISSUE IMPORT MODAL -->
 <div class="overlay" id="municipalImportWrap" style="display:none" onclick="if(event.target.classList.contains('overlay'))closeMunicipalImport()">
   <div class="modal lg" style="max-height:93vh;display:flex;flex-direction:column;">
-    <div class="mhdr">
-      <h2>🏛 Αίτημα Δήμου Ρόδου — Εισαγωγή</h2>
-      <button class="mclose" onclick="closeMunicipalImport()">✕</button>
-    </div>
+    <div class="mhdr"><h2>🏛 Αίτημα Δήμου Ρόδου — Εισαγωγή</h2><button class="mclose" onclick="closeMunicipalImport()">✕</button></div>
     <div class="mbody" style="overflow-y:auto;flex:1;">
-      <!-- AI PDF strip -->
       <div style="background:#f0f4ff;border:1px solid #c8d8f0;border-radius:8px;padding:10px 14px;margin-bottom:14px;">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
           <span style="font-size:12px;color:#1a3a5c;font-weight:700;">🤖 Αυτόματη ανάγνωση με AI:</span>
           <input type="file" id="municipalFileInput" accept=".pdf,.html,.htm,.jpg,.jpeg,.png" style="display:none" onchange="munLoadFile(this)">
-          <button class="btn btn-sm btn-p" onclick="document.getElementById('municipalFileInput').click()">📎 Ανέβασμα PDF</button>
+          <button class="btn btn-sm btn-p" onclick="document.getElementById('municipalFileInput').click()">📎 Ανέβασμα PDF / HTML</button>
         </div>
-        <div id="munAiStatus" style="font-size:11px;color:var(--muted);margin-top:4px;">Ανεβάστε PDF αιτήματος — το AI θα συμπληρώσει αυτόματα.</div>
+        <div id="munAiStatus" style="font-size:11px;color:var(--muted);margin-top:4px;">Ανεβάστε PDF ή HTML αιτήματος — θα συμπληρωθεί αυτόματα.</div>
       </div>
-      <!-- SECTION 1: Αίτημα -->
       <div style="margin-bottom:16px;">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy);border-bottom:2px solid var(--navy);padding-bottom:4px;margin-bottom:10px;">📋 Στοιχεία Αιτήματος</div>
         <div class="fgrid">
-          <div class="fg"><label>Αρ. Αιτήματος Δήμου</label><input type="text" id="mf_num" placeholder="π.χ. 567408"></div>
+          <div class="fg"><label>Αρ. Αιτήματος Δήμου</label><input type="text" id="mf_num" placeholder="499991"></div>
           <div class="fg"><label>Ημερομηνία Αιτήματος</label><input type="date" id="mf_date"></div>
           <div class="fg"><label>Κατάσταση</label><input type="text" id="mf_status" placeholder="Σε εξέλιξη"></div>
           <div class="fg"><label>Προτεραιότητα</label><select id="mf_priority"><option value="ΚΑΤ. 3 - ΜΕΤΡΙΟ">Μέτριο</option><option value="ΚΑΤ. 2 - ΥΨΗΛΗ">Υψηλή</option><option value="ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ">Κατεπείγον</option><option value="ΚΑΤ. 4 - ΧΑΜΗΛΗ">Χαμηλή</option></select></div>
-          <div class="fg full"><label>Περιγραφή Αιτήματος *</label><textarea id="mf_desc" rows="3" placeholder="Περιγραφή προβλήματος..." style="width:100%;padding:7px 9px;border:1px solid var(--borderS);border-radius:var(--rs);font-size:12px;font-family:inherit;resize:vertical;"></textarea></div>
-          <div class="fg"><label>Κατηγορία</label><input type="text" id="mf_cat" placeholder="π.χ. ΑΝΤΙΚΑΤΑΣΤΑΣΗ ΛΑΜΠΤΗΡΩΝ"></div>
+          <div class="fg full"><label>Περιγραφή Αιτήματος *</label><textarea id="mf_desc" rows="3" placeholder="Περιγραφή..." style="width:100%;padding:7px 9px;border:1px solid var(--borderS);border-radius:var(--rs);font-size:12px;font-family:inherit;resize:vertical;"></textarea></div>
+          <div class="fg"><label>Κατηγορία</label><input type="text" id="mf_cat" placeholder="ΑΝΤΙΚΑΤΑΣΤΑΣΗ ΛΑΜΠΤΗΡΩΝ"></div>
           <div class="fg"><label>Διεύθυνση Προβλήματος</label><input type="text" id="mf_loc" placeholder="Οδός, αριθμός"></div>
-          <div class="fg full"><label>Υπεύθυνο Τμήμα / Υπηρεσία</label><input type="text" id="mf_dept" value="ΔΙΕΥΘΥΝΣΗ ΤΕΧΝΙΚΩΝ ΕΡΓΩΝ &amp; ΥΠΟΔΟΜΩΝ"></div>
-          <div class="fg full"><label>Θεματικοί Υπεύθυνοι</label><input type="text" id="mf_resp" placeholder="π.χ. Ιωάννης Λαμπριανός, Βασίλειος Διακολιός"></div>
-          <div class="fg full"><label>Σχόλια / Πρόταση Λύσης</label><textarea id="mf_notes" rows="2" placeholder="Σχόλια..." style="width:100%;padding:7px 9px;border:1px solid var(--borderS);border-radius:var(--rs);font-size:12px;font-family:inherit;resize:vertical;"></textarea></div>
+          <div class="fg full"><label>Υπεύθυνο Τμήμα</label><input type="text" id="mf_dept" value="ΔΙΕΥΘΥΝΣΗ ΤΕΧΝΙΚΩΝ ΕΡΓΩΝ &amp; ΥΠΟΔΟΜΩΝ"></div>
+          <div class="fg full"><label>Θεματικοί Υπεύθυνοι</label><input type="text" id="mf_resp" placeholder="Λαμπριανός, Διακολιός"></div>
+          <div class="fg full"><label>Σχόλια</label><textarea id="mf_notes" rows="2" placeholder="Σχόλια..." style="width:100%;padding:7px 9px;border:1px solid var(--borderS);border-radius:var(--rs);font-size:12px;font-family:inherit;resize:vertical;"></textarea></div>
         </div>
       </div>
-      <!-- SECTION 2: Πολίτης -->
       <div>
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy);border-bottom:2px solid var(--navy);padding-bottom:4px;margin-bottom:10px;">👤 Στοιχεία Πολίτη / Αιτούντα</div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy);border-bottom:2px solid var(--navy);padding-bottom:4px;margin-bottom:10px;">👤 Στοιχεία Πολίτη</div>
         <div class="fgrid">
           <div class="fg"><label>Τρόπος Επικοινωνίας</label><select id="mf_ctype"><option value="Ιστοσελίδα Δήμου (αιτήματα πολιτών)">Ιστοσελίδα Δήμου</option><option value="Τηλέφωνο">Τηλέφωνο</option><option value="Email">Email</option><option value="Αυτοπροσώπως">Αυτοπροσώπως</option></select></div>
           <div class="fg"><label>Ονοματεπώνυμο Πολίτη</label><input type="text" id="mf_cname" placeholder="Ονοματεπώνυμο"></div>
           <div class="fg full"><label>Διεύθυνση Πολίτη</label><input type="text" id="mf_caddr" placeholder="Διεύθυνση κατοικίας"></div>
-          <div class="fg"><label>Κινητό Τηλέφωνο</label><input type="tel" id="mf_mobile" placeholder="69xxxxxxxx"></div>
-          <div class="fg"><label>Σταθερό Τηλέφωνο</label><input type="tel" id="mf_phone" placeholder="2241xxxxxx"></div>
-          <div class="fg full"><label>Email Πολίτη</label><input type="email" id="mf_email" placeholder="email@example.com"></div>
+          <div class="fg"><label>Κινητό</label><input type="tel" id="mf_mobile" placeholder="69xxxxxxxx"></div>
+          <div class="fg"><label>Τηλέφωνο</label><input type="tel" id="mf_phone" placeholder="2241xxxxxx"></div>
+          <div class="fg full"><label>Email</label><input type="email" id="mf_email" placeholder="email@example.com"></div>
         </div>
       </div>
     </div>
@@ -6974,58 +6905,6 @@ function printBulkProtocol(){
     });
   });
 })();
-
-// ── Online user tracking (Supabase) ─────────────────────────────
-var _presenceUrl = 'https://nzrdcgmrsfdmocyhfrod.supabase.co/functions/v1/user-presence';
-var _presenceAnon = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56cmRjZ21yc2ZkbW9jeWhmcm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MTg5MDMsImV4cCI6MjA4OTQ5NDkwM30.irU9tlBluAeTGcI0i3cc080OY7_nqR5js4ZPW8MC7b4';
-
-function munPingPresence(){
-  if(!currentUser) return;
-  fetch(_presenceUrl, {
-    method:'POST',
-    headers:{'Content-Type':'application/json','apikey':_presenceAnon},
-    body:JSON.stringify({action:'ping',userId:currentUser.id,userName:currentUser.name,userColor:currentUser.color||'#1a3a5c'})
-  }).catch(function(){});
-}
-
-function munUpdateOnline(){
-  var el = document.getElementById('onlineUsersList');
-  if(!el) return;
-  fetch(_presenceUrl, {
-    method:'POST',
-    headers:{'Content-Type':'application/json','apikey':_presenceAnon},
-    body:JSON.stringify({action:'list'})
-  })
-  .then(function(r){return r.json();})
-  .then(function(d){
-    if(!d.users||!d.users.length){
-      el.innerHTML='<p style="font-size:11px;color:var(--muted);">Κανένας χρήστης online</p>';
-      return;
-    }
-    el.innerHTML = d.users.map(function(u){
-      var mins = Math.round((Date.now()-new Date(u.last_seen).getTime())/60000);
-      var ago = mins===0?'τώρα':mins+' λεπ. πριν';
-      var isMe = currentUser && u.user_id===currentUser.id;
-      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);">'
-        +'<div style="width:9px;height:9px;border-radius:50%;background:#2d7a4f;flex-shrink:0;"></div>'
-        +'<div style="width:28px;height:28px;border-radius:50%;background:'+(u.user_color||'#1a3a5c')+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700;">'+u.user_name.split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase()+'</div>'
-        +'<span style="font-size:12px;font-weight:600;">'+u.user_name+(isMe?' <span style=\"font-size:10px;color:var(--muted);\">(εσύ)</span>':'')+'</span>'
-        +'<span style="font-size:11px;color:var(--muted);margin-left:auto;">'+ago+'</span>'
-        +'</div>';
-    }).join('');
-  })
-  .catch(function(e){
-    el.innerHTML='<p style="font-size:11px;color:var(--amber);">⚠ Σφάλμα φόρτωσης</p>';
-  });
-}
-
-// Ping every 90 seconds
-setInterval(function(){
-  munPingPresence();
-  if(currentTab==='settings'&&currentUser&&currentUser.id==='admin') munUpdateOnline();
-},90000);
-
-
 </script>
 </body>
 </html>
