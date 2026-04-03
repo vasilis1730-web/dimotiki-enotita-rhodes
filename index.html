@@ -3367,7 +3367,17 @@ function renderOrders(){
     if(fs&&w.status!==fs)return false;
     if(search&&!JSON.stringify(w).toLowerCase().includes(search))return false;
     return true;
-  }).sort((a,b)=>b.date.localeCompare(a.date));
+  }).sort((a,b)=>{
+    const dir = oSortDir==='asc' ? 1 : -1;
+    switch(oSortCol){
+      case 'num':     return dir*((a.orderNum||'').localeCompare(b.orderNum||'',undefined,{numeric:true}));
+      case 'location':return dir*((a.location||'').localeCompare(b.location||''));
+      case 'prio':    return dir*((a.priority||'').localeCompare(b.priority||''));
+      case 'cost':    return dir*(woTotal(a)-woTotal(b));
+      case 'status':  return dir*((a.status||'').localeCompare(b.status||''));
+      default:        return dir*((b.date||'').localeCompare(a.date||''));
+    }
+  });
   document.getElementById('woCount').textContent=list.length;
   if(!list.length){document.getElementById('ordersTbl').innerHTML='<div class="empty"><div class="ico">📄</div><h3>Καμία εντολή</h3></div>';return;}
   let rows='';
