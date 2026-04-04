@@ -2112,6 +2112,22 @@ function initLogin(){
   if(saved){
     try{
       const u = JSON.parse(saved);
+      // Citizen: restore from session directly (not in USERS array)
+      if(u.isCitizen && u.citizenPhone){
+        const phone = (u.citizenPhone||'').replace(/[\s\-\.]/g,'').replace('+30','');
+        const short = phone.slice(-4);
+        loginSuccess({
+          id: 'citizen_'+phone,
+          name: 'Πολίτης '+short,
+          initials: '👤',
+          color: '#16a34a',
+          role: 'Πολίτης',
+          canOrders: false,
+          isCitizen: true,
+          citizenPhone: phone
+        });
+        return;
+      }
       const found = getEffectiveUsers().find(x=>x.id===u.id);
       if(found){ loginSuccess(found); return; }
     }catch(e){}
@@ -2172,7 +2188,7 @@ function doLogin(){
 
 function loginSuccess(u){
   currentUser = u;
-  sessionStorage.setItem('rhodesUser', JSON.stringify({id:u.id}));
+  sessionStorage.setItem('rhodesUser', JSON.stringify({id:u.id, isCitizen:u.isCitizen||false, citizenPhone:u.citizenPhone||''}));
   // Hide login screen
   const loginEl = document.getElementById('loginScreen');
   if(loginEl) loginEl.style.display='none';
@@ -3170,6 +3186,12 @@ function renderIssues(){
   const fc=document.getElementById('iCat')?.value||'';
   const dateFrom=document.getElementById('iDateFrom')?.value||'';
   const dateTo=document.getElementById('iDateTo')?.value||'';
+  // Citizen mode: show ONLY their own issues
+  if(isCitizenMode()){
+    var cPhone=(currentUser.citizenPhone||'').replace(/[\s\-\.]/g,'').replace('+30','');
+    renderCitizenIssues();
+    return;
+  }
   let list=issues.filter(i=>{
     if(fs&&i.status!==fs)return false;
     if(fp&&i.priority!==fp)return false;
