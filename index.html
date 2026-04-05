@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<title>Σύστημα Διαχείρισης Αυτεπιστασίας – Δήμος Ρόδου</title>
+<title>ΡΟΔΙΟΣ</title>
 <style>
 :root{
   --navy:#1a3a5c;--navy2:#2a5080;--navy3:#0f2235;
@@ -325,7 +325,7 @@ tr:hover td{background:#faf9f7;}
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Δημότης">
+  <meta name="apple-mobile-web-app-title" content="ΡΟΔΙΟΣ">
   <link rel="apple-touch-icon" href="icon-192.png">
 <style>
 #geo-drop{position:fixed;background:#fff;border:1px solid #bab6ae;border-radius:0 0 8px 8px;box-shadow:0 6px 20px rgba(0,0,0,.18);z-index:999999;max-height:280px;overflow-y:auto;min-width:280px;}
@@ -395,7 +395,7 @@ tr:hover td{background:#faf9f7;}
 </header>
 <div id="citizenBar" style="display:none;background:#16a34a;padding:12px 20px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
   <div style="color:#fff;">
-    <div style="font-weight:700;font-size:14px;">👤 Λειτουργία Πολίτη</div>
+    <div style="font-weight:700;font-size:16px;letter-spacing:1px;">🏛 ΡΟΔΙΟΣ</div><div style="font-size:11px;opacity:.9;font-weight:500;">Αιτήματα Πολίτη</div>
     <div style="font-size:11px;opacity:.8;" id="citizenPhoneLabel"></div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
@@ -2204,7 +2204,10 @@ function loginSuccess(u){
     applyTabPermissions(u);
     initRealtimeSync();
     checkRhodesImport();
-    if(u.isCitizen) applyCitizenMode();
+    if(u.isCitizen){
+      // Force citizen mode — override any tab that load() may have shown
+      setTimeout(applyCitizenMode, 50);
+    }
   });
   toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
   setTimeout(munPingPresence,1000);
@@ -3085,6 +3088,8 @@ function updateESignUser(idx, field, val){
 // TABS
 // ================================================================
 function showTab(tab){
+  // Citizens cannot navigate tabs — always stay in citizen view
+  if(isCitizenMode()){ applyCitizenMode(); return; }
   // Permission guard
   const restrictedTabs = ['orders','finance','catalog','reports','settings'];
   if(currentUser && currentUser.canOrders===false && restrictedTabs.includes(tab)){
@@ -6183,35 +6188,35 @@ function loginAsCitizenWithPhone(phone){
 // ── Issue 5+6: applyCitizenMode — hides everything, shows only citizen UI ──
 function applyCitizenMode(){
   if(!isCitizenMode()){
-    // Restore normal
-    const nav=document.getElementById('mainNavBar');
-    const main=document.querySelector('main');
-    const bar=document.getElementById('citizenBar');
-    const lst=document.getElementById('citizenIssuesList');
-    if(nav) nav.style.display='';
-    if(main) main.style.display='';
-    if(bar) bar.style.display='none';
-    if(lst) lst.style.display='none';
+    // Restore normal employee view
+    document.getElementById('mainNavBar').style.display='';
+    document.querySelector('main').style.display='';
+    document.getElementById('citizenBar').style.display='none';
+    document.getElementById('citizenIssuesList').style.display='none';
     document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='');
     return;
   }
-  // Hide nav + all tabs + main content
-  const nav=document.getElementById('mainNavBar');
-  const main=document.querySelector('main');
-  if(nav) nav.style.display='none';
-  if(main) main.style.display='none';
+  // ── CITIZEN: hide EVERYTHING except citizen UI ──
+  // Hide header nav
+  var nav=document.getElementById('mainNavBar');
+  if(nav)nav.style.display='none';
+  // Hide main content area
+  var main=document.querySelector('main');
+  if(main)main.style.display='none';
+  // Hide all dashboard stats / finance panels
   document.querySelectorAll('[id^="tab-"]').forEach(el=>el.style.display='none');
   // Show citizen bar + list
-  const bar=document.getElementById('citizenBar');
-  const lst=document.getElementById('citizenIssuesList');
+  var bar=document.getElementById('citizenBar');
+  var lst=document.getElementById('citizenIssuesList');
   if(bar){
     bar.style.display='flex';
-    const lbl=document.getElementById('citizenPhoneLabel');
-    if(lbl) lbl.textContent=currentUser.citizenPhone||'';
+    var lbl=document.getElementById('citizenPhoneLabel');
+    if(lbl)lbl.textContent='Κινητό: '+(currentUser.citizenPhone||'');
   }
-  if(lst) lst.style.display='block';
+  if(lst)lst.style.display='block';
   renderCitizenIssues();
 }
+
 
 // ── Issue 8 fix: filter on correct field (mobile, not citizenMobile) ──
 function renderCitizenIssues(){
