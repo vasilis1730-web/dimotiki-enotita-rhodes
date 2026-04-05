@@ -2199,14 +2199,20 @@ function loginSuccess(u){
   if(avEl){ avEl.textContent=u.initials; avEl.style.background=u.color; }
   if(nameEl) nameEl.textContent=u.name.split(' ')[0];
   if(userEl) userEl.style.display='flex';
+  // If citizen: hide employee UI immediately BEFORE load() renders anything
+  if(u.isCitizen){
+    var nav=document.getElementById('mainNavBar');
+    var main=document.querySelector('main');
+    if(nav) nav.style.display='none';
+    if(main) main.style.display='none';
+  }
   // Load app
   load().then(()=>{
     applyTabPermissions(u);
     initRealtimeSync();
     checkRhodesImport();
     if(u.isCitizen){
-      // Force citizen mode — override any tab that load() may have shown
-      setTimeout(applyCitizenMode, 50);
+      applyCitizenMode();
     }
   });
   toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
@@ -3109,6 +3115,8 @@ function showTab(tab){
 
 function renderAll(){
   updateHeader();
+  // Citizens: only render their issues list, nothing else
+  if(isCitizenMode()){ renderCitizenIssues(); return; }
   if(currentTab==='dashboard')renderDash();
   if(currentTab==='issues')renderIssues();
   if(currentTab==='orders')renderOrders();
