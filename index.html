@@ -2199,13 +2199,6 @@ function loginSuccess(u){
   if(avEl){ avEl.textContent=u.initials; avEl.style.background=u.color; }
   if(nameEl) nameEl.textContent=u.name.split(' ')[0];
   if(userEl) userEl.style.display='flex';
-  // If citizen: hide employee UI immediately BEFORE load() renders anything
-  if(u.isCitizen){
-    var nav=document.getElementById('mainNavBar');
-    var main=document.querySelector('main');
-    if(nav) nav.style.display='none';
-    if(main) main.style.display='none';
-  }
   // Load app
   load().then(()=>{
     applyTabPermissions(u);
@@ -3115,8 +3108,21 @@ function showTab(tab){
 
 function renderAll(){
   updateHeader();
-  // Citizens: only render their issues list, nothing else
-  if(isCitizenMode()){ renderCitizenIssues(); return; }
+  // Citizens: hide employee UI and show only citizen view
+  if(isCitizenMode()){
+    var nav=document.getElementById('mainNavBar');
+    var main=document.querySelector('main');
+    if(nav) nav.style.display='none';
+    if(main) main.style.display='none';
+    var bar=document.getElementById('citizenBar');
+    var lst=document.getElementById('citizenIssuesList');
+    if(bar) bar.style.display='flex';
+    if(lst) lst.style.display='block';
+    var lbl=document.getElementById('citizenPhoneLabel');
+    if(lbl) lbl.textContent='Κινητό: '+(currentUser.citizenPhone||'');
+    renderCitizenIssues();
+    return;
+  }
   if(currentTab==='dashboard')renderDash();
   if(currentTab==='issues')renderIssues();
   if(currentTab==='orders')renderOrders();
