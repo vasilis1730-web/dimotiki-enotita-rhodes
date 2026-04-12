@@ -2898,13 +2898,13 @@ async function importSignedPdf(input){
   toast('🔍 Έλεγχος ψηφιακών υπογραφών...');
   let _extractedNames = [];
   try{
-    const _edgeUrl = (settings.edgeFnUrl||'').trim();
+    const _edgeUrl = (settings.edgeFnUrl||'https://nzrdcgmrsfdmocyhfrod.supabase.co/functions/v1/verify-pdf-signatures').trim();
     if(!_edgeUrl){
       // No Edge Function configured — fallback
       _extractedNames = extractPdfSignerNames(wo.signedPdfData||'');
       wo._sigExtractedNames = _extractedNames;
     } else {
-      const _anonKey = (localStorage.getItem('sb_key')||'').trim();
+      const _anonKey = (window._sb_key_override||localStorage.getItem('sb_key')||SUPABASE_KEY||'').trim();
       if(!_anonKey){ alert('Δεν βρέθηκε Supabase Anon Key. Ελέγξτε τις Ρυθμίσεις → Supabase.'); return; }
       toast('📡 Επικοινωνία με Edge Function...');
       const _resp = await fetch(_edgeUrl, {
