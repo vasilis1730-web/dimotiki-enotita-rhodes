@@ -3137,7 +3137,10 @@ function updateHeader(){
   const days=['Κυριακή','Δευτέρα','Τρίτη','Τετάρτη','Πέμπτη','Παρασκευή','Σάββατο'];
   const months=['Ιαν','Φεβ','Μαρ','Απρ','Μαΐ','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ'];
   const d=new Date();
-  document.getElementById('hinfo').innerHTML=`<div>${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}</div><strong>${fmt(settings.contractValue)} € σύμβαση</strong>`;
+  const _totalIssued = workOrders.reduce((s,w)=>s+woTotal(w),0);
+  const _remaining = (settings.contractValue||0) - _totalIssued;
+  const _remColor = _remaining < 0 ? 'var(--red)' : (_remaining < settings.contractValue*0.1 ? 'var(--amber)' : 'var(--green)');
+  document.getElementById('hinfo').innerHTML=`<div>${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}</div><strong>${fmt(settings.contractValue)} € σύμβαση</strong><div style="font-size:10px;margin-top:2px;color:${_remColor};font-weight:600;">Υπόλοιπο: ${fmt(_remaining)} €</div>`;
 }
 
 // ================================================================
