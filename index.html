@@ -3499,9 +3499,18 @@ function renderOrders(){
       +'<td style="white-space:nowrap">'+fmtDate(w.date)+'<br><span style="font-size:10px;color:var(--muted)">🕐 '+(w.issuedTime||'—')+'</span>'+'</td>'
       +'<td>'+esc(w.location)+'</td>'
       +'<td><span class="prio '+prioClass(w.priority)+'">'+(w.priority||'').slice(0,6)+'</span></td>'
-      +'<td style="font-size:11px">'+(w.items||[]).length+' εργ.'
-        +((w.items||[]).length?'<br><span style="font-size:10px;color:var(--muted);">'+
-          (w.items||[]).map(function(it){return it.etepCode||it.code||'';}).filter(Boolean).join(', ')+'</span>':'')
+      +'<td style="font-size:11px">'+
+        (function(){
+          var its=w.items||[];
+          if(!its.length) return '—';
+          var lines=its.map(function(it){
+            var cd=it.etepCode||it.code||'';
+            var q=parseFloat(it.qty)||0;
+            var u=it.unit||'';
+            return cd?(cd+(q?' × '+q+(u?' '+u:''):'')):(q?q+' '+u:'');
+          }).filter(Boolean);
+          return lines.join('<br>');
+        })()
         +'</td>'
       +'<td>'+costHtml+'</td>'
       +'<td>'+statusBadge+lockBadge
@@ -3729,12 +3738,13 @@ function delPayment(id){
 // CATALOG
 // ================================================================
 function calcCatalogUsed(code){
-  // Sum quantities used in all work orders for this catalog code
+  // Sum quantities ONLY from completed work orders (Ολοκληρώθηκε - Εκκρεμούν Υπογραφές)
+  var completedStatuses = ['Ολοκληρώθηκε - Εκκρεμούν Υπογραφές','Παραλήφθηκε'];
   var total = 0;
   workOrders.forEach(function(wo){
     if(!wo.items) return;
+    if(!completedStatuses.includes(wo.status)) return;
     wo.items.forEach(function(item){
-      // Match by ETEP code
       if((item.etepCode||item.code||'').trim() === code.trim()){
         total += parseFloat(item.qty) || 0;
       }
