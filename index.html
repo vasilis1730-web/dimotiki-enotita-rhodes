@@ -504,7 +504,7 @@ tr:hover td{background:#faf9f7;}
   <!-- CATALOG -->
   <div id="tab-catalog" style="display:none">
     <div class="sec-hdr"><div class="sec-ttl">Αναλυτικό Τιμολόγιο Εργασιών</div>
-      <span style="font-size:11px;color:var(--muted);">Σύμβαση 322.564,00€ (χωρίς ΦΠΑ) | CPV: 50000000-5</span>
+      <span id="catalogContractLabel" style="font-size:11px;color:var(--muted);">Σύμβαση 967.741,20€ (χωρίς ΦΠΑ) | CPV: 50000000-5</span>
     </div>
     <div id="catalogList"></div>
   </div>
@@ -3499,7 +3499,10 @@ function renderOrders(){
       +'<td style="white-space:nowrap">'+fmtDate(w.date)+'<br><span style="font-size:10px;color:var(--muted)">🕐 '+(w.issuedTime||'—')+'</span>'+'</td>'
       +'<td>'+esc(w.location)+'</td>'
       +'<td><span class="prio '+prioClass(w.priority)+'">'+(w.priority||'').slice(0,6)+'</span></td>'
-      +'<td style="font-size:11px">'+(w.items||[]).length+' εργ.</td>'
+      +'<td style="font-size:11px">'+(w.items||[]).length+' εργ.'
+        +((w.items||[]).length?'<br><span style="font-size:10px;color:var(--muted);">'+
+          (w.items||[]).map(function(it){return it.etepCode||it.code||'';}).filter(Boolean).join(', ')+'</span>':'')
+        +'</td>'
       +'<td>'+costHtml+'</td>'
       +'<td>'+statusBadge+lockBadge
       +(w.sentAt ? '<br><span style="font-size:10px;color:var(--amber);font-weight:600;">📧 '+fmtDateTime(w.sentAt)+'</span>' : '')
@@ -3741,6 +3744,8 @@ function calcCatalogUsed(code){
 }
 
 function renderCatalog(){
+  var cl=document.getElementById('catalogContractLabel');
+  if(cl) cl.textContent='Σύμβαση '+fmt(settings.contractValue||967741.20)+'€ (χωρίς ΦΠΑ) | CPV: 50000000-5';
   document.getElementById('catalogList').innerHTML=Object.entries(CATALOG).map(([key,cat])=>`
     <div class="price-cat">
       <div class="price-cat-hdr" onclick="toggleCat('cat-${key}')">
