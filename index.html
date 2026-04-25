@@ -526,7 +526,7 @@ tr:hover td{background:#faf9f7;}
         <h3 style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:14px;">Στοιχεία Σύμβασης & Αναδόχου</h3>
         <div class="fgrid">
           <div class="fg"><label>Ημ. Λίστας</label><input type="date" id="sDate" onchange="saveSett()"></div>
-          <div class="fg"><label>Αξία Σύμβασης (χωρίς ΦΠΑ) €</label><input type="number" id="sContract" onchange="saveSett()"></div>
+          <div class="fg"><label>Αξία Σύμβασης (χωρίς ΦΠΑ) €</label><input type="text" id="sContract" onchange="saveSett()" placeholder="π.χ. 967741.20" style="font-family:monospace;"></div>
           <div class="fg full"><label>Επωνυμία Αναδόχου</label><input type="text" id="sContractor" onchange="saveSett()" placeholder="Π.χ. ΤΕΧΝΙΚΗ ΑΕ"></div>
           <div class="fg full"><label>Email Αναδόχου</label><input type="email" id="sEmail" onchange="saveSett()" placeholder="contractor@example.com"></div>
           <div class="fg full"><label>Τηλέφωνο Αναδόχου</label><input type="text" id="sPhone" onchange="saveSett()"></div>
@@ -1073,7 +1073,7 @@ const PRIO_DATA = {
 let issues=[], workOrders=[], payments=[];
 let iSortCol='date', iSortDir='desc';
 let oSortCol='date', oSortDir='desc';
-let settings={listDate:todayStr(),contractValue:322564,contractor:'',contractorEmail:'',contractorPhone:'',contractorContact:'',vatRate:24,orderSeq:1,issueSeq:1,
+let settings={listDate:todayStr(),contractValue:967741.20,contractor:'',contractorEmail:'',contractorPhone:'',contractorContact:'',vatRate:24,orderSeq:1,issueSeq:1,
   eSignUrl:'https://webapp.mindigital-shde.gr/login',
   eSignUsers:[
     {id:'eu1', name:'', role:'Πρόεδρος Επιτροπής', username:''},
@@ -5982,7 +5982,7 @@ function loadSettings(){
   renderStaffList();
   var oc=document.getElementById('onlineUsersCard');if(oc){if(currentUser&&currentUser.id==='admin'){oc.style.display='block';munUpdateOnline();}else oc.style.display='none';}
   document.getElementById('sDate').value=settings.listDate||todayStr();
-  document.getElementById('sContract').value=settings.contractValue||322564;
+  document.getElementById('sContract').value=(settings.contractValue||967741.20).toString().replace('.',',');
   document.getElementById('sContractor').value=settings.contractor||'';
   updateSupabaseStatus();
   if(document.getElementById('sESignUrl')) document.getElementById('sESignUrl').value=settings.eSignUrl||'';
@@ -5996,7 +5996,8 @@ function loadSettings(){
 
 function saveSett(){
   settings.listDate=document.getElementById('sDate').value;
-  settings.contractValue=parseFloat(document.getElementById('sContract').value)||322564;
+  var _cv=(document.getElementById('sContract').value||'').replace(/\./g,'').replace(',','.');
+  settings.contractValue=parseFloat(_cv)||settings.contractValue||967741.20;
   settings.contractor=document.getElementById('sContractor').value;
   settings.eSignUrl=(document.getElementById('sESignUrl')?.value||'');
   settings.edgeFnUrl=(document.getElementById('sEdgeFnUrl')?.value||'');
