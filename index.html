@@ -3743,6 +3743,21 @@ function delPayment(id){
 // ================================================================
 // CATALOG
 // ================================================================
+function calcCatalogUsed(code){
+  // Sum quantities used in all work orders for this catalog code
+  var total = 0;
+  workOrders.forEach(function(wo){
+    if(!wo.items) return;
+    wo.items.forEach(function(item){
+      // Match by ETEP code
+      if((item.etepCode||item.code||'').trim() === code.trim()){
+        total += parseFloat(item.qty) || 0;
+      }
+    });
+  });
+  return total;
+}
+
 function renderCatalog(){
   document.getElementById('catalogList').innerHTML=Object.entries(CATALOG).map(([key,cat])=>`
     <div class="price-cat">
@@ -3751,8 +3766,23 @@ function renderCatalog(){
       </div>
       <div class="price-cat-body" id="cat-${key}">
         <div class="tbl-wrap" style="border:none;border-radius:0;">
-          <table><thead><tr><th>Κωδ.</th><th>Περιγραφή</th><th>Μ.Μ.</th><th>Τιμή €</th></tr></thead>
-          <tbody>${cat.items.map(i=>`<tr><td><strong>${i.code}</strong></td><td>${esc(i.desc)}</td><td>${i.unit}</td><td><strong>${fmt(i.price)} €</strong></td></tr>`).join('')}</tbody>
+          <table><thead><tr><th>Κωδ.</th><th>Περιγραφή</th><th>Μ.Μ.</th><th style='text-align:right'>Τιμή €</th><th style='text-align:right'>Ποσότητα<br><small>Σύμβαση</small></th><th style='text-align:right'>Εκτελεσθείσα</th><th style='text-align:right'>Υπόλοιπο</th></tr></thead>
+          <tbody>${cat.items.map(i=>{
+            const used = calcCatalogUsed(i.code);
+            const rem = (i.contractQty||0) - used;
+            const pct = i.contractQty ? used/i.contractQty : 0;
+            const remColor = rem<0?'var(--red)':rem===0?'var(--amber)':'inherit';
+            const bar = i.contractQty ? `<div style='height:4px;background:var(--borderS);border-radius:2px;margin-top:3px'><div style='height:4px;background:${pct>0.9?'var(--red)':pct>0.7?'var(--amber)':'var(--green)'};border-radius:2px;width:${Math.min(100,pct*100).toFixed(0)}%'></div></div>` : '';
+            return `<tr>
+              <td><strong>${i.code}</strong></td>
+              <td>${esc(i.desc)}${bar}</td>
+              <td>${i.unit}</td>
+              <td style='text-align:right'><strong>${fmt(i.price)} €</strong></td>
+              <td style='text-align:right'>${i.contractQty||'-'}</td>
+              <td style='text-align:right'>${used>0?used:'-'}</td>
+              <td style='text-align:right;color:${remColor};font-weight:600'>${rem<0?'<span title=\'Υπέρβαση!\'>⚠ '+Math.abs(rem).toFixed(1):'</span>'+rem.toFixed(1)}</td>
+            </tr>`;
+          }).join('')}</tbody>
           </table>
         </div>
       </div>
