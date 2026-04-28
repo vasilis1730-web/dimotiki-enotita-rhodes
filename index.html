@@ -1042,8 +1042,8 @@ for(const [catKey, cat] of Object.entries(CATALOG)){
 
 // PRIORITY DATA
 const PRIO_DATA = {
-  'ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ':  {cls:'p1', resp:'30 λεπτά',   minResp:30,   unit:'min'},
-  'ΚΑΤ. 2 - ΕΠΕΙΓΟΝ':                 {cls:'p2', resp:'2 ώρες',    minResp:120,  unit:'min'},
+  'ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ':  {cls:'p1', resp:'2 ώρες',    minResp:120,  unit:'min'},
+  'ΚΑΤ. 2 - ΕΠΕΙΓΟΝ':                 {cls:'p2', resp:'6 ώρες',    minResp:360,  unit:'min'},
   'ΚΑΤ. 3 - ΥΨΗΛΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ':    {cls:'p3', resp:'24 ώρες',   minResp:1440, unit:'min'},
   'ΚΑΤ. 4 - ΚΑΝΟΝΙΚΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ': {cls:'p4', resp:'3 ημέρες',  minResp:4320, unit:'min'},
   'ΚΑΤ. 5 - ΠΡΟΓΡΑΜΜΑΤΙΣΜΕΝΗ ΣΥΝΤΗΡΗΣΗ':{cls:'p5', resp:'5 ημέρες', minResp:7200, unit:'min'},
@@ -3137,8 +3137,8 @@ function renderDash(){
   const paid=totalPaid();
   const rem=remaining();
   document.getElementById('dashStats').innerHTML=`
-    <div class="stat rd"><div class="lbl">ΚΑΤ.1 Άμεσος Κίνδυνος</div><div class="val">${cat1}</div><div class="sub">Απόκριση 30 λεπτά</div></div>
-    <div class="stat am"><div class="lbl">ΚΑΤ.2 Επείγοντα</div><div class="val">${cat2}</div><div class="sub">Απόκριση 2 ώρες</div></div>
+    <div class="stat rd"><div class="lbl">ΚΑΤ.1 Άμεσος Κίνδυνος</div><div class="val">${cat1}</div><div class="sub">Απόκριση 2 ώρες</div></div>
+    <div class="stat am"><div class="lbl">ΚΑΤ.2 Επείγοντα</div><div class="val">${cat2}</div><div class="sub">Απόκριση 6 ώρες</div></div>
     <div class="stat bl"><div class="lbl">Σύνολο Ενεργών</div><div class="val">${act}</div><div class="sub">από ${issues.length} αιτήματα</div></div>
     <div class="stat gn"><div class="lbl">Ολοκληρωμένα</div><div class="val">${done}</div></div>
     <div class="stat pu"><div class="lbl">Εκδοθείσες Εντολές €</div><div class="val" style="font-size:18px">${fmt(issued)}</div><div class="sub">από ${fmt(settings.contractValue)} €</div></div>
