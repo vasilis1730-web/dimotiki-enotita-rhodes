@@ -4973,7 +4973,7 @@ function openNewOrder(orderType){
   document.getElementById('orderModalTitle').textContent='Νέα Εντολή Εργασίας';
   document.getElementById('wo_id').value='';
   document.getElementById('wo_num').value=nextOrderNum();
-  document.getElementById('wo_date').value=settings.listDate;
+  document.getElementById('wo_date').value=todayStr();
   {const n=new Date();document.getElementById('wo_issuedTime').value=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');}
   document.getElementById('wo_loc').value='';
   document.getElementById('wo_desc').value='';
