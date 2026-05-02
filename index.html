@@ -5571,7 +5571,25 @@ function printOrder(id){
 
 let _emailOrderId = null;
 
-function openEmail(email,subject,body){var b=body.length>1500?body.substring(0,1500)+'...':body;var url='mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(b);window.open(url,'_blank');}
+function openEmail(email,subject,body){
+  // If body has ack link, preserve it: truncate middle but keep ack section at end
+  var ackMarker = '═══════════════════════════════════════════════════\n📌 ΔΗΛΩΣΗ ΟΛΟΚΛΗΡΩΣΗΣ ΕΡΓΑΣΙΑΣ';
+  var ackIdx = body.indexOf(ackMarker);
+  var b;
+  if(ackIdx > -1 && body.length > 1500){
+    // Keep first 1100 chars + ack section
+    var ackSection = body.substring(ackIdx);
+    var beforeAck = body.substring(0, ackIdx);
+    if(beforeAck.length > 1100){
+      beforeAck = beforeAck.substring(0, 1100) + '\n[... περιεχόμενο σε συνημμένο PDF ...]\n\n';
+    }
+    b = beforeAck + ackSection;
+  } else {
+    b = body.length > 1500 ? body.substring(0,1500)+'...' : body;
+  }
+  var url='mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(b);
+  window.open(url,'_blank');
+}
 
 
 function buildEmailBody(wo){
