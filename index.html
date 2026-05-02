@@ -156,6 +156,34 @@ tr:hover td{background:#faf9f7;}
 
 .deadline-warn{color:var(--amber);font-size:10px;font-weight:600;}
 .deadline-over{color:var(--red);font-size:10px;font-weight:600;}
+
+/* === Acknowledgment Indicator === */
+.ack-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+  cursor: help;
+  user-select: none;
+  margin-top: 4px;
+  position: relative;
+}
+.ack-yellow { background: #fef3c7; color: #92400e; border: 1px solid #fbbf24; }
+.ack-red { background: #fee2e2; color: #991b1b; border: 1px solid #ef4444; animation: ack-pulse-red 2s ease-in-out infinite; }
+.ack-green { background: #d1fae5; color: #065f46; border: 1px solid #10b981; animation: ack-pulse-green 2s ease-in-out infinite; }
+@keyframes ack-pulse-red { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); } 50% { box-shadow: 0 0 0 4px rgba(239,68,68,0.2); } }
+@keyframes ack-pulse-green { 0%,100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } 50% { box-shadow: 0 0 0 4px rgba(16,185,129,0.2); } }
+.ack-indicator .dot { width: 8px; height: 8px; border-radius: 50%; }
+.ack-yellow .dot { background: #f59e0b; }
+.ack-red .dot { background: #ef4444; }
+.ack-green .dot { background: #10b981; }
+.ack-indicator[data-tooltip]:hover::after { content: attr(data-tooltip); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: #1a2744; color: white; padding: 8px 12px; border-radius: 6px; font-size: 11px; white-space: normal; max-width: 280px; z-index: 1000; margin-bottom: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); text-align: center; line-height: 1.4; }
+.ack-indicator[data-tooltip]:hover::before { content: ''; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: #1a2744; margin-bottom: -6px; }
+.btn-manual-ack { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; font-size: 10px; background: #ecfdf5; border: 1px solid #10b981; color: #065f46; border-radius: 6px; cursor: pointer; margin-top: 4px; font-weight: 600; }
+.btn-manual-ack:hover { background: #10b981; color: white; }
 .toast{position:fixed;bottom:20px;right:20px;background:var(--navy);color:#fff;padding:10px 16px;border-radius:var(--r);font-size:13px;z-index:999;animation:fadeUp .2s;box-shadow:0 4px 16px rgba(0,0,0,.2);}
 @keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 .fin-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;}
@@ -3325,6 +3353,121 @@ function delIssue(id){
 // WORK ORDERS
 // ================================================================
 
+// ── ACKNOWLEDGMENT INDICATOR ─────────────────────────────────────
+// 🟡 yellow: Δημιουργήθηκε αλλά δεν στάλθηκε email
+// 🔴 red:    Στάλθηκε email στον ανάδοχο, σε εξέλιξη
+// 🟢 green:  Ανάδοχος δήλωσε ολοκλήρωση (link ή manual)
+
+// ⚠️ ΠΡΟΣΟΧΗ: Άλλαξε αυτό με το δικό σου Supabase project URL
+const ACK_BASE_URL = 'https://nzrdcgmrsfdmocyhfrod.supabase.co/functions/v1/contractor-ack';
+
+function getAckState(wo) {
+  if(wo.orderType === 'service') return null;
+  const finalStatuses = ['Παραλήφθηκε', 'Ακυρώθηκε', 'Δεν ολοκληρώθηκε'];
+  if(finalStatuses.includes(wo.status)) return null;
+  if(wo.contractorAck) {
+    return { color: 'green', label: 'Δηλώθηκε ολοκλήρωση', tooltip: 'Ο ανάδοχος δήλωσε ότι ολοκλήρωσε την εργασία. Άμεση αυτοψία και παραλαβή. (Σημ: ο χρόνος συνεχίζει να τρέχει μέχρι το πρωτόκολλο παραλαβής)' };
+  }
+  if(wo.sentAt && wo.status !== 'Εκδόθηκε') {
+    return { color: 'red', label: 'Σε εξέλιξη', tooltip: 'Στάλθηκε email στον ανάδοχο. Τρέχει ο χρόνος απόκρισης. Αναμένεται δήλωση ολοκλήρωσης.' };
+  }
+  return { color: 'yellow', label: 'Νέα εντολή', tooltip: 'Η εντολή δημιουργήθηκε αλλά δεν έχει σταλεί ακόμα email στον ανάδοχο.' };
+}
+
+function buildAckIndicator(wo) {
+  const state = getAckState(wo);
+  if(!state) return '';
+  let html = '<span class="ack-indicator ack-' + state.color + '" data-tooltip="' + esc(state.tooltip) + '">';
+  html += '<span class="dot"></span>';
+  html += state.label;
+  html += '</span>';
+  if(state.color === 'red') {
+    html += '<br><button class="btn-manual-ack" onclick="manualAckOrder(\'' + wo.id + '\')" title="Χειροκίνητη δήλωση ολοκλήρωσης (αν ο ανάδοχος επικοινώνησε διαφορετικά)">';
+    html += '✓ Χειροκίνητη Δήλωση';
+    html += '</button>';
+  }
+  return html;
+}
+
+function generateAckToken() {
+  const arr = new Uint8Array(24);
+  crypto.getRandomValues(arr);
+  return btoa(String.fromCharCode.apply(null, arr)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+async function ensureAckToken(wo) {
+  if(wo.ackToken) return wo.ackToken;
+  const token = generateAckToken();
+  wo.ackToken = token;
+  const sb = (typeof getSupabase === 'function') ? getSupabase() : null;
+  if(sb) {
+    try {
+      await sb.from('work_order_acknowledgments').insert({
+        work_order_id: wo.id,
+        order_num: wo.orderNum,
+        ack_token: token
+      });
+    } catch(e) { console.error('Failed to create ack record:', e); }
+  }
+  return token;
+}
+
+async function manualAckOrder(orderId) {
+  const wo = workOrders.find(w => w.id === orderId);
+  if(!wo) return;
+  if(!confirm('Επιβεβαίωση χειροκίνητης δήλωσης ολοκλήρωσης για την εντολή ' + wo.orderNum + ';\n\nΑυτό σημαίνει ότι ο ανάδοχος έχει επικοινωνήσει με την υπηρεσία (π.χ. τηλεφωνικά) και δηλώνει ολοκλήρωση χωρίς να πατήσει το link στο email.\n\nΣημείωση: Ο χρόνος θα συνεχίσει να τρέχει μέχρι την έκδοση πρωτοκόλλου παραλαβής.')) return;
+  
+  const ackData = {
+    timestamp: new Date().toISOString(),
+    manual: true,
+    by: (typeof currentUser !== 'undefined' && currentUser) ? (currentUser.username || 'unknown') : 'unknown'
+  };
+  wo.contractorAck = ackData;
+  
+  if(wo.ackToken) {
+    const sb = (typeof getSupabase === 'function') ? getSupabase() : null;
+    if(sb) {
+      try {
+        await sb.from('work_order_acknowledgments').update({
+          acknowledged_at: ackData.timestamp,
+          manual_ack: true,
+          manual_ack_by: ackData.by
+        }).eq('ack_token', wo.ackToken);
+      } catch(e) { console.error('Failed to update ack:', e); }
+    }
+  }
+  
+  save();
+  renderOrders();
+  toast('✓ Σημειώθηκε χειροκίνητη δήλωση ολοκλήρωσης για την εντολή ' + wo.orderNum);
+}
+
+function setupAckSubscription() {
+  const sb = (typeof getSupabase === 'function') ? getSupabase() : null;
+  if(!sb) return;
+  try {
+    sb.channel('ack-changes').on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'work_order_acknowledgments'
+    }, (payload) => {
+      const ackRecord = payload.new;
+      if(!ackRecord || !ackRecord.acknowledged_at) return;
+      const wo = workOrders.find(w => w.id === ackRecord.work_order_id);
+      if(!wo || wo.contractorAck) return;
+      wo.contractorAck = {
+        timestamp: ackRecord.acknowledged_at,
+        manual: ackRecord.manual_ack,
+        by: ackRecord.manual_ack_by || 'contractor'
+      };
+      save();
+      renderOrders();
+      const isManual = ackRecord.manual_ack;
+      toast(isManual ? '👤 Χειροκίνητη δήλωση: εντολή ' + wo.orderNum : '🟢 Ο ανάδοχος δήλωσε ολοκλήρωση εντολής ' + wo.orderNum);
+    }).subscribe();
+  } catch(e) { console.error('Failed to setup ack subscription:', e); }
+}
+
 // ── COUNTDOWN TIMER ──────────────────────────────────────────────
 function buildCountdown(wo){
   // Show countdown for active statuses (Εστάλη / Σε εξέλιξη)
@@ -3518,6 +3661,7 @@ function renderOrders(){
       +'<td>'+statusBadge+lockBadge
       +(w.sentAt ? '<br><span style="font-size:10px;color:var(--amber);font-weight:600;">📧 '+fmtDateTime(w.sentAt)+'</span>' : '')
       +'<br>'+buildCountdown(w)
+      +'<br>'+buildAckIndicator(w)
       +'</td>'
       +'<td>'+btnHtml+'</td>'
       +'</tr>';
@@ -5778,27 +5922,33 @@ function svcNotifyAll(){
   toast('✉ Email ανοίχτηκε για '+emails.length+' παραλήπτες');
 }
 
-function autoMsgNewOrder(orderId){
+async function autoMsgNewOrder(orderId){
   const wo=workOrders.find(w=>w.id===orderId);
   if(!wo)return;
   // Auto-open email (always) + show messaging options
   if(settings.contractorEmail){
+    const token = await ensureAckToken(wo);
+    const ackUrl = ACK_BASE_URL + '?token=' + token;
     const subject='Εντολή Εργασίας '+wo.orderNum;
-    const body=buildEmailBody(wo);
+    let body=buildEmailBody(wo);
+    body += '\n\n═══════════════════════════════════════════════════\n📌 ΔΗΛΩΣΗ ΟΛΟΚΛΗΡΩΣΗΣ ΕΡΓΑΣΙΑΣ\n═══════════════════════════════════════════════════\n\nΌταν ολοκληρώσετε την παραπάνω εργασία, παρακαλούμε\nπατήστε τον παρακάτω σύνδεσμο για να ενημερώσετε\nτην υπηρεσία:\n\n🔗 ' + ackUrl + '\n\nΜε αυτή την ενέργεια θα ξεκινήσει η διαδικασία\nπαραλαβής και θα ορισθεί επιτόπια αυτοψία από την\nΕπιτροπή Παραλαβής.\n\n— ΡΟΔΙΟΣ — Αιτήματα Πολιτών';
     openEmail(settings.contractorEmail, subject, body);
-    if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();}
+    if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderOrders();}
     toast('✉ Email αποστολή + 📱 Χρησιμοποιήστε το κουμπί ✉ για Viber/WhatsApp');
   }
 }
 
-function autoEmailNewOrder(orderId){
+async function autoEmailNewOrder(orderId){
   // Auto-open email when new order is created
   const wo=workOrders.find(w=>w.id===orderId);
   if(!wo||!settings.contractorEmail)return;
+  const token = await ensureAckToken(wo);
+  const ackUrl = ACK_BASE_URL + '?token=' + token;
   const subject='Εντολή Εργασίας '+wo.orderNum;
-  const body=buildEmailBody(wo);
+  let body=buildEmailBody(wo);
+  body += '\n\n═══════════════════════════════════════════════════\n📌 ΔΗΛΩΣΗ ΟΛΟΚΛΗΡΩΣΗΣ ΕΡΓΑΣΙΑΣ\n═══════════════════════════════════════════════════\n\nΌταν ολοκληρώσετε την παραπάνω εργασία, παρακαλούμε\nπατήστε τον παρακάτω σύνδεσμο για να ενημερώσετε\nτην υπηρεσία:\n\n🔗 ' + ackUrl + '\n\nΜε αυτή την ενέργεια θα ξεκινήσει η διαδικασία\nπαραλαβής και θα ορισθεί επιτόπια αυτοψία από την\nΕπιτροπή Παραλαβής.\n\n— ΡΟΔΙΟΣ — Αιτήματα Πολιτών';
   openEmail(settings.contractorEmail, subject, body);
-  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();}
+  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderOrders();}
 }
 
 // ================================================================
@@ -5856,6 +6006,10 @@ function getSupabase(){
   const key = window._sb_key_override || localStorage.getItem('sb_key') || SUPABASE_KEY;
   if(!_supabase && url && key && url.startsWith('http')){
     _supabase = supabase.createClient(url, key);
+    // Setup ack subscription on first connection
+    if(typeof setupAckSubscription === 'function') {
+      try { setupAckSubscription(); } catch(e) { console.error('Ack subscription setup failed:', e); }
+    }
   }
   return _supabase;
 }
