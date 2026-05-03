@@ -437,6 +437,50 @@ tr:hover td{background:#faf9f7;}
 <div id="citizenIssuesList" style="display:none;padding:16px;max-width:800px;margin:0 auto;"></div>
 
 <main>
+<div id="neutralDisclaimer" style="text-align:right;padding:6px 18px;background:transparent;border-bottom:1px solid #f0f0f0;">
+  <button onclick="showDisclaimerModal()" style="background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12;padding:4px 12px;border-radius:14px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-weight:600;">
+    <span style="font-size:13px;">ℹ️</span>
+    <span>Δήλωση Αποποίησης</span>
+  </button>
+</div>
+
+<!-- Disclaimer Modal -->
+<div id="disclaimerModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:14px;max-width:520px;width:100%;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:24px;">⚠️</span>
+        <h3 style="margin:0;color:#1a3a5c;font-size:18px;">Δήλωση Αποποίησης</h3>
+      </div>
+      <button onclick="hideDisclaimerModal()" style="background:transparent;border:none;font-size:22px;color:#999;cursor:pointer;line-height:1;padding:4px 8px;">×</button>
+    </div>
+    <div style="color:#444;line-height:1.6;font-size:14px;">
+      <p style="margin:0 0 12px 0;">
+        Η εφαρμογή <strong>ΡΟΔΙΟΣ</strong> αποτελεί <strong>ανεξάρτητο, ιδιωτικό εργαλείο</strong> καταγραφής και παρακολούθησης αιτημάτων και εντολών εργασίας.
+      </p>
+      <p style="margin:0 0 12px 0;background:#fff7ed;padding:10px 12px;border-radius:8px;border-left:3px solid #f59e0b;">
+        <strong>Δεν αποτελεί επίσημη εφαρμογή</strong> κρατικού, δημοτικού ή άλλου επίσημου φορέα και <strong>δεν παρέχει επίσημες κρατικές πληροφορίες</strong>.
+      </p>
+      <p style="margin:0 0 8px 0;font-weight:600;color:#1a3a5c;">Για επίσημες πηγές:</p>
+      <ul style="margin:0;padding-left:20px;color:#555;">
+        <li>Δήμος Ρόδου: <a href="https://www.rhodes.gr" target="_blank" style="color:#1a3a5c;">www.rhodes.gr</a></li>
+        <li>Κρατικές υπηρεσίες: <a href="https://www.gov.gr" target="_blank" style="color:#1a3a5c;">www.gov.gr</a></li>
+        <li>ΚΕΠ: <a href="https://www.kep.gov.gr" target="_blank" style="color:#1a3a5c;">www.kep.gov.gr</a></li>
+      </ul>
+    </div>
+    <button onclick="hideDisclaimerModal()" style="margin-top:18px;background:#1a3a5c;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-weight:700;cursor:pointer;width:100%;">Κατάλαβα</button>
+  </div>
+</div>
+
+<script>
+function showDisclaimerModal(){
+  document.getElementById('disclaimerModal').style.display = 'flex';
+}
+function hideDisclaimerModal(){
+  document.getElementById('disclaimerModal').style.display = 'none';
+}
+</script>
+
   <!-- DASHBOARD -->
   <div id="tab-dashboard">
     <div class="stats-row" id="dashStats"></div>
@@ -1178,7 +1222,6 @@ async function load(){
       }, 2000);
     }
   }
-  try { await syncAcknowledgmentsFromSupabase(); } catch(e) { console.warn('Ack sync on load failed:', e); }
   renderAll();
 }
 
@@ -2213,13 +2256,15 @@ function loginSuccess(u){
   if(nameEl) nameEl.textContent=u.name.split(' ')[0];
   if(userEl) userEl.style.display='flex';
   // Load app
-  load().then(()=>{
+  load().then(async ()=>{
     applyTabPermissions(u);
     initRealtimeSync();
     checkRhodesImport();
     if(u.isCitizen){
       applyCitizenMode();
     }
+    // Reconcile any acknowledgments that were missed
+    try { await syncAcknowledgmentsFromSupabase(); } catch(e) { console.warn('Ack sync on load failed:', e); }
   });
   toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
   setTimeout(munPingPresence,1000);
@@ -2235,6 +2280,7 @@ function applyTabPermissions(u){
   const navBtns = document.querySelectorAll('nav button');
   const tabNames = ['dashboard','issues','orders','finance','catalog','reports','settings'];
   const restrictedTabs = ['orders','finance','catalog','reports','settings'];
+  if(tab==='settings'&&currentUser&&currentUser.id!=='admin'){toast('⛔ μόνο Admin.');return;}
   // Reset all first, then hide restricted
   navBtns.forEach((btn, i) => {
     const tab = tabNames[i];
@@ -3353,12 +3399,12 @@ function delIssue(id){
 // WORK ORDERS
 // ================================================================
 
+// ── COUNTDOWN TIMER ──────────────────────────────────────────────
 // ── ACKNOWLEDGMENT INDICATOR (Idea A — Mini ack page on GitHub Pages) ──
 // 🟡 yellow: Δημιουργήθηκε αλλά δεν στάλθηκε email
 // 🔴 red:    Στάλθηκε email στον ανάδοχο, σε εξέλιξη
 // 🟢 green:  Ανάδοχος δήλωσε ολοκλήρωση (link ή manual)
 
-// URL της mini ack page στο GitHub Pages
 const ACK_PAGE_URL = 'https://vasilis1730-web.github.io/dimotiki-enotita-rhodes/ack.html';
 
 function getAckState(wo) {
@@ -3412,7 +3458,6 @@ async function ensureAckToken(wo) {
   return token;
 }
 
-
 async function buildAckCompletionText(wo) {
   const token = await ensureAckToken(wo);
   return '\n\n──────────────\nΟΛΟΚΛΗΡΩΣΗ ΕΡΓΑΣΙΑΣ:\nΠατήστε τον παρακάτω σύνδεσμο ΜΟΝΟ όταν η εργασία έχει ολοκληρωθεί:\n' + ACK_PAGE_URL + '?token=' + token + '\n──────────────';
@@ -3442,15 +3487,7 @@ async function syncAcknowledgmentsFromSupabase(){
         changed = true;
       }
     });
-    if(changed){
-      localStorage.setItem('autopistasia_data', JSON.stringify({
-        issues: issues.filter(i => !(new Set(getHistoricalData().map(h=>h.id))).has(i.id)),
-        workOrders,
-        payments,
-        settings
-      }));
-      save();
-    }
+    if(changed){ save(); }
   }catch(e){
     console.warn('Ack reconciliation failed:', e);
   }
@@ -3459,7 +3496,7 @@ async function syncAcknowledgmentsFromSupabase(){
 async function manualAckOrder(orderId) {
   const wo = workOrders.find(w => w.id === orderId);
   if(!wo) return;
-  if(!confirm('Επιβεβαίωση χειροκίνητης δήλωσης ολοκλήρωσης για την εντολή ' + wo.orderNum + ';\n\nΑυτό σημαίνει ότι ο ανάδοχος έχει επικοινωνήσει με την υπηρεσία (π.χ. τηλεφωνικά) και δηλώνει ολοκλήρωση χωρίς να πατήσει το link στο email.\n\nΣημείωση: Ο χρόνος θα συνεχίσει να τρέχει μέχρι την έκδοση πρωτοκόλλου παραλαβής.')) return;
+  if(!confirm('Επιβεβαίωση χειροκίνητης δήλωσης ολοκλήρωσης για την εντολή ' + wo.orderNum + ';\n\nΑυτό σημαίνει ότι ο ανάδοχος έχει επικοινωνήσει με την ομάδα (π.χ. τηλεφωνικά) και δηλώνει ολοκλήρωση χωρίς να πατήσει το link στο email.\n\nΣημείωση: Ο χρόνος θα συνεχίσει να τρέχει μέχρι την έκδοση πρωτοκόλλου παραλαβής.')) return;
   
   const ackData = {
     timestamp: new Date().toISOString(),
@@ -5615,12 +5652,7 @@ function printOrder(id){
 
 let _emailOrderId = null;
 
-function openEmail(email,subject,body){
-  // Μην κόβεις το σώμα του email, γιατί στο τέλος μπαίνει το link ολοκλήρωσης.
-  // Αν κοπεί, ο ανάδοχος δεν θα λάβει ποτέ έγκυρο ACK link.
-  var url='mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body||'');
-  window.open(url,'_blank');
-}
+function openEmail(email,subject,body){var b=body.length>1500?body.substring(0,1500)+'...':body;var url='mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(b);window.open(url,'_blank');}
 
 
 function buildEmailBody(wo){
@@ -5781,13 +5813,13 @@ function emailOrder(id){
   document.getElementById('econfWrap').style.display='flex';
 }
 
-async function doSendEmail(){
+function doSendEmail(){
   const wo=workOrders.find(w=>w.id===_emailOrderId);
   if(!wo)return;
   const email=settings.contractorEmail||'';
   if(!email){alert('Δεν έχει οριστεί email αναδόχου στις Ρυθμίσεις.');return;}
   const subject='Εντολή Εργασίας '+wo.orderNum;
-  const body=buildEmailBody(wo) + await buildAckCompletionText(wo);
+  const body=buildEmailBody(wo);
   openEmail(email, subject, body);
   closeEconf();
   if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderAll();}
@@ -5831,14 +5863,14 @@ function buildMsgBody(wo){
     +'\n\nΔιακολιός Βασίλειος | diakolios@rhodes.gr';
 }
 
-async function doSendViber(){
+function doSendViber(){
   const wo=workOrders.find(w=>w.id===_emailOrderId);
   if(!wo)return;
   const phone=cleanPhone(settings.contractorPhone||'');
   if(!phone||phone.length<10){
     alert('Δεν έχει οριστεί έγκυρο τηλέφωνο αναδόχου στις Ρυθμίσεις.');return;
   }
-  const msg=buildMsgBody(wo) + await buildAckCompletionText(wo);
+  const msg=buildMsgBody(wo);
   // Viber deep link: works on mobile with Viber installed
   const url='viber://chat?number='+encodeURIComponent(phone)+'&text='+encodeURIComponent(msg);
   window.open(url,'_blank');
@@ -5848,14 +5880,14 @@ async function doSendViber(){
   toast('📱 Viber άνοιξε για αποστολή στο: '+phone);
 }
 
-async function doSendWhatsApp(){
+function doSendWhatsApp(){
   const wo=workOrders.find(w=>w.id===_emailOrderId);
   if(!wo)return;
   const phone=cleanPhone(settings.contractorPhone||'');
   if(!phone||phone.length<10){
     alert('Δεν έχει οριστεί έγκυρο τηλέφωνο αναδόχου στις Ρυθμίσεις.');return;
   }
-  const msg=buildMsgBody(wo) + await buildAckCompletionText(wo);
+  const msg=buildMsgBody(wo);
   // WhatsApp works on both mobile and desktop (web.whatsapp.com)
   const phoneNum=phone.replace('+','');
   const url='https://wa.me/'+phoneNum+'?text='+encodeURIComponent(msg);
@@ -5977,7 +6009,11 @@ async function autoMsgNewOrder(orderId){
   // Auto-open email (always) + show messaging options
   if(settings.contractorEmail){
     const subject='Εντολή Εργασίας '+wo.orderNum;
-    let body=buildEmailBody(wo) + await buildAckCompletionText(wo);
+    let body=buildEmailBody(wo);
+    // Add ack link at the end (only for non-service orders)
+    if(wo.orderType !== 'service') {
+      try { body += await buildAckCompletionText(wo); } catch(e){ console.error(e); }
+    }
     openEmail(settings.contractorEmail, subject, body);
     if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderOrders();}
     toast('✉ Email αποστολή + 📱 Χρησιμοποιήστε το κουμπί ✉ για Viber/WhatsApp');
@@ -5989,7 +6025,11 @@ async function autoEmailNewOrder(orderId){
   const wo=workOrders.find(w=>w.id===orderId);
   if(!wo||!settings.contractorEmail)return;
   const subject='Εντολή Εργασίας '+wo.orderNum;
-  let body=buildEmailBody(wo) + await buildAckCompletionText(wo);
+  let body=buildEmailBody(wo);
+  // Add ack link at the end (only for non-service orders)
+  if(wo.orderType !== 'service') {
+    try { body += await buildAckCompletionText(wo); } catch(e){ console.error(e); }
+  }
   openEmail(settings.contractorEmail, subject, body);
   if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderOrders();}
 }
