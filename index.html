@@ -2234,7 +2234,6 @@ function applyTabPermissions(u){
   const navBtns = document.querySelectorAll('nav button');
   const tabNames = ['dashboard','issues','orders','finance','catalog','reports','settings'];
   const restrictedTabs = ['orders','finance','catalog','reports','settings'];
-  if(tab==='settings'&&currentUser&&currentUser.id!=='admin'){toast('⛔ μόνο Admin.');return;}
   // Reset all first, then hide restricted
   navBtns.forEach((btn, i) => {
     const tab = tabNames[i];
