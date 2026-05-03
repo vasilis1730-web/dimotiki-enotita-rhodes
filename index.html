@@ -1178,6 +1178,7 @@ async function load(){
       }, 2000);
     }
   }
+  try { await syncAcknowledgmentsFromSupabase(); } catch(e) { console.warn('Ack sync on load failed:', e); }
   renderAll();
 }
 
@@ -3411,6 +3412,50 @@ async function ensureAckToken(wo) {
   return token;
 }
 
+
+async function buildAckCompletionText(wo) {
+  const token = await ensureAckToken(wo);
+  return '\n\n──────────────\nΟΛΟΚΛΗΡΩΣΗ ΕΡΓΑΣΙΑΣ:\nΠατήστε τον παρακάτω σύνδεσμο ΜΟΝΟ όταν η εργασία έχει ολοκληρωθεί:\n' + ACK_PAGE_URL + '?token=' + token + '\n──────────────';
+}
+
+async function syncAcknowledgmentsFromSupabase(){
+  const sb = (typeof getSupabase === 'function') ? getSupabase() : null;
+  if(!sb || !Array.isArray(workOrders) || !workOrders.length) return;
+  const pending = workOrders.filter(w => w && !w.contractorAck && (w.ackToken || w.id));
+  if(!pending.length) return;
+  const ids = pending.map(w => w.id).filter(Boolean);
+  try{
+    const {data, error} = await sb.from('work_order_acknowledgments')
+      .select('work_order_id,ack_token,acknowledged_at,manual_ack,manual_ack_by')
+      .in('work_order_id', ids)
+      .not('acknowledged_at','is',null);
+    if(error) throw error;
+    let changed = false;
+    (data||[]).forEach(r=>{
+      const wo = workOrders.find(w => w.id === r.work_order_id || (r.ack_token && w.ackToken === r.ack_token));
+      if(wo && !wo.contractorAck && r.acknowledged_at){
+        wo.contractorAck = {
+          timestamp: r.acknowledged_at,
+          manual: !!r.manual_ack,
+          by: r.manual_ack_by || 'contractor'
+        };
+        changed = true;
+      }
+    });
+    if(changed){
+      localStorage.setItem('autopistasia_data', JSON.stringify({
+        issues: issues.filter(i => !(new Set(getHistoricalData().map(h=>h.id))).has(i.id)),
+        workOrders,
+        payments,
+        settings
+      }));
+      save();
+    }
+  }catch(e){
+    console.warn('Ack reconciliation failed:', e);
+  }
+}
+
 async function manualAckOrder(orderId) {
   const wo = workOrders.find(w => w.id === orderId);
   if(!wo) return;
@@ -5570,7 +5615,12 @@ function printOrder(id){
 
 let _emailOrderId = null;
 
-function openEmail(email,subject,body){var b=body.length>1500?body.substring(0,1500)+'...':body;var url='mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(b);window.open(url,'_blank');}
+function openEmail(email,subject,body){
+  // Μην κόβεις το σώμα του email, γιατί στο τέλος μπαίνει το link ολοκλήρωσης.
+  // Αν κοπεί, ο ανάδοχος δεν θα λάβει ποτέ έγκυρο ACK link.
+  var url='mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body||'');
+  window.open(url,'_blank');
+}
 
 
 function buildEmailBody(wo){
@@ -5731,13 +5781,13 @@ function emailOrder(id){
   document.getElementById('econfWrap').style.display='flex';
 }
 
-function doSendEmail(){
+async function doSendEmail(){
   const wo=workOrders.find(w=>w.id===_emailOrderId);
   if(!wo)return;
   const email=settings.contractorEmail||'';
   if(!email){alert('Δεν έχει οριστεί email αναδόχου στις Ρυθμίσεις.');return;}
   const subject='Εντολή Εργασίας '+wo.orderNum;
-  const body=buildEmailBody(wo);
+  const body=buildEmailBody(wo) + await buildAckCompletionText(wo);
   openEmail(email, subject, body);
   closeEconf();
   if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderAll();}
@@ -5781,14 +5831,14 @@ function buildMsgBody(wo){
     +'\n\nΔιακολιός Βασίλειος | diakolios@rhodes.gr';
 }
 
-function doSendViber(){
+async function doSendViber(){
   const wo=workOrders.find(w=>w.id===_emailOrderId);
   if(!wo)return;
   const phone=cleanPhone(settings.contractorPhone||'');
   if(!phone||phone.length<10){
     alert('Δεν έχει οριστεί έγκυρο τηλέφωνο αναδόχου στις Ρυθμίσεις.');return;
   }
-  const msg=buildMsgBody(wo);
+  const msg=buildMsgBody(wo) + await buildAckCompletionText(wo);
   // Viber deep link: works on mobile with Viber installed
   const url='viber://chat?number='+encodeURIComponent(phone)+'&text='+encodeURIComponent(msg);
   window.open(url,'_blank');
@@ -5798,14 +5848,14 @@ function doSendViber(){
   toast('📱 Viber άνοιξε για αποστολή στο: '+phone);
 }
 
-function doSendWhatsApp(){
+async function doSendWhatsApp(){
   const wo=workOrders.find(w=>w.id===_emailOrderId);
   if(!wo)return;
   const phone=cleanPhone(settings.contractorPhone||'');
   if(!phone||phone.length<10){
     alert('Δεν έχει οριστεί έγκυρο τηλέφωνο αναδόχου στις Ρυθμίσεις.');return;
   }
-  const msg=buildMsgBody(wo);
+  const msg=buildMsgBody(wo) + await buildAckCompletionText(wo);
   // WhatsApp works on both mobile and desktop (web.whatsapp.com)
   const phoneNum=phone.replace('+','');
   const url='https://wa.me/'+phoneNum+'?text='+encodeURIComponent(msg);
@@ -5926,11 +5976,8 @@ async function autoMsgNewOrder(orderId){
   if(!wo)return;
   // Auto-open email (always) + show messaging options
   if(settings.contractorEmail){
-    const token = await ensureAckToken(wo);
     const subject='Εντολή Εργασίας '+wo.orderNum;
-    let body=buildEmailBody(wo);
-    // Add minimal ack link at the end (just URL, very small)
-    body += '\n\n──────────────\nΟΛΟΚΛΗΡΩΣΗ ΕΡΓΑΣΙΑΣ:\n' + ACK_PAGE_URL + '?token=' + token + '\n──────────────';
+    let body=buildEmailBody(wo) + await buildAckCompletionText(wo);
     openEmail(settings.contractorEmail, subject, body);
     if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderOrders();}
     toast('✉ Email αποστολή + 📱 Χρησιμοποιήστε το κουμπί ✉ για Viber/WhatsApp');
@@ -5941,11 +5988,8 @@ async function autoEmailNewOrder(orderId){
   // Auto-open email when new order is created
   const wo=workOrders.find(w=>w.id===orderId);
   if(!wo||!settings.contractorEmail)return;
-  const token = await ensureAckToken(wo);
   const subject='Εντολή Εργασίας '+wo.orderNum;
-  let body=buildEmailBody(wo);
-  // Add minimal ack link at the end (just URL, very small)
-  body += '\n\n──────────────\nΟΛΟΚΛΗΡΩΣΗ ΕΡΓΑΣΙΑΣ:\n' + ACK_PAGE_URL + '?token=' + token + '\n──────────────';
+  let body=buildEmailBody(wo) + await buildAckCompletionText(wo);
   openEmail(settings.contractorEmail, subject, body);
   if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderOrders();}
 }
