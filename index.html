@@ -1261,9 +1261,20 @@ async function _saveToSupabase(){
   const userIssues = issues.filter(i=>!histIds.has(i.id));
   const effUsers = getEffectiveUsers();
 
+  // Strip huge base64 PDF data before saving to cloud (keep only URL reference)
+  // This prevents the row from exceeding Supabase row size limits
+  const cleanWorkOrders = workOrders.map(w=>{
+    const clone = {...w};
+    // If we have a cloud URL, drop the base64 (can be re-downloaded if needed)
+    if(clone.signedPdfUrl && clone.signedPdfData){
+      delete clone.signedPdfData;
+    }
+    return clone;
+  });
+
   const rows = [
     {key:'issues',     value:userIssues},
-    {key:'workOrders', value:workOrders},
+    {key:'workOrders', value:cleanWorkOrders},
     {key:'payments',   value:payments},
     {key:'settings',   value:settings},
     {key:'users',      value:effUsers},
@@ -2629,7 +2640,14 @@ function renderSigModal(){
   if(!wo) return;
   const users = (settings.eSignUsers||[]).filter(u=>u.name);
   const hasSigned = !!(wo.signedPdfName || wo.signedPdfUrl);
-  const sigCount = countPdfSignatures(wo.signedPdfData);
+  // sigCount: try base64 first, fallback to stored _edgeSigCount or _edgeResult.count
+  let sigCount = countPdfSignatures(wo.signedPdfData);
+  if(sigCount === 0 && hasSigned){
+    // After page reload, signedPdfData may be cleaned but we have the count from verification
+    if(wo._edgeSigCount) sigCount = wo._edgeSigCount;
+    else if(wo._edgeResult && wo._edgeResult.count) sigCount = wo._edgeResult.count;
+    else if(wo._sigExtractedNames && wo._sigExtractedNames.length) sigCount = wo._sigExtractedNames.length;
+  }
   const requiredSigs = Math.max(1, users.length||3);
   const _committee = (settings.eSignUsers||[]).filter(u=>u.name && u.name.trim());
   const _committeeConfigured = _committee.length > 0;
@@ -2651,6 +2669,30 @@ function renderSigModal(){
     || (_edgeSigners.length > 0 && _committee.length > 0 && !_allMembersMatched);
   const isValid = hasSigned && sigCount >= requiredSigs && _committeeConfigured
     && _edgeOk === true && !_edgeFailed;
+
+  // ── FIX: If order is already finalized (Παραλήφθηκε), show info card instead
+  if(wo.status === 'Παραλήφθηκε' && hasSigned){
+    let infoHtml = '<div style="background:#d1e7dd;border:2px solid #198754;border-radius:8px;padding:18px;margin-bottom:14px;">';
+    infoHtml += '<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">';
+    infoHtml += '<div style="font-size:32px;">✅</div>';
+    infoHtml += '<div><div style="font-weight:700;color:#198754;font-size:15px;">Η Παραλαβή έχει ολοκληρωθεί</div>';
+    infoHtml += '<div style="font-size:12px;color:#198754;margin-top:3px;">Πρωτόκολλο: '+esc(wo.signedPdfName||'')+'</div>';
+    if(wo.completionDate) infoHtml += '<div style="font-size:11px;color:#198754;">📅 Ημ/νία: '+esc(wo.completionDate)+'</div>';
+    infoHtml += '</div></div>';
+    infoHtml += '<div style="background:rgba(255,255,255,.6);border-radius:6px;padding:10px;font-size:11px;color:#198754;">';
+    infoHtml += '🔏 <strong>Ψηφιακές υπογραφές:</strong> '+sigCount+'/'+requiredSigs+' — Έγκυρες';
+    if(_edgeSigners.length > 0){
+      infoHtml += '<div style="margin-top:6px;font-size:10px;">Υπεγράφη από: '+_edgeSigners.slice(0,4).map(n=>esc(n)).join(', ')+'</div>';
+    }
+    infoHtml += '</div>';
+    infoHtml += '</div>';
+    infoHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">';
+    infoHtml += '<button class="btn" onclick="downloadSignedPdf(_sigOrderId)">⬇ Λήψη PDF Πρωτοκόλλου</button>';
+    infoHtml += '<button class="btn" onclick="closeSigModal()">Κλείσιμο</button>';
+    infoHtml += '</div>';
+    document.getElementById('sigModalBody').innerHTML = infoHtml;
+    return;
+  }
 
   let html = '';
 
@@ -2953,6 +2995,10 @@ async function importSignedPdf(input){
   const _committee = (settings.eSignUsers||[]).filter(u=>u.name);
   const _req = _committee.length || 3;
 
+  // Render once now with PDF info but before verification - shows "Αναμονή επαλήθευσης"
+  save();
+  renderSigModal();
+
   toast('🔍 Έλεγχος ψηφιακών υπογραφών...');
   let _extractedNames = [];
   try{
@@ -2984,6 +3030,8 @@ async function importSignedPdf(input){
         // Store full verification result
         wo._edgeResult = _result;
         if(_result.count > 0) wo._edgeSigCount = _result.count;
+        // Set persistent flag if verification succeeded (survives page reloads)
+        if(_result.verified === true) wo._protocolReady = true;
         if(_result.valid){
           toast('✅ Κρυπτογραφική επαλήθευση: ΕΓΚΥΡΟ — '+_extractedNames.join(', '));
         } else if(_result.verified && !_result.certificatesOk){
@@ -3002,13 +3050,17 @@ async function importSignedPdf(input){
   }
 
   save();
-  renderSigModal();
 
   // Also try sync extraction
   const _syncNames = extractPdfSignerNames(wo.signedPdfData||'');
   const _allNames = [...new Set([..._extractedNames, ..._syncNames])];
   wo._sigExtractedNames = _allNames;
   save();
+  
+  // Re-render AFTER all data is in place (including _edgeResult and _sigExtractedNames)
+  // This is the key fix: render only once, with complete data
+  renderSigModal();
+  if(typeof renderOrders === 'function') renderOrders();
 
   if(_sigs >= _req && _allNames.length > 0){
     toast('✅ '+_sigs+' υπογραφές — εντοπίστηκαν: '+_allNames.slice(0,4).join(', '));
@@ -3048,6 +3100,7 @@ function resetSignedPdf(id){
   delete wo._sigExtractedNames;
   delete wo._sigConfirmed;
   delete wo._edgeSigCount;
+  delete wo._protocolReady;
   // Also delete from Supabase Storage if uploaded
   if(wo.signedPdfPath){
     const sb = getSupabase();
@@ -3095,6 +3148,7 @@ function finalizeAcceptance(){
   closeSigModal();
   wo.status = 'Παραλήφθηκε'; // Auto-set when protocol accepted
   wo.completionDate = todayStr();
+  wo._protocolReady = true; // CRITICAL: ensure flag persists across page reloads
   updateLinkedIssueStatus(wo, 'Ολοκληρωμένο'); // Sync citizen issue
   const idx = workOrders.findIndex(w=>w.id===wo.id);
   if(idx>=0) workOrders[idx]=wo;
@@ -3657,7 +3711,11 @@ function renderOrders(){
       const st = w.status;
       // hasProtocol = PDF exists AND edge function verified it (or no edge result yet)
       const _wEdgeOk = w._edgeResult ? (w._edgeResult.verified === true) : null;
-      const hasProtocol = !!(w.signedPdfData || w.signedPdfUrl) && _wEdgeOk !== false;
+      // Multiple checks for robustness across page reloads:
+      // 1. _protocolReady flag (set when verification succeeds, survives reloads)
+      // 2. signedPdfUrl exists (file uploaded to Supabase Storage)
+      // 3. signedPdfData exists (base64 in memory, may not survive reload)
+      const hasProtocol = !!(w._protocolReady || w.signedPdfUrl || (w.signedPdfData && _wEdgeOk !== false));
 
       if(st==='Εκδόθηκε'){
         btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">⚠ Ρήτρα</button>';
@@ -6810,6 +6868,7 @@ async function finalizeBulkAcceptance(){
     wo.signedPdfData=bulkWo.signedPdfData||null; wo.signedPdfUrl=bulkWo.signedPdfUrl||null;
     wo.signedPdfName=bulkWo.signedPdfName||''; wo.signedAt=bulkWo.signedAt||new Date().toISOString();
     wo._edgeResult=bulkWo._edgeResult||null; wo._isBulkProtocol=true;
+    wo._protocolReady=true; // Persistent flag for reload survival
     updateLinkedIssueStatus(wo,'Ολοκληρωμένο');
     if(!payments.some(p=>p.orderId===wo.id&&!p.isPenalty)){
       const net=Math.max(0,woTotal(wo)-(wo.penaltyAmount||0));
