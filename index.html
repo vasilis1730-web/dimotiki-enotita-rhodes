@@ -1185,6 +1185,14 @@ async function load(){
       payments   = rows.payments||[];
       settings   = {...settings,...(rows.settings||{})};
 
+      // DEBUG: Log work orders with protocol/signature data
+      console.log('[LOAD] Loaded', workOrders.length, 'work orders');
+      const withProtocol = workOrders.filter(w=>w._protocolReady||w.signedPdfUrl||w.signedPdfName);
+      console.log('[LOAD] Orders with protocol data:', withProtocol.length);
+      withProtocol.forEach(w=>{
+        console.log('[LOAD]   '+w.orderNum+': _protocolReady=', w._protocolReady, 'signedPdfUrl=', !!w.signedPdfUrl, 'signedPdfName=', w.signedPdfName, 'status=', w.status);
+      });
+
       // Users: merge Supabase users with defaults
       const remoteUsers = rows.users||[];
       if(remoteUsers.length > 0){
@@ -1246,7 +1254,36 @@ function save(){
   // Always save to localStorage as cache
   const histIds = new Set(getHistoricalData().map(i=>i.id));
   const userIssues = issues.filter(i=>!histIds.has(i.id));
-  localStorage.setItem('autopistasia_data',JSON.stringify({issues:userIssues,workOrders,payments,settings}));
+  
+  // Also strip base64 from localStorage cache (it's huge and we have signedPdfUrl)
+  const cleanWorkOrders = workOrders.map(w=>{
+    if(w.signedPdfUrl && w.signedPdfData){
+      const clone = {...w};
+      delete clone.signedPdfData;
+      return clone;
+    }
+    return w;
+  });
+  
+  try {
+    localStorage.setItem('autopistasia_data',JSON.stringify({issues:userIssues,workOrders:cleanWorkOrders,payments,settings}));
+  } catch(e) {
+    console.warn('[SAVE] localStorage failed (quota?), trying without base64:', e);
+    // Last resort: strip ALL signedPdfData
+    const minimalWorkOrders = workOrders.map(w=>{
+      if(w.signedPdfData){
+        const clone = {...w};
+        delete clone.signedPdfData;
+        return clone;
+      }
+      return w;
+    });
+    try {
+      localStorage.setItem('autopistasia_data',JSON.stringify({issues:userIssues,workOrders:minimalWorkOrders,payments,settings}));
+    } catch(e2) {
+      console.error('[SAVE] localStorage save completely failed:', e2);
+    }
+  }
 
   // Debounced save to Supabase
   if(!isSupabaseConfigured()) return;
@@ -1281,12 +1318,20 @@ async function _saveToSupabase(){
   ];
 
   try{
+    const sizeKB = JSON.stringify(rows).length / 1024;
+    console.log('[SAVE] Sending', rows.length, 'rows to Supabase, size:', Math.round(sizeKB), 'KB');
+    const withProtocol = cleanWorkOrders.filter(w=>w._protocolReady||w.signedPdfUrl);
+    console.log('[SAVE] Orders with protocol:', withProtocol.length);
+    withProtocol.forEach(w=>{
+      console.log('[SAVE]   '+w.orderNum+': _protocolReady=', w._protocolReady, 'signedPdfUrl=', !!w.signedPdfUrl);
+    });
     const {error} = await sb.from('app_data').upsert(rows, {onConflict:'key'});
     if(error) throw error;
+    console.log('[SAVE] ✅ Upsert success');
     // Show tiny sync indicator
     _showSyncDot('green');
   }catch(err){
-    console.warn('Supabase save failed:', err);
+    console.error('[SAVE] ❌ Supabase save failed:', err);
     _showSyncDot('red');
   }
 }
@@ -3011,6 +3056,7 @@ async function importSignedPdf(input){
       const _anonKey = (window._sb_key_override||localStorage.getItem('sb_key')||SUPABASE_KEY||'').trim();
       if(!_anonKey){ alert('Δεν βρέθηκε Supabase Anon Key. Ελέγξτε τις Ρυθμίσεις → Supabase.'); return; }
       toast('📡 Επικοινωνία με Edge Function...');
+      console.log('[SIG] Calling edge function...', _edgeUrl);
       const _resp = await fetch(_edgeUrl, {
         method: 'POST',
         headers: {
@@ -3021,17 +3067,22 @@ async function importSignedPdf(input){
         body: JSON.stringify({ pdfBase64: wo.signedPdfData||'' })
       });
       const _respText = await _resp.text();
+      console.log('[SIG] Edge response status:', _resp.status, 'body length:', _respText.length);
       if(!_resp.ok){
         alert('Edge Function σφάλμα HTTP '+_resp.status+': '+_respText.slice(0,200));
         _extractedNames = extractPdfSignerNames(wo.signedPdfData||'');
       } else {
         const _result = JSON.parse(_respText);
+        console.log('[SIG] Edge result:', _result);
         _extractedNames = _result.signers || [];
         // Store full verification result
         wo._edgeResult = _result;
         if(_result.count > 0) wo._edgeSigCount = _result.count;
         // Set persistent flag if verification succeeded (survives page reloads)
-        if(_result.verified === true) wo._protocolReady = true;
+        if(_result.verified === true) {
+          wo._protocolReady = true;
+          console.log('[SIG] _protocolReady = TRUE for order:', wo.orderNum);
+        }
         if(_result.valid){
           toast('✅ Κρυπτογραφική επαλήθευση: ΕΓΚΥΡΟ — '+_extractedNames.join(', '));
         } else if(_result.verified && !_result.certificatesOk){
@@ -3043,7 +3094,7 @@ async function importSignedPdf(input){
       wo._sigExtractedNames = _extractedNames;
     }
   }catch(e){
-    console.warn('Signature extraction failed:', e);
+    console.warn('[SIG] Signature extraction failed:', e);
     alert('Edge Function σφάλμα: '+e.message);
     wo._sigExtractedNames = extractPdfSignerNames(wo.signedPdfData||'');
     _extractedNames = wo._sigExtractedNames;
@@ -3055,7 +3106,16 @@ async function importSignedPdf(input){
   const _syncNames = extractPdfSignerNames(wo.signedPdfData||'');
   const _allNames = [...new Set([..._extractedNames, ..._syncNames])];
   wo._sigExtractedNames = _allNames;
-  save();
+  
+  // CRITICAL: Force immediate cloud save (not debounced!) to ensure _protocolReady persists
+  console.log('[SIG] Final state - _protocolReady:', wo._protocolReady, '_edgeResult:', !!wo._edgeResult, 'signedPdfUrl:', !!wo.signedPdfUrl, 'signedPdfName:', wo.signedPdfName);
+  save(); // sync to localStorage
+  try {
+    await _saveToSupabase(); // FORCE immediate cloud save
+    console.log('[SIG] ✅ Cloud save completed');
+  } catch(e) {
+    console.error('[SIG] ❌ Cloud save failed:', e);
+  }
   
   // Re-render AFTER all data is in place (including _edgeResult and _sigExtractedNames)
   // This is the key fix: render only once, with complete data
