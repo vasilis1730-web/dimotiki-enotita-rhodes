@@ -2332,6 +2332,7 @@ function applyTabPermissions(u){
   const mgmtBtn = document.getElementById('userMgmtHeaderBtn');
   if(mgmtBtn) mgmtBtn.style.display = canManage ? 'inline-flex' : 'none';
 
+  const isAdmin = (u.id==='admin'); // ONLY admin (diakolios) sees settings
   const canOrders = u.canOrders !== false; // default true if not set
   const navBtns = document.querySelectorAll('nav button');
   const tabNames = ['dashboard','issues','orders','finance','catalog','reports','settings'];
@@ -2340,13 +2341,29 @@ function applyTabPermissions(u){
   navBtns.forEach((btn, i) => {
     const tab = tabNames[i];
     if(!tab) return;
+    // Settings tab: ONLY admin can see it (regardless of other permissions)
+    if(tab === 'settings'){
+      btn.style.display = isAdmin ? '' : 'none';
+      return;
+    }
+    // Other restricted tabs: hidden if user lacks canOrders
     btn.style.display = (!canOrders && restrictedTabs.includes(tab)) ? 'none' : '';
   });
-  // If current tab is restricted, redirect to issues
-  if(!canOrders && restrictedTabs.includes(currentTab)){
+  // If current tab is settings and not admin, redirect to dashboard
+  if(currentTab === 'settings' && !isAdmin){
+    currentTab = 'dashboard';
+    tabNames.forEach(t=>{
+      const el = document.getElementById('tab-'+t);
+      if(el) el.style.display = t==='dashboard' ? '' : 'none';
+    });
+    navBtns.forEach((b,i) => b.classList.toggle('active', tabNames[i]==='dashboard'));
+  }
+  // If current tab is restricted (and user lacks canOrders), redirect to issues
+  else if(!canOrders && restrictedTabs.includes(currentTab)){
     currentTab = 'issues';
-    ['dashboard','issues','orders','finance','catalog','reports','settings'].forEach(t=>{
-      document.getElementById('tab-'+t).style.display = t==='issues' ? '' : 'none';
+    tabNames.forEach(t=>{
+      const el = document.getElementById('tab-'+t);
+      if(el) el.style.display = t==='issues' ? '' : 'none';
     });
     navBtns.forEach((b,i) => b.classList.toggle('active', tabNames[i]==='issues'));
   }
@@ -3264,6 +3281,11 @@ function showTab(tab){
   const restrictedTabs = ['orders','finance','catalog','reports','settings'];
   if(currentUser && currentUser.canOrders===false && restrictedTabs.includes(tab)){
     toast('⛔ Δεν έχετε πρόσβαση σε αυτή την ενότητα.');
+    return;
+  }
+  // Settings: ONLY admin (diakolios)
+  if(tab==='settings' && currentUser && currentUser.id!=='admin'){
+    toast('⛔ Οι Ρυθμίσεις είναι διαθέσιμες μόνο στον διαχειριστή.');
     return;
   }
   currentTab=tab;
