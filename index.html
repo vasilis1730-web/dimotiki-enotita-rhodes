@@ -614,7 +614,7 @@ function hideDisclaimerModal(){
           <button class="btn btn-sm" onclick="exportAll()">⬇ Εξαγωγή JSON</button>
           <button class="btn btn-sm" onclick="document.getElementById('impFile').click()">⬆ Εισαγωγή JSON</button>
           <button class="btn btn-sm" onclick="exportCSV()">⬇ CSV Αιτημάτων</button>
-          <button class="btn btn-sm" style="color:var(--red);border-color:var(--red);" onclick="clearAll()">🗑 Καθαρισμός</button>
+          <button class="btn btn-sm" style="color:var(--red);border-color:var(--red);" onclick="clearAll()">🗑 Καθαρισμός προστεθέντων</button>
         </div>
         <input type="file" id="impFile" accept=".json" style="display:none" onchange="importAll(event)">
       </div>
@@ -1154,6 +1154,11 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 
 let _supabase = null;
 let _saveTimer = null;
+// Sync state (data-loss protection)
+let _savingInProgress = false;   // prevents overlapping saves
+let _savePendingAgain = false;   // queues a follow-up save if one was requested mid-save
+let _lastSyncTime = 0;           // timestamp of last successful cloud sync
+const _locallyDeleted = new Set(); // ids the user deleted, so merge doesn't resurrect them
 
 // getSupabase and isSupabaseConfigured defined in settings section below
 
@@ -1185,13 +1190,11 @@ async function load(){
       payments   = rows.payments||[];
       settings   = {...settings,...(rows.settings||{})};
 
-      // DEBUG: Log work orders with protocol/signature data
-      console.log('[LOAD] Loaded', workOrders.length, 'work orders');
-      const withProtocol = workOrders.filter(w=>w._protocolReady||w.signedPdfUrl||w.signedPdfName);
-      console.log('[LOAD] Orders with protocol data:', withProtocol.length);
-      withProtocol.forEach(w=>{
-        console.log('[LOAD]   '+w.orderNum+': _protocolReady=', w._protocolReady, 'signedPdfUrl=', !!w.signedPdfUrl, 'signedPdfName=', w.signedPdfName, 'status=', w.status);
-      });
+      // Fix #6: Load serviceStaff from Supabase (was saved but never loaded)
+      if(rows.serviceStaff && Array.isArray(rows.serviceStaff) && rows.serviceStaff.length){
+        SERVICE_STAFF = rows.serviceStaff;
+        localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
+      }
 
       // Users: merge Supabase users with defaults
       const remoteUsers = rows.users||[];
@@ -1294,45 +1297,74 @@ function save(){
 async function _saveToSupabase(){
   const sb = getSupabase();
   if(!sb) return;
-  const histIds = new Set(getHistoricalData().map(i=>i.id));
-  const userIssues = issues.filter(i=>!histIds.has(i.id));
-  const effUsers = getEffectiveUsers();
-
-  // Strip huge base64 PDF data before saving to cloud (keep only URL reference)
-  // This prevents the row from exceeding Supabase row size limits
-  const cleanWorkOrders = workOrders.map(w=>{
-    const clone = {...w};
-    // If we have a cloud URL, drop the base64 (can be re-downloaded if needed)
-    if(clone.signedPdfUrl && clone.signedPdfData){
-      delete clone.signedPdfData;
-    }
-    return clone;
-  });
-
-  const rows = [
-    {key:'issues',     value:userIssues},
-    {key:'workOrders', value:cleanWorkOrders},
-    {key:'payments',   value:payments},
-    {key:'settings',   value:settings},
-    {key:'users',      value:effUsers},
-  ];
-
+  if(_savingInProgress){ _savePendingAgain = true; return; } // avoid overlapping saves
+  _savingInProgress = true;
+  _showSyncDot('amber');
   try{
-    const sizeKB = JSON.stringify(rows).length / 1024;
-    console.log('[SAVE] Sending', rows.length, 'rows to Supabase, size:', Math.round(sizeKB), 'KB');
-    const withProtocol = cleanWorkOrders.filter(w=>w._protocolReady||w.signedPdfUrl);
-    console.log('[SAVE] Orders with protocol:', withProtocol.length);
-    withProtocol.forEach(w=>{
-      console.log('[SAVE]   '+w.orderNum+': _protocolReady=', w._protocolReady, 'signedPdfUrl=', !!w.signedPdfUrl);
+    // ── MERGE-ON-SAVE (data-loss protection) ──────────────────────
+    // Before overwriting the cloud, fetch the current cloud state and merge
+    // by record id, so we don't blindly erase records another user added
+    // while we had a stale copy open.
+    let cloud = {};
+    try{
+      const {data} = await sb.from('app_data').select('key,value');
+      (data||[]).forEach(r=>{ cloud[r.key]=r.value; });
+    }catch(e){ /* offline or fetch failed — proceed with local only */ }
+
+    const histIds = new Set(getHistoricalData().map(i=>i.id));
+    const localIssues = issues.filter(i=>!histIds.has(i.id));
+    const effUsers = getEffectiveUsers();
+
+    // Strip huge base64 PDF data before saving (keep only URL reference)
+    const cleanWorkOrders = workOrders.map(w=>{
+      const clone = {...w};
+      if(clone.signedPdfUrl && clone.signedPdfData) delete clone.signedPdfData;
+      return clone;
     });
+
+    // Merge helper: union by id. Local record wins for items present locally
+    // (those reflect the user's latest edits); remote-only records are kept
+    // (they were added by another user and must not be erased).
+    const mergeById = (localArr, remoteArr)=>{
+      if(!Array.isArray(remoteArr) || !remoteArr.length) return localArr;
+      const localIds = new Set(localArr.map(x=>x && x.id).filter(Boolean));
+      const remoteOnly = remoteArr.filter(r=> r && r.id && !localIds.has(r.id) && !_locallyDeleted.has(r.id));
+      return [...localArr, ...remoteOnly];
+    };
+
+    const mergedIssues  = mergeById(localIssues, cloud.issues);
+    const mergedOrders  = mergeById(cleanWorkOrders, cloud.workOrders);
+    const mergedPays    = mergeById(payments, cloud.payments);
+
+    // Reflect the merge back into local state so the UI shows everyone's data
+    workOrders = workOrders.concat(
+      (cloud.workOrders||[]).filter(r=> r && r.id && !new Set(workOrders.map(w=>w.id)).has(r.id) && !_locallyDeleted.has(r.id))
+    );
+    payments = mergedPays;
+    {
+      const hist = getHistoricalData();
+      const hIds = new Set(hist.map(i=>i.id));
+      issues = [...hist, ...mergedIssues.filter(i=>!hIds.has(i.id))];
+    }
+
+    const rows = [
+      {key:'issues',     value:mergedIssues},
+      {key:'workOrders', value:mergedOrders},
+      {key:'payments',   value:mergedPays},
+      {key:'settings',   value:settings},
+      {key:'users',      value:effUsers},
+    ];
+
     const {error} = await sb.from('app_data').upsert(rows, {onConflict:'key'});
     if(error) throw error;
-    console.log('[SAVE] ✅ Upsert success');
-    // Show tiny sync indicator
+    _lastSyncTime = Date.now();
     _showSyncDot('green');
   }catch(err){
-    console.error('[SAVE] ❌ Supabase save failed:', err);
+    console.warn('Supabase save failed:', err);
     _showSyncDot('red');
+  }finally{
+    _savingInProgress = false;
+    if(_savePendingAgain){ _savePendingAgain = false; setTimeout(()=>_saveToSupabase(), 300); }
   }
 }
 
@@ -1346,8 +1378,14 @@ function _showSyncDot(color){
     dot.style.cssText='position:fixed;bottom:8px;right:80px;width:8px;height:8px;border-radius:50%;z-index:9999;transition:all .3s;';
     document.body.appendChild(dot);
   }
+  if(color==='amber'){
+    dot.style.background = '#f59e0b';
+    dot.title = '⏳ Συγχρονισμός...';
+    clearTimeout(dot._timer);
+    return; // stay visible until next green/red
+  }
   dot.style.background = color==='green'?'#22c55e':'#ef4444';
-  dot.title = color==='green'?'✅ Αποθηκεύτηκε':'❌ Σφάλμα αποθήκευσης';
+  dot.title = color==='green'?'✅ Συγχρονισμένο':'❌ Σφάλμα συγχρονισμού — οι αλλαγές είναι τοπικά';
   clearTimeout(dot._timer);
   dot._timer = setTimeout(()=>{ if(dot) dot.style.background='transparent'; }, 3000);
 }
@@ -1357,11 +1395,15 @@ function initRealtimeSync(){
   const sb = getSupabase();
   if(!sb) return;
   sb.channel('app_data_changes')
-    .on('postgres_changes', {event:'UPDATE', schema:'public', table:'app_data'}, (payload)=>{
-      // Another user saved — reload data
-      const key = payload.new?.key;
+    .on('postgres_changes', {event:'*', schema:'public', table:'app_data'}, (payload)=>{
+      // Another user saved — reload affected key (INSERT, UPDATE, or DELETE)
+      const key = payload.new?.key || payload.old?.key;
       const val = payload.new?.value;
-      if(!val) return;
+      if(payload.eventType==='DELETE' || !val){
+        // A key was deleted/cleared — safest is a full refetch
+        if(payload.eventType==='DELETE'){ forceRefreshFromSupabase(true); }
+        return;
+      }
       if(key==='issues'){
         const hist = getHistoricalData();
         const histIds = new Set(hist.map(i=>i.id));
@@ -1371,11 +1413,81 @@ function initRealtimeSync(){
       else if(key==='payments')    payments   = val||[];
       else if(key==='settings')    settings   = {...settings,...(val||{})};
       else if(key==='users'){      localStorage.setItem('rhodesAppUsers',JSON.stringify(val||[])); }
+      else if(key==='serviceStaff'){ // Fix #6: sync service staff across devices
+        if(Array.isArray(val) && val.length){ SERVICE_STAFF = val; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
+      }
       renderAll();
       _showSyncDot('green');
     })
     .subscribe();
 }
+
+// Refetch everything from Supabase (used on focus/online/delete events)
+async function forceRefreshFromSupabase(silent){
+  const sb = getSupabase();
+  if(!sb) return;
+  // SAFETY: never refresh while a save is pending/in-flight — that could
+  // overwrite local unsaved edits. Let the save finish first.
+  if(_savingInProgress || _saveTimer){
+    return;
+  }
+  try{
+    const {data, error} = await sb.from('app_data').select('key,value');
+    if(error) throw error;
+    const rows = {};
+    (data||[]).forEach(r=>{ rows[r.key]=r.value; });
+    const hist = getHistoricalData();
+    const histIds = new Set(hist.map(i=>i.id));
+    // Merge remote with any local-only records (don't drop unsaved local adds)
+    if(rows.workOrders){
+      const remoteIds = new Set(rows.workOrders.map(w=>w&&w.id).filter(Boolean));
+      const localOnly = workOrders.filter(w=> w && w.id && !remoteIds.has(w.id));
+      workOrders = [...rows.workOrders, ...localOnly];
+    }
+    if(rows.payments){
+      const remoteIds = new Set(rows.payments.map(p=>p&&p.id).filter(Boolean));
+      const localOnly = payments.filter(p=> p && p.id && !remoteIds.has(p.id));
+      payments = [...rows.payments, ...localOnly];
+    }
+    if(rows.settings)   settings = {...settings,...rows.settings};
+    if(rows.issues){
+      const remote = rows.issues.filter(i=>!histIds.has(i.id));
+      const remoteIds = new Set(remote.map(i=>i&&i.id).filter(Boolean));
+      const localOnly = issues.filter(i=> i && i.id && !histIds.has(i.id) && !remoteIds.has(i.id));
+      issues = [...hist, ...remote, ...localOnly];
+    }
+    if(rows.serviceStaff && Array.isArray(rows.serviceStaff) && rows.serviceStaff.length){
+      SERVICE_STAFF = rows.serviceStaff; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
+    }
+    if(rows.users && rows.users.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(rows.users));
+    _lastSyncTime = Date.now();
+    renderAll();
+    if(!silent) _showSyncDot('green');
+  }catch(e){
+    console.warn('forceRefreshFromSupabase failed:', e);
+    if(!silent) _showSyncDot('red');
+  }
+}
+
+// ── #5: Keep data fresh when the app regains attention/connectivity ──
+(function registerFreshnessListeners(){
+  let _refreshDebounce = null;
+  const safeRefresh = ()=>{
+    if(!currentUser) return;          // only when logged in
+    if(isCitizenMode && isCitizenMode()) return; // citizens have their own view
+    clearTimeout(_refreshDebounce);
+    _refreshDebounce = setTimeout(()=>forceRefreshFromSupabase(true), 400);
+  };
+  // Returning to the tab
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) safeRefresh(); });
+  // Window regains focus
+  window.addEventListener('focus', safeRefresh);
+  // Network came back online
+  window.addEventListener('online', ()=>{ _showSyncDot('amber'); safeRefresh(); });
+  // Periodic background check every 60s (light — only if logged in & tab visible)
+  setInterval(()=>{ if(!document.hidden) safeRefresh(); }, 60000);
+})();
+
 
 function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 
@@ -1390,6 +1502,18 @@ function nextOrderNum(){
   const n=(settings.orderSeq||1);
   settings.orderSeq=n+1;
   save();
+  return `ΕΕ-${new Date().getFullYear()}-${String(n).padStart(3,'0')}`;
+}
+
+// Fix #8: Preview the next number WITHOUT incrementing/burning the sequence.
+// The real number is assigned only on successful save (commitOrderNum).
+function previewOrderNum(){
+  const n=(settings.orderSeq||1);
+  return `ΕΕ-${new Date().getFullYear()}-${String(n).padStart(3,'0')}`;
+}
+function commitOrderNum(){
+  const n=(settings.orderSeq||1);
+  settings.orderSeq=n+1;
   return `ΕΕ-${new Date().getFullYear()}-${String(n).padStart(3,'0')}`;
 }
 
@@ -3072,7 +3196,6 @@ async function importSignedPdf(input){
       const _anonKey = (window._sb_key_override||localStorage.getItem('sb_key')||SUPABASE_KEY||'').trim();
       if(!_anonKey){ alert('Δεν βρέθηκε Supabase Anon Key. Ελέγξτε τις Ρυθμίσεις → Supabase.'); return; }
       toast('📡 Επικοινωνία με Edge Function...');
-      console.log('[SIG] Calling edge function...', _edgeUrl);
       const _resp = await fetch(_edgeUrl, {
         method: 'POST',
         headers: {
@@ -3083,13 +3206,11 @@ async function importSignedPdf(input){
         body: JSON.stringify({ pdfBase64: wo.signedPdfData||'' })
       });
       const _respText = await _resp.text();
-      console.log('[SIG] Edge response status:', _resp.status, 'body length:', _respText.length);
       if(!_resp.ok){
         alert('Edge Function σφάλμα HTTP '+_resp.status+': '+_respText.slice(0,200));
         _extractedNames = extractPdfSignerNames(wo.signedPdfData||'');
       } else {
         const _result = JSON.parse(_respText);
-        console.log('[SIG] Edge result:', _result);
         _extractedNames = _result.signers || [];
         // Store full verification result
         wo._edgeResult = _result;
@@ -3097,7 +3218,6 @@ async function importSignedPdf(input){
         // Set persistent flag if verification succeeded (survives page reloads)
         if(_result.verified === true) {
           wo._protocolReady = true;
-          console.log('[SIG] _protocolReady = TRUE for order:', wo.orderNum);
         }
         if(_result.valid){
           toast('✅ Κρυπτογραφική επαλήθευση: ΕΓΚΥΡΟ — '+_extractedNames.join(', '));
@@ -3124,11 +3244,9 @@ async function importSignedPdf(input){
   wo._sigExtractedNames = _allNames;
   
   // CRITICAL: Force immediate cloud save (not debounced!) to ensure _protocolReady persists
-  console.log('[SIG] Final state - _protocolReady:', wo._protocolReady, '_edgeResult:', !!wo._edgeResult, 'signedPdfUrl:', !!wo.signedPdfUrl, 'signedPdfName:', wo.signedPdfName);
   save(); // sync to localStorage
   try {
     await _saveToSupabase(); // FORCE immediate cloud save
-    console.log('[SIG] ✅ Cloud save completed');
   } catch(e) {
     console.error('[SIG] ❌ Cloud save failed:', e);
   }
@@ -3166,6 +3284,8 @@ function resetSignedPdf(id){
   if(!confirm('Διαγραφή υπογεγραμμένου PDF και επανεκκίνηση;'))return;
   const wo = workOrders.find(w=>w.id===id);
   if(!wo) return;
+  // Fix #7: capture the storage path BEFORE deleting it, so we can actually remove the file
+  const oldPath = wo.signedPdfPath;
   // Clear all PDF and verification data
   delete wo.signedPdfData;
   delete wo.signedPdfName;
@@ -3177,10 +3297,10 @@ function resetSignedPdf(id){
   delete wo._sigConfirmed;
   delete wo._edgeSigCount;
   delete wo._protocolReady;
-  // Also delete from Supabase Storage if uploaded
-  if(wo.signedPdfPath){
+  // Also delete from Supabase Storage if it was uploaded (use the saved oldPath)
+  if(oldPath){
     const sb = getSupabase();
-    if(sb) sb.storage.from('attachments').remove([wo.signedPdfPath]).catch(()=>{});
+    if(sb) sb.storage.from('attachments').remove([oldPath]).catch(()=>{});
   }
   save();
   // Re-render modal fresh
@@ -3526,6 +3646,7 @@ function delIssue(id){
     return;
   }
   if(!confirm('Διαγραφή αιτήματος;'))return;
+  _locallyDeleted.add(id); // remember so merge-on-save doesn't resurrect it
   issues=issues.filter(i=>i.id!==id);
   save();renderAll();toast('Αίτημα διαγράφηκε');
 }
@@ -3983,10 +4104,12 @@ function delOrder(id){
   if(!confirm(msg)) return;
 
   // Delete the order
+  _locallyDeleted.add(id); // remember so merge-on-save doesn't resurrect it
   workOrders = workOrders.filter(w=>w.id!==id);
 
   // Delete ALL related payments (keeps balance correct)
   if(hasPayment){
+    relatedPayments.forEach(p=>{ if(p && p.id) _locallyDeleted.add(p.id); });
     payments = payments.filter(p=>p.orderId!==id);
     toast('🗑 Εντολή ' + wo.orderNum + ' και ' + relatedPayments.length + ' σχετικές πληρωμές διαγράφηκαν — ισοζύγιο ενημερώθηκε');
   } else {
@@ -5215,12 +5338,19 @@ function editIssue(id){
 
 function saveIssue(){
   const id=document.getElementById('i_id').value;
+  // Fix #8: Validate required fields FIRST, before burning a new issue number
+  const _date=document.getElementById('i_date').value;
+  const _cat=document.getElementById('i_cat').value;
+  const _title=document.getElementById('i_title').value;
+  const _loc=document.getElementById('i_location').value;
+  if(!_date||!_cat||!_title||!_loc){alert('Συμπληρώστε τα υποχρεωτικά πεδία (*).');return;}
+
   const data={
     id:id||genId(),
     issueNum: id ? (issues.find(x=>x.id===id)?.issueNum || nextIssueNum()) : nextIssueNum(),
     createdAt: id ? (issues.find(x=>x.id===id)?.createdAt || new Date().toISOString()) : new Date().toISOString(),
     source: isCitizenMode() ? 'citizen' : (id ? (issues.find(x=>x.id===id)?.source||'staff') : 'staff'),
-    date:document.getElementById('i_date').value,
+    date:_date,
     time:document.getElementById('i_time')?.value||'',
     receiptMethod:document.getElementById('i_receipt').value,
     citizenName:document.getElementById('i_citizen').value,
@@ -5238,10 +5368,10 @@ function saveIssue(){
       if(em)parts.push('✉ '+em);
       return parts.join(' | ')||document.getElementById('i_contact').value||'';
     })(),
-    location:document.getElementById('i_location').value,
+    location:_loc,
     municipality:document.getElementById('i_unit').value,
-    category:document.getElementById('i_cat').value,
-    title:document.getElementById('i_title').value,
+    category:_cat,
+    title:_title,
     description:document.getElementById('i_desc').value,
     priority:document.getElementById('i_prio').value,
     danger:'Όχι', // field removed
@@ -5255,7 +5385,6 @@ function saveIssue(){
     municipalDate:document.getElementById('i_municipalDate')?.value||'',
     completionDate:''
   };
-  if(!data.date||!data.category||!data.title||!data.location){alert('Συμπληρώστε τα υποχρεωτικά πεδία (*).');return;}
   if(id){const idx=issues.findIndex(x=>x.id===id);if(idx>=0){data.completionDate=issues[idx].completionDate||'';issues[idx]=data;}}
   else issues.push(data);
   save();closeM('issueModal');renderAll();if(isCitizenMode())applyCitizenMode();toast(id?'Αίτημα ενημερώθηκε':'Νέο αίτημα προστέθηκε');
@@ -5338,7 +5467,7 @@ function getServiceStaffSelected(){
 function openNewOrder(orderType){
   document.getElementById('orderModalTitle').textContent='Νέα Εντολή Εργασίας';
   document.getElementById('wo_id').value='';
-  document.getElementById('wo_num').value=nextOrderNum();
+  document.getElementById('wo_num').value=previewOrderNum();
   document.getElementById('wo_date').value=todayStr();
   {const n=new Date();document.getElementById('wo_issuedTime').value=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');}
   document.getElementById('wo_loc').value='';
@@ -5612,6 +5741,8 @@ function saveOrder(andPrint){
     const idx=workOrders.findIndex(w=>w.id===id);
     if(idx>=0)workOrders[idx]=data;
   } else {
+    // Fix #8: assign (commit) the order number ONLY now that validation passed
+    data.orderNum = commitOrderNum();
     // For new contractor orders: set sentAt BEFORE push so countdown shows immediately
     if(!isService){
       data.status = 'Εστάλη';
@@ -6444,8 +6575,22 @@ function exportCSV(){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='aitimata_'+todayStr()+'.csv';a.click();
 }
 function clearAll(){
-  if(!confirm('Διαγραφή ΟΛΩΝ των δεδομένων;'))return;
-  issues=[];workOrders=[];payments=[];settings.orderSeq=1;save();renderAll();toast('Καθαρίστηκε');
+  // Fix #10: be explicit about what this does. Historical (built-in) data CANNOT
+  // be deleted this way — it is re-seeded on every load. Only user-added data clears.
+  const msg = '⚠ ΚΑΘΑΡΙΣΜΟΣ ΔΕΔΟΜΕΝΩΝ\n\n'
+    + 'Αυτό θα διαγράψει ΟΛΑ τα αιτήματα, τις εντολές και τις πληρωμές που έχουν '
+    + 'προστεθεί στην εφαρμογή.\n\n'
+    + 'ΠΡΟΣΟΧΗ:\n'
+    + '• Η ενέργεια είναι ΜΗ ΑΝΑΣΤΡΕΨΙΜΗ.\n'
+    + '• Τα προ-φορτωμένα ιστορικά αιτήματα θα ΕΠΑΝΕΜΦΑΝΙΣΤΟΥΝ μετά την επόμενη '
+    + 'φόρτωση (είναι ενσωματωμένα στην εφαρμογή).\n'
+    + '• Συνιστάται να κάνετε πρώτα «Εξαγωγή JSON» ως αντίγραφο ασφαλείας.\n\n'
+    + 'Θέλετε σίγουρα να συνεχίσετε;';
+  if(!confirm(msg)) return;
+  // Second confirmation for such a destructive action
+  if(!confirm('Τελευταία επιβεβαίωση: διαγραφή όλων των προστεθέντων δεδομένων;')) return;
+  issues=[];workOrders=[];payments=[];settings.orderSeq=1;settings.issueSeq=1;save();renderAll();
+  toast('✓ Καθαρίστηκαν τα προστεθέντα δεδομένα (τα ιστορικά παραμένουν ενσωματωμένα)');
 }
 
 // ================================================================
