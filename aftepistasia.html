@@ -5980,6 +5980,22 @@ let _emailOrderId = null;
 
 function openEmail(email,subject,body){var b=body.length>1500?body.substring(0,1500)+'...':body;var url='mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(b);window.open(url,'_blank');}
 
+// Fetch request attachments (public storage URLs) and turn them into File objects
+// so they can be attached via the Web Share API.
+async function fetchAttachmentsAsFiles(atts){
+  const files=[];
+  for(const a of (atts||[])){
+    if(!a || !a.url) continue;
+    try{
+      const res = await fetch(a.url);
+      if(!res.ok) continue;
+      const blob = await res.blob();
+      files.push(new File([blob], a.name || 'αρχείο', {type: a.type || blob.type || 'application/octet-stream'}));
+    }catch(e){ console.warn('attachment fetch failed:', a&&a.name, e); }
+  }
+  return files;
+}
+
 
 function buildEmailBody(wo){
   const netTotal=woTotal(wo);
@@ -6009,6 +6025,15 @@ function buildEmailBody(wo){
     +'\nΑιτήματα Πολιτών'
     +'\nΡΟΔΙΟΣ'
     +'\nEmail: diakolios@rhodes.gr';
+}
+
+// Text block listing request-attachment download links (for mailto bodies)
+function attachmentLinksBlock(wo){
+  const atts = Array.isArray(wo&&wo.attachments) ? wo.attachments.filter(a=>a&&a.url) : [];
+  if(!atts.length) return '';
+  return '\n\n'+'─'.repeat(55)
+    +'\nΣΥΝΗΜΜΕΝΑ ΑΡΧΕΙΑ ΑΙΤΗΜΑΤΟΣ (σύνδεσμοι λήψης):\n'
+    + atts.map((a,i)=>(i+1)+'. '+(a.name||'αρχείο')+': '+a.url).join('\n');
 }
 
 async function emailProtocol(id){
@@ -6139,18 +6164,58 @@ function emailOrder(id){
   document.getElementById('econfWrap').style.display='flex';
 }
 
-function doSendEmail(){
+async function doSendEmail(){
   const wo=workOrders.find(w=>w.id===_emailOrderId);
   if(!wo)return;
   const email=settings.contractorEmail||'';
   if(!email){alert('Δεν έχει οριστεί email αναδόχου στις Ρυθμίσεις.');return;}
   const subject='Εντολή Εργασίας '+wo.orderNum;
   const body=buildEmailBody(wo);
-  openEmail(email, subject, body);
+  const atts = Array.isArray(wo.attachments) ? wo.attachments.filter(a=>a&&a.url) : [];
+
   closeEconf();
+  toast('✉ Αποστολή στον ανάδοχο...');
+  try{
+    const sb=getSupabase();
+    if(!sb || !sb.functions) throw new Error('no client');
+    const { data, error } = await sb.functions.invoke('send-order-email', {
+      body: { to: email, subject, body, attachments: atts.map(a=>({name:a.name,url:a.url,type:a.type})) }
+    });
+    let res = data;
+    if(error){ try{ res = await error.context.json(); }catch(_){} }
+    if(error || !res || !res.ok) throw new Error((res && res.error) || (error && error.message) || 'send failed');
+    if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';}
+    wo.sentAt=new Date().toISOString(); save(); renderAll();
+    toast('✅ Εστάλη στον ανάδοχο: '+email + (res.attached?(' — '+res.attached+' συνημμένο/α'):''));
+    return;
+  }catch(e){
+    console.warn('Server email failed, manual fallback:', e);
+    toast('⚠️ Αυτόματη αποστολή απέτυχε — άνοιγμα χειροκίνητης αποστολής...');
+    await sendEmailManualFallback(wo, email, subject, body, atts);
+  }
+}
+
+// Manual fallback (used only if the server send fails): attach via Web Share on
+// mobile, otherwise mailto with download links. Ensures you are never stuck.
+async function sendEmailManualFallback(wo, email, subject, body, atts){
+  let sent=false;
+  if(atts.length && navigator.canShare){
+    try{
+      const files = await fetchAttachmentsAsFiles(atts);
+      if(files.length && navigator.canShare({files})){
+        await navigator.share({ files, title: subject, text: 'Προς: '+email+'\n\n'+body });
+        sent=true;
+      }
+    }catch(e){
+      if(e && e.name==='AbortError'){ return; }
+    }
+  }
+  if(!sent){
+    openEmail(email, subject, body + attachmentLinksBlock(wo));
+  }
   if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderAll();}
   else if(!wo.sentAt){wo.sentAt=new Date().toISOString();save();renderAll();}
-  toast('✉ Email ανοίχτηκε για αποστολή στο: '+email);
+  toast(sent ? ('✉ Κοινοποιήθηκε με '+atts.length+' συνημμένο/α') : ('✉ Email ανοίχτηκε για: '+email));
 }
 
 function closeEconf(){
@@ -6340,6 +6405,7 @@ async function autoMsgNewOrder(orderId){
     if(wo.orderType !== 'service') {
       try { body += await buildAckCompletionText(wo); } catch(e){ console.error(e); }
     }
+    body += attachmentLinksBlock(wo);
     openEmail(settings.contractorEmail, subject, body);
     if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderOrders();}
     toast('✉ Email αποστολή + 📱 Χρησιμοποιήστε το κουμπί ✉ για Viber/WhatsApp');
@@ -6356,6 +6422,7 @@ async function autoEmailNewOrder(orderId){
   if(wo.orderType !== 'service') {
     try { body += await buildAckCompletionText(wo); } catch(e){ console.error(e); }
   }
+  body += attachmentLinksBlock(wo);
   openEmail(settings.contractorEmail, subject, body);
   if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderOrders();}
 }
