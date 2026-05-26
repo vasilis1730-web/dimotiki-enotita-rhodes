@@ -2035,7 +2035,6 @@ const USERS = [
     role:'Αναπλ. Προϊστάμενος Τμήματος',
     pin:'1234',
     username:'diakolios',
-    password:'Rodhos2026!',
     color:'#1a2744',
     initials:'ΔΒ',
     email:'diakolios@rhodes.gr',
@@ -2050,7 +2049,6 @@ const USERS = [
     role:'Αναπλ. Προϊστάμενος Δ/νσης',
     pin:'2345',
     username:'bekiaris',
-    password:'Rodhos2026!',
     color:'#2d4a8a',
     initials:'ΜΑ',
     email:'bekiaris@rhodes.gr',
@@ -2065,10 +2063,9 @@ const USERS = [
     role:'Υπάλληλος Τμήματος',
     pin:'3456',
     username:'stergakis',
-    password:'Rhodes2026!',
     color:'#0d7a5c',
     initials:'ΣΑ',
-    email:'',
+    email:'stergakis@rhodes.gr',   // ⚠ ΑΛΛΑΞΕ ώστε να ταιριάζει ΑΚΡΙΒΩΣ με τον λογαριασμό Supabase Auth
     canEdit:true,
     canDelete:false,
     canPenalty:false,
@@ -2080,10 +2077,9 @@ const USERS = [
     role:'Εξωτερικός Συνεργάτης',
     pin:'0000',
     username:'lambrianos',
-    password:'Rhodes2026!',
     color:'#7360f2',
     initials:'ΛΙ',
-    email:'',
+    email:'lambrianos@rhodes.gr',   // ⚠ ΑΛΛΑΞΕ ώστε να ταιριάζει ΑΚΡΙΒΩΣ με τον λογαριασμό Supabase Auth
     canEdit:false,
     canDelete:false,
     canPenalty:false,
@@ -2093,6 +2089,22 @@ const USERS = [
 
 let currentUser = null;
 let _selectedLoginUser = null;
+
+// ── Supabase Auth helpers (committee login) ───────────────────────
+// Maps an authenticated Supabase email to the local role/permission profile.
+function findProfileByEmail(email){
+  const e = (email||'').trim().toLowerCase();
+  if(!e) return null;
+  let list = [];
+  try { list = getEffectiveUsers() || []; } catch(_) {}
+  return list.find(u => (u.email||'').trim().toLowerCase() === e)
+      || USERS.find(u => (u.email||'').trim().toLowerCase() === e)
+      || null;
+}
+function showLoginError(msg){
+  const err = document.getElementById('loginError');
+  if(err){ err.textContent = msg; err.style.display = 'block'; }
+}
 
 
 // ── RHODES IMPORT HANDLER ─────────────────────────────────────────
@@ -2342,13 +2354,12 @@ function mapRhodesPriority(pr){
   return 'ΚΑΤ. 3 - ΥΨΗΛΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ';
 }
 
-function initLogin(){
-  // Check if already logged in (session)
+async function initLogin(){
+  // Citizen in-app session (legacy Firebase-OTP path) — restore as before
   const saved = sessionStorage.getItem('rhodesUser');
   if(saved){
     try{
       const u = JSON.parse(saved);
-      // Citizen: restore from session directly (not in USERS array)
       if(u.isCitizen && u.citizenPhone){
         const phone = (u.citizenPhone||'').replace(/[\s\-\.]/g,'').replace('+30','');
         const short = phone.slice(-4);
@@ -2364,10 +2375,22 @@ function initLogin(){
         });
         return;
       }
-      const found = getEffectiveUsers().find(x=>x.id===u.id);
-      if(found){ loginSuccess(found); return; }
     }catch(e){}
   }
+  // Committee session via Supabase Auth (persists across reloads)
+  try{
+    const sb = getSupabase();
+    if(sb && sb.auth){
+      const { data } = await sb.auth.getSession();
+      const sUser = data && data.session && data.session.user;
+      if(sUser){
+        const profile = findProfileByEmail(sUser.email);
+        if(profile){ loginSuccess(profile); return; }
+        // Authenticated but not a known committee member → sign out, show login
+        try{ await sb.auth.signOut(); }catch(_){}
+      }
+    }
+  }catch(e){ console.warn('Session restore failed:', e); }
   renderLoginUsers();
 }
 
@@ -2381,7 +2404,7 @@ function selectLoginUser(u){ _selectedLoginUser = u; }
 function loginCredChanged(){
   const u = (document.getElementById('loginUsername')?.value||'').trim();
   const p = (document.getElementById('loginPassword')?.value||'');
-  document.getElementById('loginBtn').disabled = !(u.length >= 1 && p.length >= 4);
+  document.getElementById('loginBtn').disabled = !(u.includes('@') && u.length >= 5 && p.length >= 4);
   document.getElementById('loginError').style.display='none';
 }
 
@@ -2392,33 +2415,34 @@ function toggleLoginPw(){
   else { f.type='password'; btn.textContent='👁'; }
 }
 
-function doLogin(){
-  const username = (document.getElementById('loginUsername')?.value||'').trim().toLowerCase();
+async function doLogin(){
+  const email = (document.getElementById('loginUsername')?.value||'').trim().toLowerCase();
   const password = (document.getElementById('loginPassword')?.value||'');
-  // Check against effective users (localStorage/Supabase merged with defaults)
-  const users = getEffectiveUsers();
-  let found = users.find(u=>{
-    const uname = (u.username||u.name.split(' ').pop().toLowerCase()).trim().toLowerCase();
-    const upass = (u.password || u.pin || '').trim();
-    return uname===username && upass===password;
-  });
-  // Fallback: check directly against hardcoded USERS (in case localStorage is stale)
-  if(!found){
-    found = USERS.find(u=>{
-      const uname = (u.username||u.name.split(' ').pop().toLowerCase()).trim().toLowerCase();
-      const upass = (u.password||u.pin||'').trim();
-      return uname===username && upass===password;
-    });
-  }
-  if(found){
-    loginSuccess(found);
-  } else {
-    const err = document.getElementById('loginError');
-    err.style.display='block';
-    document.getElementById('loginPassword').value='';
-    const card = document.querySelector('.login-card');
-    card.style.animation='shake .4s';
-    setTimeout(()=>card.style.animation='', 400);
+  const btn = document.getElementById('loginBtn');
+  const card = document.querySelector('.login-card');
+  const shake = ()=>{ if(card){ card.style.animation='shake .4s'; setTimeout(()=>card.style.animation='',400); } };
+
+  const sb = getSupabase();
+  if(!sb || !sb.auth){ showLoginError('⚠️ Δεν υπάρχει σύνδεση με τον server.'); return; }
+
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Σύνδεση...';
+  try{
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if(error || !data || !data.user) throw (error || new Error('no user'));
+    // Map the authenticated email to the local role/permission profile
+    const profile = findProfileByEmail(data.user.email);
+    if(!profile){
+      try{ await sb.auth.signOut(); }catch(_){}
+      showLoginError('Ο λογαριασμός δεν αντιστοιχεί σε μέλος επιτροπής.');
+      btn.textContent = old; btn.disabled = false; shake();
+      return;
+    }
+    loginSuccess(profile);   // keeps existing roles/permissions flow
+  }catch(e){
+    showLoginError('❌ Λάθος email ή κωδικός.');
+    const pw = document.getElementById('loginPassword'); if(pw) pw.value='';
+    btn.textContent = old; btn.disabled = false; shake();
   }
 }
 
@@ -2512,7 +2536,7 @@ function closeLogoutPop(e){
   }
 }
 
-function doLogout(){
+async function doLogout(){
   // Issue 12: restore citizen-specific DOM before clearing user
   localStorage.removeItem('citizen_phone');
   const wasCit=!!(currentUser&&currentUser.isCitizen);
@@ -2526,6 +2550,7 @@ function doLogout(){
     const lst=document.getElementById('citizenIssuesList');if(lst)lst.style.display='none';
   }
   sessionStorage.removeItem('rhodesUser');
+  try{ const sb=getSupabase(); if(sb && sb.auth) await sb.auth.signOut(); }catch(e){}
   currentUser=null;
   document.getElementById('logoutPop').style.display='none';
   document.getElementById('headerUser').style.display='none';
@@ -7221,8 +7246,8 @@ function printBulkProtocol(){
     <div class="login-sub">Αιτήματα Πολιτών</div>
     <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px;">
       <div>
-        <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px;">Όνομα Χρήστη</label>
-        <input type="text" id="loginUsername" placeholder="username" autocomplete="username"
+        <label style="font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px;">Email</label>
+        <input type="email" id="loginUsername" placeholder="email" autocomplete="email" inputmode="email"
           style="width:100%;border:2px solid #e5e7eb;border-radius:8px;padding:10px 14px;font-size:15px;color:#1a2744;transition:border .2s;"
           oninput="loginCredChanged()" onkeydown="if(event.key==='Enter')document.getElementById('loginPassword').focus()">
       </div>
@@ -7237,7 +7262,7 @@ function printBulkProtocol(){
       </div>
     </div>
     <button class="login-btn" id="loginBtn" onclick="doLogin()" disabled>Είσοδος</button>
-    <div class="login-error" id="loginError" style="display:none;">❌ Λάθος username ή password.</div>
+    <div class="login-error" id="loginError" style="display:none;">❌ Λάθος email ή κωδικός.</div>
     <div style="margin:14px 0 0;display:flex;align-items:center;gap:10px;">
       <div style="flex:1;height:1px;background:#334155;"></div>
       <span style="font-size:11px;color:#94a3b8;">ή</span>
