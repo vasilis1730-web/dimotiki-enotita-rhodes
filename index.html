@@ -309,18 +309,26 @@ async function getIdToken(){
 //   {ok:false, noAuth:true}       when no Firebase token (caller may fall back)
 //   {ok:false, status, error}     when the bridge responded with an error
 async function callBridge(action, payload){
+  window._lastBridgeError='';   // DEBUG
   const idToken = await getIdToken();
-  if(!idToken) return { ok:false, noAuth:true };
+  if(!idToken){
+    window._lastBridgeError='[noAuth] Δεν βρέθηκε Firebase token (getIdToken=null). currentUser='+(window._fbAuth&&window._fbAuth.currentUser?'υπάρχει':'NULL')+', _fbReady='+(!!window._fbReady);
+    return { ok:false, noAuth:true };
+  }
   try{
     const res = await fetch(BRIDGE_URL, {
       method:'POST',
       headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY },
       body: JSON.stringify(Object.assign({ action, idToken }, payload||{}))
     });
-    let data=null; try{ data=await res.json(); }catch(_){}
-    if(!res.ok) return { ok:false, status:res.status, error:(data&&data.error)||('HTTP '+res.status) };
+    let data=null, raw=''; try{ raw=await res.text(); data=JSON.parse(raw); }catch(_){}
+    if(!res.ok){
+      window._lastBridgeError='[bridge '+res.status+'] action='+action+' → '+((data&&data.error)||raw||'(κενή απάντηση)');
+      return { ok:false, status:res.status, error:(data&&data.error)||('HTTP '+res.status) };
+    }
     return { ok:true, status:res.status, data };
   }catch(e){
+    window._lastBridgeError='[δίκτυο/CORS] action='+action+' → '+(e&&e.message?e.message:String(e))+' (πιθανό CORS preflight στο gateway)';
     console.warn('callBridge network error:', e);
     return { ok:false, status:0, error:'network' };
   }
@@ -766,7 +774,11 @@ async function saveIssue(){
 
   btn.disabled=false; btn.textContent=oldTxt;
   if(ok){ closeModal('issueModal'); renderIssues(); toast(msg); }
-  else { toast('❌ Σφάλμα αποστολής. Δοκιμάστε ξανά.'); }
+  else {
+    const reason = window._lastBridgeError || '(χωρίς λεπτομέρεια)';
+    toast('❌ Σφάλμα αποστολής');
+    alert('DEBUG — Αποτυχία υποβολής:\n\n'+reason);   // remove this alert after debugging
+  }
 }
 
 function buildIssue(f, ref, modifiesRef, description){
@@ -817,7 +829,7 @@ async function submitIssueDirect(issue){
     arr.push(issue);
     const {error:up}=await sb.from('app_data').upsert({key:'issues',value:arr},{onConflict:'key'});
     if(up) throw up; return issue;
-  }catch(e){ console.warn('submitIssueDirect failed:',e); return null; }
+  }catch(e){ window._lastBridgeError+=' | [direct submit] '+(e&&e.message?e.message:String(e)); console.warn('submitIssueDirect failed:',e); return null; }
 }
 
 async function updateIssueInCloud(updated){
