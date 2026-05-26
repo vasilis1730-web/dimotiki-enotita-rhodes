@@ -7,11 +7,13 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-  import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+  import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
   const _fbApp = initializeApp({apiKey:"AIzaSyATvkHqSyyVxVD8UujQQnj_wdR2Kc306wA",authDomain:"dimosrodou-otp.firebaseapp.com",projectId:"dimosrodou-otp",appId:"1:315292350668:web:8288883847d24ac33e2a69"});
   const _fbAuthInst = getAuth(_fbApp); _fbAuthInst.languageCode='el';
   window._fbAuth=_fbAuthInst; window._RecaptchaVerifier=RecaptchaVerifier;
-  window._signInWithPhoneNumber=signInWithPhoneNumber; window._fbReady=true;
+  window._signInWithPhoneNumber=signInWithPhoneNumber;
+  window._onAuthStateChanged=onAuthStateChanged; window._signOut=signOut;
+  window._fbReady=true;
 </script>
 <meta name="theme-color" content="#16a34a">
 <meta name="mobile-web-app-capable" content="yes">
@@ -284,6 +286,46 @@ const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSI
 let _sb=null;
 function getSb(){ if(!_sb && window.supabase){ _sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY); } return _sb; }
 
+// ════════════════ SECURE BRIDGE (Edge Function) ════════════════
+// Every read/write goes through the citizen-bridge Edge Function, carrying a
+// fresh Firebase ID token (proof of an OTP-verified phone). The server verifies
+// the token and uses the SERVICE ROLE key. The citizen app never needs a DB
+// write privilege of its own.
+const BRIDGE_URL = SUPABASE_URL + '/functions/v1/citizen-bridge';
+
+// Always returns a *fresh* (auto-refreshed) Firebase ID token, or null when
+// there is no signed-in Firebase user (e.g. local file test mode).
+async function getIdToken(){
+  try{
+    if(window._fbAuth && window._fbAuth.currentUser){
+      return await window._fbAuth.currentUser.getIdToken();
+    }
+  }catch(e){ console.warn('getIdToken failed:', e); }
+  return null;
+}
+
+// Calls the bridge. Returns:
+//   {ok:true,  data}              on success
+//   {ok:false, noAuth:true}       when no Firebase token (caller may fall back)
+//   {ok:false, status, error}     when the bridge responded with an error
+async function callBridge(action, payload){
+  const idToken = await getIdToken();
+  if(!idToken) return { ok:false, noAuth:true };
+  try{
+    const res = await fetch(BRIDGE_URL, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY },
+      body: JSON.stringify(Object.assign({ action, idToken }, payload||{}))
+    });
+    let data=null; try{ data=await res.json(); }catch(_){}
+    if(!res.ok) return { ok:false, status:res.status, error:(data&&data.error)||('HTTP '+res.status) };
+    return { ok:true, status:res.status, data };
+  }catch(e){
+    console.warn('callBridge network error:', e);
+    return { ok:false, status:0, error:'network' };
+  }
+}
+
 const MODIFY_WINDOW_MIN = 10;   // 10-minute in-place modification window
 
 // ════════════════ ISSUE TITLES ════════════════
@@ -364,6 +406,7 @@ const ISSUE_TITLES = {
 
 // ════════════════ STATE ════════════════
 let currentPhone='';
+let _loggedIn=false;         // guard so onAuthStateChanged + clVerifyOtp don't double-enter the app
 let myIssues=[];
 let pendingAttachments=[];   // [{name,url,type,size,path}]
 let _editingId=null;         // id of issue being edited (null = brand new)
@@ -385,12 +428,41 @@ function safeName(n){return String(n||'file').replace(/[^\w.\-]+/g,'_').slice(-6
 // ════════════════ OTP LOGIN ════════════════
 let _clConfirmResult=null, _clRVRendered=false;
 
-window.addEventListener('DOMContentLoaded', ()=>{
-  // PERSISTENCE: if phone already verified once, skip OTP entirely
-  const saved=localStorage.getItem('citizen_phone');
-  if(saved){ loginWithPhone(saved); return; }
-  initRecaptcha();
-});
+window.addEventListener('DOMContentLoaded', ()=>{ bootAuth(); });
+
+// Track the real Firebase session. If a verified user already exists (the
+// SDK persists it locally), we skip OTP entirely; getIdToken() later yields a
+// fresh token for every bridge call.
+function bootAuth(){
+  let settled=false;
+  const waitFb=()=>{
+    if(window._fbReady && window._onAuthStateChanged && window._fbAuth){
+      settled=true;
+      window._onAuthStateChanged(window._fbAuth, (user)=>{
+        if(user && user.phoneNumber){
+          loginWithPhone(user.phoneNumber);   // already verified — no OTP needed
+        } else if(!_loggedIn){
+          showLoginScreen();
+          initRecaptcha();
+        }
+      });
+    } else if(!settled){
+      setTimeout(waitFb, 200);
+    }
+  };
+  waitFb();
+  // Fallback: Firebase never loaded (e.g. opened as a local file) → test mode.
+  setTimeout(()=>{
+    if(!settled && !window._fbReady){
+      showLoginScreen();
+      initRecaptcha();   // self-falls-back to test mode after 2.5s
+    }
+  }, 2500);
+}
+function showLoginScreen(){
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('app').classList.add('hidden');
+}
 
 function initRecaptcha(){
   let done=false;
@@ -444,10 +516,9 @@ async function clVerifyOtp(){
   if(code.length<6){ showErr('clError2','⚠️ Εισάγετε 6ψήφιο κωδικό'); return; }
   hideErr('clError2');
   try{
-    await _clConfirmResult.confirm(code);
-    const phone=document.getElementById('clPhoneDisplay').textContent;
-    localStorage.setItem('citizen_phone',phone);   // remembered — no OTP next time
-    loginWithPhone(phone);
+    const cred=await _clConfirmResult.confirm(code);   // signs the user in (session persists)
+    const phone=(cred && cred.user && cred.user.phoneNumber) || document.getElementById('clPhoneDisplay').textContent;
+    loginWithPhone(phone);   // onAuthStateChanged also fires; loginWithPhone is idempotent
   }catch(e){
     showErr('clError2','❌ Λάθος κωδικός. Δοκιμάστε ξανά.');
     document.getElementById('clOtpCode').value=''; document.getElementById('clOtpCode').focus();
@@ -464,6 +535,8 @@ function showErr(id,msg){const e=document.getElementById(id);e.textContent=msg;e
 function hideErr(id){document.getElementById(id).style.display='none';}
 
 function loginWithPhone(phone){
+  if(_loggedIn){ currentPhone=phone; return; }   // idempotent (guards double-entry)
+  _loggedIn=true;
   currentPhone=phone;
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('app').classList.remove('hidden');
@@ -471,9 +544,11 @@ function loginWithPhone(phone){
   populateCategories();
   loadMyIssues();
 }
-function logout(){
+async function logout(){
   if(!confirm('Έξοδος από την εφαρμογή; Θα χρειαστεί νέα επιβεβαίωση SMS την επόμενη φορά.')) return;
-  localStorage.removeItem('citizen_phone'); location.reload();
+  try{ if(window._signOut && window._fbAuth) await window._signOut(window._fbAuth); }catch(e){}
+  try{ localStorage.removeItem('citizen_phone'); }catch(e){}   // clear any legacy flag
+  location.reload();
 }
 
 // ════════════════ CATEGORIES ════════════════
@@ -663,25 +738,30 @@ async function saveIssue(){
       description:f.desc, mapLat:f.lat, mapLng:f.lng, attachments:f.atts,
       lastModifiedAt:new Date().toISOString()
     });
-    ok=await updateIssueInCloud(updated);
-    if(ok){
+    const res=await updateIssueInCloud(updated);
+    if(res==='expired'){
+      btn.disabled=false; btn.textContent=oldTxt;
+      toast('⌛ Πέρασε το παράθυρο τροποποίησης. Κλείστε το παράθυρο και πατήστε ξανά «Τροποποίηση» για υποβολή ως νέο αίτημα.');
+      return;
+    }
+    if(res){
       const idx=myIssues.findIndex(x=>x.id===_editingId);
-      if(idx>=0) myIssues[idx]=updated;
-      msg='✏️ Το αίτημα τροποποιήθηκε (ίδιος αριθμός #'+(updated.citizenRef||'')+').';
+      if(idx>=0) myIssues[idx]=res;
+      ok=true; msg='✏️ Το αίτημα τροποποιήθηκε (ίδιος αριθμός #'+(res.citizenRef||'')+').';
     }
   } else if(_editingId && _editMode==='newmod'){
     // Create NEW request referencing the original
     const ref=genRef();
     const note='(Τροποποίηση του αιτήματος #'+_editingRef+')';
     const issue=buildIssue(f, ref, _editingRef, (f.desc?f.desc+'\n\n':'')+note);
-    ok=await submitIssue(issue);
-    if(ok){ myIssues.push(issue); msg='📤 Νέο αίτημα #'+ref+' (τροποποίηση του #'+_editingRef+').'; }
+    const saved=await submitIssue(issue);
+    if(saved){ myIssues.push(saved); ok=true; msg='📤 Νέο αίτημα #'+ref+' (τροποποίηση του #'+_editingRef+').'; }
   } else {
     // Brand new request
     const ref=genRef();
     const issue=buildIssue(f, ref, null, f.desc);
-    ok=await submitIssue(issue);
-    if(ok){ myIssues.push(issue); msg='✅ Το αίτημά σας υποβλήθηκε! Κωδικός #'+ref+'.'; }
+    const saved=await submitIssue(issue);
+    if(saved){ myIssues.push(saved); ok=true; msg='✅ Το αίτημά σας υποβλήθηκε! Κωδικός #'+ref+'.'; }
   }
 
   btn.disabled=false; btn.textContent=oldTxt;
@@ -713,23 +793,42 @@ function buildIssue(f, ref, modifiesRef, description){
 }
 
 // ════════════════ DATA: SUBMIT / UPDATE / LOAD ════════════════
-// NOTE: these three read/write the shared "issues" blob directly (like the
-// current app) so everything works immediately. In the NEXT step they are
-// replaced by calls to the secure Edge Function (the bridge); after that the
-// citizen app no longer touches the database directly.
+// Primary path = secure bridge (production). Direct-DB path = fallback used ONLY
+// in test mode (no Firebase token). The direct path will be removed at the final
+// step, when app_data is locked against the anon role.
+//
+// submitIssue / updateIssueInCloud return the CANONICAL record on success
+// (the server's, when via the bridge — important so the client's createdAt and
+// 10-minute window match the server's), or null on failure. updateIssueInCloud
+// returns the string 'expired' if the server reports the modify window has passed.
+
 async function submitIssue(issue){
-  const sb=getSb(); if(!sb) return false;
+  const r = await callBridge('submit', { issue });
+  if(r.ok && r.data && r.data.issue) return r.data.issue;
+  if(r.noAuth) return await submitIssueDirect(issue);   // test mode
+  return null;
+}
+async function submitIssueDirect(issue){
+  const sb=getSb(); if(!sb) return null;
   try{
     const {data,error}=await sb.from('app_data').select('value').eq('key','issues').maybeSingle();
     if(error) throw error;
     let arr=(data&&Array.isArray(data.value))?data.value:[];
     arr.push(issue);
     const {error:up}=await sb.from('app_data').upsert({key:'issues',value:arr},{onConflict:'key'});
-    if(up) throw up; return true;
-  }catch(e){ console.warn('submitIssue failed:',e); return false; }
+    if(up) throw up; return issue;
+  }catch(e){ console.warn('submitIssueDirect failed:',e); return null; }
 }
+
 async function updateIssueInCloud(updated){
-  const sb=getSb(); if(!sb) return false;
+  const r = await callBridge('update', { issue: updated });
+  if(r.ok && r.data && r.data.issue) return r.data.issue;
+  if(r.noAuth) return await updateIssueDirect(updated);   // test mode
+  if(r.status===409) return 'expired';                    // server: modify window passed
+  return null;
+}
+async function updateIssueDirect(updated){
+  const sb=getSb(); if(!sb) return null;
   try{
     const {data,error}=await sb.from('app_data').select('value').eq('key','issues').maybeSingle();
     if(error) throw error;
@@ -738,13 +837,23 @@ async function updateIssueInCloud(updated){
     arr=arr.map(x=>{ if(x.id===updated.id){found=true;return updated;} return x; });
     if(!found) arr.push(updated);
     const {error:up}=await sb.from('app_data').upsert({key:'issues',value:arr},{onConflict:'key'});
-    if(up) throw up; return true;
-  }catch(e){ console.warn('updateIssueInCloud failed:',e); return false; }
+    if(up) throw up; return updated;
+  }catch(e){ console.warn('updateIssueDirect failed:',e); return null; }
 }
+
 async function loadMyIssues(){
-  const sb=getSb();
   const listEl=document.getElementById('issuesList');
   listEl.innerHTML='<div class="muted" style="text-align:center;padding:20px;">Φόρτωση...</div>';
+  const r = await callBridge('list', {});
+  if(r.ok && r.data && Array.isArray(r.data.issues)){
+    myIssues = r.data.issues;   // server already filtered to this caller's phone
+    renderIssues(); return;
+  }
+  if(r.noAuth){ await loadMyIssuesDirect(); return; }   // test mode
+  myIssues=[]; renderIssues();
+}
+async function loadMyIssuesDirect(){
+  const sb=getSb();
   if(!sb){ myIssues=[]; renderIssues(); return; }
   try{
     const {data}=await sb.from('app_data').select('value').eq('key','issues').maybeSingle();
@@ -755,7 +864,7 @@ async function loadMyIssues(){
       const raw=normPhone(iss.citizenMobile||iss.citizenPhone||iss.mobile||'');
       return raw&&ph&&(raw===ph||raw.endsWith(ph)||ph.endsWith(raw));
     });
-  }catch(e){ console.warn('loadMyIssues failed:',e); myIssues=[]; }
+  }catch(e){ console.warn('loadMyIssuesDirect failed:',e); myIssues=[]; }
   renderIssues();
 }
 
