@@ -53,7 +53,7 @@
   .btn-ghost{background:none;border:none;color:#16a34a;font-weight:600;cursor:pointer;font-size:14px;}
   .fg{margin-bottom:14px;}
   .fg label{display:block;font-size:13px;font-weight:600;color:#475569;margin-bottom:6px;}
-  .fg .req{color:#dc2626;}
+  .fg .req{color:#ea580c;font-weight:700;}
   input,select,textarea{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px;font-size:15px;font-family:inherit;background:#fff;color:#1e293b;}
   input:focus,select:focus,textarea:focus{outline:none;border-color:#16a34a;}
   textarea{resize:vertical;min-height:90px;}
@@ -306,7 +306,7 @@ async function getIdToken(){
 
 // Calls the bridge. Returns:
 //   {ok:true,  data}              on success
-//   {ok:false, noAuth:true}       when no Firebase token (caller may fall back)
+//   {ok:false, noAuth:true}       when no Firebase token (request is not attempted)
 //   {ok:false, status, error}     when the bridge responded with an error
 async function callBridge(action, payload){
   const idToken = await getIdToken();
@@ -793,52 +793,24 @@ function buildIssue(f, ref, modifiesRef, description){
 }
 
 // ════════════════ DATA: SUBMIT / UPDATE / LOAD ════════════════
-// Primary path = secure bridge (production). Direct-DB path = fallback used ONLY
-// in test mode (no Firebase token). The direct path will be removed at the final
-// step, when app_data is locked against the anon role.
-//
-// submitIssue / updateIssueInCloud return the CANONICAL record on success
-// (the server's, when via the bridge — important so the client's createdAt and
-// 10-minute window match the server's), or null on failure. updateIssueInCloud
-// returns the string 'expired' if the server reports the modify window has passed.
+// All access goes through the secure bridge (Edge Function, service_role).
+// The citizen app no longer touches app_data directly — anon is blocked at the
+// database level. submitIssue / updateIssueInCloud return the CANONICAL record
+// on success (the server's, so the client's createdAt and 10-minute window match
+// the server's), or null on failure. updateIssueInCloud returns the string
+// 'expired' if the server reports the modify window has passed.
 
 async function submitIssue(issue){
   const r = await callBridge('submit', { issue });
   if(r.ok && r.data && r.data.issue) return r.data.issue;
-  if(r.noAuth) return await submitIssueDirect(issue);   // test mode
   return null;
-}
-async function submitIssueDirect(issue){
-  const sb=getSb(); if(!sb) return null;
-  try{
-    const {data,error}=await sb.from('app_data').select('value').eq('key','issues').maybeSingle();
-    if(error) throw error;
-    let arr=(data&&Array.isArray(data.value))?data.value:[];
-    arr.push(issue);
-    const {error:up}=await sb.from('app_data').upsert({key:'issues',value:arr},{onConflict:'key'});
-    if(up) throw up; return issue;
-  }catch(e){ console.warn('submitIssueDirect failed:',e); return null; }
 }
 
 async function updateIssueInCloud(updated){
   const r = await callBridge('update', { issue: updated });
   if(r.ok && r.data && r.data.issue) return r.data.issue;
-  if(r.noAuth) return await updateIssueDirect(updated);   // test mode
   if(r.status===409) return 'expired';                    // server: modify window passed
   return null;
-}
-async function updateIssueDirect(updated){
-  const sb=getSb(); if(!sb) return null;
-  try{
-    const {data,error}=await sb.from('app_data').select('value').eq('key','issues').maybeSingle();
-    if(error) throw error;
-    let arr=(data&&Array.isArray(data.value))?data.value:[];
-    let found=false;
-    arr=arr.map(x=>{ if(x.id===updated.id){found=true;return updated;} return x; });
-    if(!found) arr.push(updated);
-    const {error:up}=await sb.from('app_data').upsert({key:'issues',value:arr},{onConflict:'key'});
-    if(up) throw up; return updated;
-  }catch(e){ console.warn('updateIssueDirect failed:',e); return null; }
 }
 
 async function loadMyIssues(){
@@ -849,23 +821,7 @@ async function loadMyIssues(){
     myIssues = r.data.issues;   // server already filtered to this caller's phone
     renderIssues(); return;
   }
-  if(r.noAuth){ await loadMyIssuesDirect(); return; }   // test mode
   myIssues=[]; renderIssues();
-}
-async function loadMyIssuesDirect(){
-  const sb=getSb();
-  if(!sb){ myIssues=[]; renderIssues(); return; }
-  try{
-    const {data}=await sb.from('app_data').select('value').eq('key','issues').maybeSingle();
-    const all=(data&&Array.isArray(data.value))?data.value:[];
-    const ph=normPhone(currentPhone);
-    myIssues=all.filter(iss=>{
-      if(iss.citizenHidden) return false;
-      const raw=normPhone(iss.citizenMobile||iss.citizenPhone||iss.mobile||'');
-      return raw&&ph&&(raw===ph||raw.endsWith(ph)||ph.endsWith(raw));
-    });
-  }catch(e){ console.warn('loadMyIssuesDirect failed:',e); myIssues=[]; }
-  renderIssues();
 }
 
 // ════════════════ RENDER ════════════════
