@@ -328,6 +328,7 @@ tr:hover td{background:#faf9f7;}
 .login-btn:hover{opacity:.9;}
 .login-btn:disabled{opacity:.5;cursor:default;}
 .login-error{color:#dc2626;font-size:12px;margin-top:8px;display:none;}
+.req-star{color:#ea580c;font-weight:700;}
 .login-version{font-size:10px;color:rgba(255,255,255,.4);margin-top:16px;}
 
 /* ── APP LOGO in header ── */
@@ -679,12 +680,12 @@ function hideDisclaimerModal(){
     <div class="mhdr"><h2 id="issueModalTitle">Νέο Αίτημα</h2><button class="mclose" onclick="closeM('issueModal')">✕</button></div>
     <div class="mbody">
       <div class="fgrid">
-        <div class="fg"><label>Ημ/νία & Ώρα Καταχώρισης *</label>
+        <div class="fg"><label>Ημ/νία & Ώρα Καταχώρισης <span class="req-star">*</span></label>
           <div style="display:flex;gap:6px;">
             <input type="date" id="i_date" required style="flex:1;">
             <input type="time" id="i_time" style="width:100px;">
           </div></div>
-        <div class="fg"><label>Τρόπος Λήψης *</label>
+        <div class="fg"><label>Τρόπος Λήψης <span class="req-star">*</span></label>
           <select id="i_receipt" required>
             <option value="">— Επιλογή —</option>
             <option>Τηλεφώνημα</option>
@@ -701,7 +702,7 @@ function hideDisclaimerModal(){
         <div class="fg"><label>Σταθερό Τηλέφωνο</label><input type="tel" id="i_phone" placeholder="224xxxxxxx"></div>
         <div class="fg"><label>Email Πολίτη</label><input type="email" id="i_email" placeholder="email@example.com"></div>
         <input type="hidden" id="i_contact">
-        <div class="fg full"><label>Τοποθεσία / Οδός *</label><input type="text" id="i_location" required autocomplete="off" placeholder="Π.χ. Πίνδου 27..."></div>
+        <div class="fg full"><label>Τοποθεσία / Οδός <span class="req-star">*</span></label><input type="text" id="i_location" required autocomplete="off" placeholder="Π.χ. Πίνδου 27..."></div>
         <div class="fg"><label>Ταχυδρομικός Κώδικας</label><input type="text" id="i_postcode" placeholder="π.χ. 85100" style="background:#f8f9fa;"></div>
         <div class="fg"><label>Δημοτική / Τοπική Κοινότητα</label>
           <select id="i_unit">
@@ -770,7 +771,7 @@ function hideDisclaimerModal(){
               <option>Τοπική Κοινότητα Θεολόγου</option>
             </optgroup>
           </select></div>
-        <div class="fg"><label>Κατηγορία Εργασίας *</label>
+        <div class="fg"><label>Κατηγορία Εργασίας <span class="req-star">*</span></label>
           <select id="i_cat" required onchange="onCategoryChange()">
             <option value="">— Επιλογή —</option>
             <option>Οδοστρωσία</option><option>Πεζοδρόμια/Πλατείες</option>
@@ -780,12 +781,12 @@ function hideDisclaimerModal(){
             <option>Λοιπές Εργασίες</option>
           </select>
         </div>
-        <div class="fg full"><label>Τίτλος Αιτήματος *</label>
+        <div class="fg full"><label>Τίτλος Αιτήματος <span class="req-star">*</span></label>
           <select id="i_title" required onchange="onTitleChange()">
             <option value="">— Επιλέξτε πρώτα κατηγορία —</option>
           </select></div>
-        <div class="fg full"><label>Αναλυτική Περιγραφή *</label><textarea id="i_desc" required></textarea></div>
-        <div class="fg"><label>Κατηγορία Προτεραιότητας *</label>
+        <div class="fg full"><label>Αναλυτική Περιγραφή <span class="req-star">*</span></label><textarea id="i_desc" required></textarea></div>
+        <div class="fg"><label>Κατηγορία Προτεραιότητας <span class="req-star">*</span></label>
           <select id="i_prio" required>
             <option value="">— Επιλογή —</option>
             <option>ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ</option>
@@ -833,13 +834,14 @@ function hideDisclaimerModal(){
     <div class="mbody">
       <div class="fgrid" style="margin-bottom:14px;">
         <div class="fg"><label>Αρ. Εντολής</label><input type="text" id="wo_num" readonly style="background:var(--sec)"></div>
-        <div class="fg"><label>Ημ. & Ώρα Έκδοσης *</label>
+        <div class="fg"><label>Ημ. & Ώρα Έκδοσης <span class="req-star">*</span></label>
           <div style="display:flex;gap:6px;"><input type="date" id="wo_date" required style="flex:1;"><input type="time" id="wo_issuedTime" style="width:90px;"></div></div>
         <div class="fg full"><label>Σχετικό Αίτημα</label>
-          <select id="wo_issue"><option value="">— Ανεξάρτητη εντολή —</option></select>
+          <select id="wo_issue" onchange="orderIssueChanged()"><option value="">— Ανεξάρτητη εντολή —</option></select>
         </div>
+        <div class="fg full" id="woIssueAttachments" style="display:none;"></div>
         <div class="fg full">
-  <label>Τοποθεσία / Οδός *</label>
+  <label>Τοποθεσία / Οδός <span class="req-star">*</span></label>
   <div style="display:flex;gap:6px;align-items:flex-start;">
     <div class="ac-wrap" style="flex:1;">
       <input type="text" id="wo_loc" placeholder="Π.χ. Οδός Πειραιώς, Ρόδος..." autocomplete="off" oninput="acSearch(this.value)" onkeydown="acKey(event)">
@@ -859,7 +861,7 @@ function hideDisclaimerModal(){
           </select>
         </div>
         <div class="fg"><label>Προθεσμία Απόκρισης</label><input type="text" id="wo_deadline" readonly style="background:var(--sec)"></div>
-        <div class="fg full"><label>Περιγραφή Εντολής *</label><textarea id="wo_desc"></textarea></div>
+        <div class="fg full"><label>Περιγραφή Εντολής <span class="req-star">*</span></label><textarea id="wo_desc"></textarea></div>
       </div>
       <div class="section-block">
         <h4>Εργασίες & Κόστη (από Αναλυτικό Τιμολόγιο)</h4>
@@ -962,8 +964,8 @@ function hideDisclaimerModal(){
     <div class="mhdr"><h2>Καταχώρηση Πληρωμής</h2><button class="mclose" onclick="closeM('payModal')">✕</button></div>
     <div class="mbody">
       <div class="fgrid">
-        <div class="fg"><label>Ημ. Πληρωμής *</label><input type="date" id="p_date"></div>
-        <div class="fg"><label>Ποσό (€) *</label><input type="number" id="p_amount" step="0.01" min="0"></div>
+        <div class="fg"><label>Ημ. Πληρωμής <span class="req-star">*</span></label><input type="date" id="p_date"></div>
+        <div class="fg"><label>Ποσό (€) <span class="req-star">*</span></label><input type="number" id="p_amount" step="0.01" min="0"></div>
         <div class="fg full"><label>Εντολή Εργασίας</label>
           <select id="p_order"><option value="">— Γενική πληρωμή —</option></select>
         </div>
@@ -1581,6 +1583,29 @@ function remaining(){return settings.contractValue-totalIssued();}
 // MEDIA (PHOTOS / VIDEO)
 // ================================================================
 let woMediaBefore=[], woMediaAfter=[];
+let woAttachments=[];   // citizen-request attachments carried onto the work order
+
+// Render the carried-over request attachments as a read-only link list in the order modal
+function renderOrderAttachments(){
+  const box=document.getElementById('woIssueAttachments');
+  if(!box) return;
+  if(!woAttachments || !woAttachments.length){ box.innerHTML=''; box.style.display='none'; return; }
+  box.style.display='block';
+  box.innerHTML='<label style="display:block;">📎 Συνημμένα από το αίτημα ('+woAttachments.length+')</label>'+
+    woAttachments.map(a=>{
+      const t=(a.type||''); const ic = t.startsWith('image')?'🖼️':(t.includes('pdf')?'📄':(t.includes('sheet')||t.includes('excel')?'📊':(t.includes('word')||t.includes('document')?'📝':(t.includes('zip')?'🗜️':'📎'))));
+      return '<a href="'+esc(a.url||'#')+'" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--bdr,#e5e7eb);border-radius:8px;margin-bottom:4px;text-decoration:none;color:var(--ink,#1a2744);font-size:13px;">'
+        +ic+'<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(a.name||'αρχείο')+'</span></a>';
+    }).join('');
+}
+
+// When the linked request changes, the attachments follow it
+function orderIssueChanged(){
+  const iid=document.getElementById('wo_issue').value;
+  const iss = iid ? issues.find(i=>i.id===iid) : null;
+  woAttachments = (iss && Array.isArray(iss.attachments)) ? iss.attachments.slice() : [];
+  renderOrderAttachments();
+}
 
 function addMedia(slot, input){
   const arr = slot==='before' ? woMediaBefore : woMediaAfter;
@@ -5515,6 +5540,7 @@ function openNewOrder(orderType){
   document.getElementById('woTotal').textContent='0,00 €';
   addItemRow();
   woMediaBefore=[];woMediaAfter=[];
+  woAttachments=[]; renderOrderAttachments();
   renderThumbs('before');renderThumbs('after');
   woMapLat=null;woMapLng=null;updateCoordsDisplay();
   document.getElementById('orderModal').style.display='flex';
@@ -5532,6 +5558,7 @@ function openNewOrderForIssue(issueId, orderType){
     document.getElementById('wo_loc').value=iss.location||'';
     document.getElementById('wo_prio').value=iss.priority||'ΚΑΤ. 3 - ΥΨΗΛΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ';
     document.getElementById('wo_desc').value=iss.description||'';
+    woAttachments=(iss.attachments||[]).slice(); renderOrderAttachments();
     updateDeadline();
   }
 }
@@ -5581,6 +5608,7 @@ function editOrder(id){
   updateCoordsDisplay();
   woMediaBefore=(wo.mediaBefore||[]);
   woMediaAfter=(wo.mediaAfter||[]);
+  woAttachments=(wo.attachments||[]).slice(); renderOrderAttachments();
   renderThumbs('before'); renderThumbs('after');
   document.getElementById('orderModal').style.display='flex';
 }
@@ -5717,6 +5745,7 @@ function saveOrder(andPrint){
     items,
     mediaBefore:woMediaBefore,
     mediaAfter:woMediaAfter,
+    attachments:woAttachments,
     lat:woMapLat,
     lng:woMapLng
   };
@@ -7180,10 +7209,10 @@ function printBulkProtocol(){
     <div class="mhdr"><h2 id="uModalTitle">Νέος Χρήστης</h2><button class="mclose" onclick="closeM('userModal')">✕</button></div>
     <div class="mbody">
       <div class="fgrid">
-        <div class="fg full"><label>Ονοματεπώνυμο *</label><input type="text" id="u_name" placeholder="π.χ. Παπαδόπουλος Γιώργης"></div>
-        <div class="fg full"><label>Ρόλος / Θέση *</label><input type="text" id="u_role" placeholder="π.χ. Υπάλληλος Τμήματος"></div>
-        <div class="fg"><label>Username *</label><input type="text" id="u_username" placeholder="π.χ. papadopoulos"></div>
-        <div class="fg"><label>Κωδικός Πρόσβασης *</label><input type="text" id="u_pin" maxlength="30" placeholder="Κωδικός"></div>
+        <div class="fg full"><label>Ονοματεπώνυμο <span class="req-star">*</span></label><input type="text" id="u_name" placeholder="π.χ. Παπαδόπουλος Γιώργης"></div>
+        <div class="fg full"><label>Ρόλος / Θέση <span class="req-star">*</span></label><input type="text" id="u_role" placeholder="π.χ. Υπάλληλος Τμήματος"></div>
+        <div class="fg"><label>Username <span class="req-star">*</span></label><input type="text" id="u_username" placeholder="π.χ. papadopoulos"></div>
+        <div class="fg"><label>Κωδικός Πρόσβασης <span class="req-star">*</span></label><input type="text" id="u_pin" maxlength="30" placeholder="Κωδικός"></div>
         <div class="fg"><label>Αρχικά</label><input type="text" id="u_initials" maxlength="2" placeholder="ΠΓ"></div>
         <div class="fg"><label>Χρώμα</label><input type="color" id="u_color" value="#2d4a8a" style="height:36px;padding:2px;"></div>
         <div class="fg full" style="margin-top:6px;">
@@ -7426,7 +7455,7 @@ function printBulkProtocol(){
           <div class="fg"><label>Ημερομηνία Αιτήματος</label><input type="date" id="mf_date"></div>
           <div class="fg"><label>Κατάσταση</label><input type="text" id="mf_status" placeholder="Σε εξέλιξη"></div>
           <div class="fg"><label>Προτεραιότητα</label><select id="mf_priority"><option value="ΚΑΤ. 3 - ΜΕΤΡΙΟ">Μέτριο</option><option value="ΚΑΤ. 2 - ΥΨΗΛΗ">Υψηλή</option><option value="ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ">Κατεπείγον</option><option value="ΚΑΤ. 4 - ΧΑΜΗΛΗ">Χαμηλή</option></select></div>
-          <div class="fg full"><label>Περιγραφή Αιτήματος *</label><textarea id="mf_desc" rows="3" placeholder="Περιγραφή..." style="width:100%;padding:7px 9px;border:1px solid var(--borderS);border-radius:var(--rs);font-size:12px;font-family:inherit;resize:vertical;"></textarea></div>
+          <div class="fg full"><label>Περιγραφή Αιτήματος <span class="req-star">*</span></label><textarea id="mf_desc" rows="3" placeholder="Περιγραφή..." style="width:100%;padding:7px 9px;border:1px solid var(--borderS);border-radius:var(--rs);font-size:12px;font-family:inherit;resize:vertical;"></textarea></div>
           <div class="fg"><label>Κατηγορία</label><input type="text" id="mf_cat" placeholder="ΑΝΤΙΚΑΤΑΣΤΑΣΗ ΛΑΜΠΤΗΡΩΝ"></div>
           <div class="fg"><label>Διεύθυνση Προβλήματος</label><input type="text" id="mf_loc" placeholder="Οδός, αριθμός"></div>
           <div class="fg full"><label>Υπεύθυνο Τμήμα</label><input type="text" id="mf_dept" value="ΔΙΕΥΘΥΝΣΗ ΤΕΧΝΙΚΩΝ ΕΡΓΩΝ &amp; ΥΠΟΔΟΜΩΝ"></div>
@@ -7478,11 +7507,11 @@ function printBulkProtocol(){
     </div>
     <div class="mbody">
       <div class="fgrid">
-        <div class="fg full"><label>Ονοματεπώνυμο *</label>
+        <div class="fg full"><label>Ονοματεπώνυμο <span class="req-star">*</span></label>
           <input type="text" id="staff_name" placeholder="π.χ. Παπαδόπουλος Γιώργης"></div>
         <div class="fg full"><label>Ειδικότητα / Ρόλος</label>
           <input type="text" id="staff_role" placeholder="π.χ. Ηλεκτρολόγος, Οδοποιός"></div>
-        <div class="fg"><label>Κινητό Τηλέφωνο *</label>
+        <div class="fg"><label>Κινητό Τηλέφωνο <span class="req-star">*</span></label>
           <input type="tel" id="staff_mobile" placeholder="69xxxxxxxx"></div>
         <div class="fg"><label>Σταθερό Τηλέφωνο</label>
           <input type="tel" id="staff_phone" placeholder="2241xxxxxx"></div>
