@@ -5799,10 +5799,11 @@ function saveOrder(andPrint){
   } else {
     // Fix #8: assign (commit) the order number ONLY now that validation passed
     data.orderNum = commitOrderNum();
-    // For new contractor orders: set sentAt BEFORE push so countdown shows immediately
+    // For new contractor orders: keep as issued until the server email is really sent.
+    // It becomes «Εστάλη» only after send-order-email returns ok:true.
     if(!isService){
-      data.status = 'Εστάλη';
-      data.sentAt = new Date().toISOString();
+      data.status = 'Εκδόθηκε';
+      data.sentAt = '';
     }
     workOrders.push(data);
   }
@@ -5834,7 +5835,7 @@ function saveOrder(andPrint){
       toast('✅ Νέα Εντολή Υπηρεσίας δημιουργήθηκε');
       setTimeout(()=>notifyServiceStaff(data.id), 600);
     } else {
-      toast('✅ Νέα εντολή δημιουργήθηκε — Άνοιγμα email...');
+      toast('✅ Νέα εντολή δημιουργήθηκε — αυτόματη αποστολή email στον ανάδοχο...');
       setTimeout(()=>autoMsgNewOrder(data.id), 600);
     }
   }
@@ -5978,7 +5979,7 @@ function printOrder(id){
 
 let _emailOrderId = null;
 
-function openEmail(email,subject,body){var b=body.length>1500?body.substring(0,1500)+'...':body;var url='mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(b);window.open(url,'_blank');}
+function openEmail(email,subject,body){var url='mailto:'+String(email||'')+'?subject='+encodeURIComponent(subject||'')+'&body='+encodeURIComponent(body||'');window.location.href=url;}
 
 // Fetch request attachments (public storage URLs) and turn them into File objects
 // so they can be attached via the Web Share API.
@@ -6164,58 +6165,82 @@ function emailOrder(id){
   document.getElementById('econfWrap').style.display='flex';
 }
 
-async function doSendEmail(){
-  const wo=workOrders.find(w=>w.id===_emailOrderId);
-  if(!wo)return;
-  const email=settings.contractorEmail||'';
-  if(!email){alert('Δεν έχει οριστεί email αναδόχου στις Ρυθμίσεις.');return;}
-  const subject='Εντολή Εργασίας '+wo.orderNum;
-  const body=buildEmailBody(wo);
+async function prepareContractorEmailPayload(wo){
+  const email = (settings.contractorEmail||'').trim();
+  if(!email) throw new Error('Δεν έχει οριστεί email αναδόχου στις Ρυθμίσεις.');
+  const subject = 'Εντολή Εργασίας ' + wo.orderNum;
+  let body = buildEmailBody(wo);
+  if(wo.orderType !== 'service'){
+    try { body += await buildAckCompletionText(wo); } catch(e){ console.error('ack link failed:', e); }
+  }
+  // Τα links μένουν και μέσα στο σώμα ως ασφαλιστική δικλείδα, ενώ τα αρχεία στέλνονται και ως attachments.
+  body += attachmentLinksBlock(wo);
   const atts = Array.isArray(wo.attachments) ? wo.attachments.filter(a=>a&&a.url) : [];
+  return {
+    to: email,
+    subject,
+    body,
+    attachments: atts.map(a=>({name:a.name,url:a.url,type:a.type}))
+  };
+}
 
+async function sendOrderEmailViaServer(wo){
+  if(!wo) throw new Error('Δεν βρέθηκε η εντολή εργασίας.');
+  if(wo.orderType === 'service') throw new Error('Η εντολή υπηρεσίας δεν αποστέλλεται στον ανάδοχο.');
+  const sb = getSupabase();
+  if(!sb || !sb.functions || !sb.auth) throw new Error('Δεν υπάρχει ενεργή σύνδεση με Supabase.');
+
+  const sessionRes = await sb.auth.getSession();
+  const session = sessionRes && sessionRes.data && sessionRes.data.session;
+  const accessToken = session && session.access_token;
+  if(!accessToken) throw new Error('Δεν υπάρχει ενεργό Supabase login. Κάντε έξοδο και ξανά σύνδεση με email/κωδικό.');
+
+  const payload = await prepareContractorEmailPayload(wo);
+  const { data, error } = await sb.functions.invoke('send-order-email', {
+    body: payload,
+    headers: { Authorization: 'Bearer ' + accessToken }
+  });
+
+  let res = data;
+  if(error){
+    try { res = await error.context.json(); } catch(_) {}
+    throw new Error((res && res.error) || error.message || 'Απέτυχε η κλήση της Edge Function send-order-email.');
+  }
+  if(!res || !res.ok){
+    throw new Error((res && res.error) || 'Η Edge Function δεν επέστρεψε ok:true.');
+  }
+
+  wo.status = 'Εστάλη';
+  wo.sentAt = new Date().toISOString();
+  wo.lastEmailResult = {
+    sentAt: wo.sentAt,
+    to: payload.to,
+    attached: res.attached || 0,
+    skipped: res.skipped || 0
+  };
+  save();
+  renderAll();
+  return { payload, res };
+}
+
+async function doSendEmail(){
+  const wo = workOrders.find(w=>w.id===_emailOrderId);
+  if(!wo) return;
   closeEconf();
-  toast('✉ Αποστολή στον ανάδοχο...');
+  toast('✉ Αυτόματη αποστολή email στον ανάδοχο...');
   try{
-    const sb=getSupabase();
-    if(!sb || !sb.functions) throw new Error('no client');
-    const { data, error } = await sb.functions.invoke('send-order-email', {
-      body: { to: email, subject, body, attachments: atts.map(a=>({name:a.name,url:a.url,type:a.type})) }
-    });
-    let res = data;
-    if(error){ try{ res = await error.context.json(); }catch(_){} }
-    if(error || !res || !res.ok) throw new Error((res && res.error) || (error && error.message) || 'send failed');
-    if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';}
-    wo.sentAt=new Date().toISOString(); save(); renderAll();
-    toast('✅ Εστάλη στον ανάδοχο: '+email + (res.attached?(' — '+res.attached+' συνημμένο/α'):''));
-    return;
+    const { payload, res } = await sendOrderEmailViaServer(wo);
+    toast('✅ Το email έφυγε αυτόματα προς '+payload.to+' από το SMTP ('+(res.attached||0)+' συνημμένο/α).');
   }catch(e){
-    console.warn('Server email failed, manual fallback:', e);
-    toast('⚠️ Αυτόματη αποστολή απέτυχε — άνοιγμα χειροκίνητης αποστολής...');
-    await sendEmailManualFallback(wo, email, subject, body, atts);
+    console.error('Automatic server email failed:', e);
+    alert('❌ Δεν στάλθηκε αυτόματα email.\n\n'+((e && e.message) ? e.message : String(e))+'\n\nΔεν ανοίγω mailto, γιατί η ζητούμενη λειτουργία είναι αποκλειστικά αυτόματη αποστολή μέσω SMTP.');
+    toast('❌ Η αυτόματη αποστολή email απέτυχε — ελέγξτε SMTP/Supabase.');
   }
 }
 
-// Manual fallback (used only if the server send fails): attach via Web Share on
-// mobile, otherwise mailto with download links. Ensures you are never stuck.
+// Manual fallback καταργήθηκε για την εντολή αναδόχου: η εφαρμογή πρέπει να στέλνει μέσω SMTP.
 async function sendEmailManualFallback(wo, email, subject, body, atts){
-  let sent=false;
-  if(atts.length && navigator.canShare){
-    try{
-      const files = await fetchAttachmentsAsFiles(atts);
-      if(files.length && navigator.canShare({files})){
-        await navigator.share({ files, title: subject, text: 'Προς: '+email+'\n\n'+body });
-        sent=true;
-      }
-    }catch(e){
-      if(e && e.name==='AbortError'){ return; }
-    }
-  }
-  if(!sent){
-    openEmail(email, subject, body + attachmentLinksBlock(wo));
-  }
-  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderAll();}
-  else if(!wo.sentAt){wo.sentAt=new Date().toISOString();save();renderAll();}
-  toast(sent ? ('✉ Κοινοποιήθηκε με '+atts.length+' συνημμένο/α') : ('✉ Email ανοίχτηκε για: '+email));
+  throw new Error('Η χειροκίνητη αποστολή mailto είναι απενεργοποιημένη για εντολές αναδόχου.');
 }
 
 function closeEconf(){
@@ -6395,36 +6420,25 @@ function svcNotifyAll(){
 }
 
 async function autoMsgNewOrder(orderId){
-  const wo=workOrders.find(w=>w.id===orderId);
-  if(!wo)return;
-  // Auto-open email (always) + show messaging options
-  if(settings.contractorEmail){
-    const subject='Εντολή Εργασίας '+wo.orderNum;
-    let body=buildEmailBody(wo);
-    // Add ack link at the end (only for non-service orders)
-    if(wo.orderType !== 'service') {
-      try { body += await buildAckCompletionText(wo); } catch(e){ console.error(e); }
-    }
-    body += attachmentLinksBlock(wo);
-    openEmail(settings.contractorEmail, subject, body);
-    if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderOrders();}
-    toast('✉ Email αποστολή + 📱 Χρησιμοποιήστε το κουμπί ✉ για Viber/WhatsApp');
+  const wo = workOrders.find(w=>w.id===orderId);
+  if(!wo || wo.orderType === 'service') return;
+  if(!settings.contractorEmail){
+    alert('Δεν έχει οριστεί email αναδόχου στις Ρυθμίσεις. Η εντολή δημιουργήθηκε αλλά δεν στάλθηκε.');
+    return;
+  }
+  toast('✉ Αυτόματη αποστολή email στον ανάδοχο...');
+  try{
+    const { payload, res } = await sendOrderEmailViaServer(wo);
+    toast('✅ Εστάλη αυτόματα στον ανάδοχο: '+payload.to+' — '+(res.attached||0)+' συνημμένο/α');
+  }catch(e){
+    console.error('Auto email new order failed:', e);
+    alert('❌ Η εντολή δημιουργήθηκε, αλλά το αυτόματο email ΔΕΝ στάλθηκε.\n\n'+((e && e.message) ? e.message : String(e))+'\n\nΕλέγξτε Supabase Auth, Edge Function deployment και SMTP secrets.');
+    toast('❌ Αυτόματη αποστολή απέτυχε — η εντολή έμεινε «Εκδόθηκε».');
   }
 }
 
 async function autoEmailNewOrder(orderId){
-  // Auto-open email when new order is created
-  const wo=workOrders.find(w=>w.id===orderId);
-  if(!wo||!settings.contractorEmail)return;
-  const subject='Εντολή Εργασίας '+wo.orderNum;
-  let body=buildEmailBody(wo);
-  // Add ack link at the end (only for non-service orders)
-  if(wo.orderType !== 'service') {
-    try { body += await buildAckCompletionText(wo); } catch(e){ console.error(e); }
-  }
-  body += attachmentLinksBlock(wo);
-  openEmail(settings.contractorEmail, subject, body);
-  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderOrders();}
+  return autoMsgNewOrder(orderId);
 }
 
 // ================================================================
