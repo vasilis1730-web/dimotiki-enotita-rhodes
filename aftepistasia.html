@@ -2,6 +2,9 @@
 <html lang="el">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
   <meta name="description" content="ΡΟΔΙΟΣ - Εφαρμογή για υποβολή και διαχείριση αιτημάτων πολιτών προς υπηρεσίες αυτεπιστασίας στη Ρόδο.">
   <meta name="robots" content="index, follow">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -6188,26 +6191,70 @@ async function sendOrderEmailViaServer(wo){
   if(!wo) throw new Error('Δεν βρέθηκε η εντολή εργασίας.');
   if(wo.orderType === 'service') throw new Error('Η εντολή υπηρεσίας δεν αποστέλλεται στον ανάδοχο.');
   const sb = getSupabase();
-  if(!sb || !sb.functions || !sb.auth) throw new Error('Δεν υπάρχει ενεργή σύνδεση με Supabase.');
+  if(!sb || !sb.auth) throw new Error('Δεν υπάρχει ενεργή σύνδεση με Supabase.');
 
   const sessionRes = await sb.auth.getSession();
   const session = sessionRes && sessionRes.data && sessionRes.data.session;
   const accessToken = session && session.access_token;
-  if(!accessToken) throw new Error('Δεν υπάρχει ενεργό Supabase login. Κάντε έξοδο και ξανά σύνδεση με email/κωδικό.');
+  if(!accessToken) throw new Error('Δεν υπάρχει ενεργό Supabase login. Κάντε έξοδο και ξανά σύνδεση με email/κωδικό. Η αυτόματη αποστολή δεν μπορεί να γίνει με απλό τοπικό PIN.');
 
   const payload = await prepareContractorEmailPayload(wo);
-  const { data, error } = await sb.functions.invoke('send-order-email', {
-    body: payload,
-    headers: { Authorization: 'Bearer ' + accessToken }
-  });
 
-  let res = data;
-  if(error){
-    try { res = await error.context.json(); } catch(_) {}
-    throw new Error((res && res.error) || error.message || 'Απέτυχε η κλήση της Edge Function send-order-email.');
+  // Χρησιμοποιούμε απευθείας fetch αντί για sb.functions.invoke, ώστε να παίρνουμε καθαρότερο σφάλμα
+  // για 404/401/403/500 και να ξεχωρίζουμε αν το πρόβλημα είναι deployment/Auth/SMTP.
+  const sbUrl = String(window._sb_url_override || localStorage.getItem('sb_url') || SUPABASE_URL || '').replace(/\/+$/,'');
+  const anonKey = String(window._sb_key_override || localStorage.getItem('sb_key') || SUPABASE_KEY || '').trim();
+  if(!sbUrl || !anonKey) throw new Error('Λείπουν SUPABASE_URL ή SUPABASE_KEY από την εφαρμογή.');
+  const fnUrl = sbUrl + '/functions/v1/send-order-email';
+
+  let response, rawText = '', res = null;
+  try{
+    response = await fetch(fnUrl, {
+      method: 'POST',
+      mode: 'cors',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': anonKey,
+        'Authorization': 'Bearer ' + accessToken,
+        'x-client-info': 'rodios-web'
+      },
+      body: JSON.stringify(payload)
+    });
+  }catch(e){
+    // Αυτό σημαίνει ότι δεν πήραμε καν HTTP απάντηση από την Edge Function.
+    // Δεν είναι σφάλμα SMTP. Είναι URL/deploy/CORS/network ή εκτέλεση από file://.
+    throw new Error(
+      'Δεν κατέστη δυνατή η κλήση της Edge Function send-order-email.\n\n'
+      + 'Διεύθυνση που καλείται:\n' + fnUrl + '\n\n'
+      + 'Αυτό είναι σφάλμα ΠΡΙΝ φτάσουμε στο SMTP. Συνήθεις αιτίες:\n'
+      + '1) η Edge Function send-order-email δεν έχει γίνει deploy στο Supabase project,\n'
+      + '2) ανοίγετε την εφαρμογή ως file:// αντί από κανονικό https:// ή http://localhost,\n'
+      + '3) CORS / browser / antivirus / ad blocker μπλοκάρει την κλήση,\n'
+      + '4) λάθος SUPABASE_URL ή λάθος project.\n\n'
+      + 'Τεχνική λεπτομέρεια: ' + ((e && e.message) ? e.message : String(e))
+    );
   }
+
+  try { rawText = await response.text(); } catch(_) { rawText = ''; }
+  try { res = rawText ? JSON.parse(rawText) : null; } catch(_) { res = { raw: rawText }; }
+
+  if(!response.ok){
+    const serverMsg = (res && (res.error || res.message || res.raw)) ? String(res.error || res.message || res.raw) : '';
+    let hint = '';
+    if(response.status === 404) hint = 'Η Edge Function δεν βρέθηκε. Ελέγξτε ότι ο φάκελος είναι supabase/functions/send-order-email/index.ts και ότι έγινε deploy με όνομα send-order-email.';
+    else if(response.status === 401 || response.status === 403) hint = 'Θέμα Supabase Auth/JWT. Πρέπει να υπάρχει πραγματικό Supabase login και η Function να έχει deploy με JWT verification ενεργό.';
+    else if(response.status === 500) hint = 'Η Function εκτελέστηκε αλλά έβγαλε εσωτερικό σφάλμα. Συνήθως λείπουν SMTP secrets.';
+    else if(response.status === 502) hint = 'Η Function έφτασε στο SMTP αλλά η αποστολή απέτυχε. Ελέγξτε SMTP_HOST/PORT/USER/PASS/FROM και αν επιτρέπεται Authenticated SMTP για το diakolios@rhodes.gr.';
+    throw new Error(
+      'Η Edge Function απάντησε με HTTP ' + response.status + '.\n\n'
+      + (serverMsg ? 'Μήνυμα server:\n' + serverMsg + '\n\n' : '')
+      + (hint ? 'Ερμηνεία:\n' + hint + '\n\n' : '')
+      + 'URL:\n' + fnUrl
+    );
+  }
+
   if(!res || !res.ok){
-    throw new Error((res && res.error) || 'Η Edge Function δεν επέστρεψε ok:true.');
+    throw new Error((res && (res.error || res.message || res.raw)) || 'Η Edge Function απάντησε αλλά δεν επέστρεψε ok:true.');
   }
 
   wo.status = 'Εστάλη';
@@ -7610,22 +7657,27 @@ function printBulkProtocol(){
 </div>
 
 <script>
+// v3 SMTP diagnostics — PWA cache disabled while email sending is being fixed.
+// This deliberately unregisters any old service worker that may serve an older cached build.
 (function(){
-  if(!('serviceWorker' in navigator)) return;
+  window.RODIOS_BUILD = 'smtp-diagnostics-v3-2026-05-27-1548';
   window.addEventListener('load', function(){
-    navigator.serviceWorker.register('sw.js').then(function(reg){
-      reg.addEventListener('updatefound', function(){
-        var nw = reg.installing;
-        nw.addEventListener('statechange', function(){
-          if(nw.state === 'installed' && navigator.serviceWorker.controller){
-            if(confirm('Νέα έκδοση Δημότης διαθέσιμη! Ενημέρωση τώρα;')){
-              nw.postMessage({action:'skipWaiting'});
-              location.reload();
-            }
-          }
-        });
-      });
-    });
+    try{
+      var tag=document.createElement('div');
+      tag.textContent='Build: '+window.RODIOS_BUILD;
+      tag.style.cssText='position:fixed;left:8px;bottom:6px;z-index:999999;background:#fffbe6;border:1px solid #f59e0b;color:#7c2d12;border-radius:4px;padding:3px 7px;font:10px system-ui;opacity:.85';
+      document.body.appendChild(tag);
+    }catch(_){ }
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.getRegistrations().then(function(regs){
+        return Promise.all(regs.map(function(r){ return r.unregister(); }));
+      }).catch(function(e){ console.warn('SW unregister failed', e); });
+    }
+    if(window.caches && caches.keys){
+      caches.keys().then(function(keys){
+        return Promise.all(keys.map(function(k){ return caches.delete(k); }));
+      }).catch(function(e){ console.warn('Cache delete failed', e); });
+    }
   });
 })();
 </script>
