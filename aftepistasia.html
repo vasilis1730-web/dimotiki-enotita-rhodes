@@ -1268,7 +1268,6 @@ function save(){
     ...i,
     attachments: cloneAttachments(i.attachments).map(a=>{
       if(a.url) return {...a, data:''};
-      // keep metadata but do not store huge base64 in localStorage; upload to Supabase Storage is required for email attachments
       const {data, ...rest} = a;
       return rest;
     })
@@ -1606,7 +1605,7 @@ function remaining(){return settings.contractValue-totalIssued();}
 let woMediaBefore=[], woMediaAfter=[];
 let woAttachments=[];   // citizen-request attachments carried onto the work order
 
-// ── ORDER ATTACHMENTS: always derive them from the linked request ──
+// ── ORDER ATTACHMENTS: source of truth is the linked request ──
 function cloneAttachment(a){
   if(!a) return null;
   return {
@@ -1630,22 +1629,20 @@ function getIssueAttachments(issueId){
   return cloneAttachments(iss && iss.attachments);
 }
 function getEffectiveOrderAttachments(wo){
-  // Source of truth: the linked request. If no linked request exists, keep the order's own copy.
   const fromIssue = wo && wo.issueId ? getIssueAttachments(wo.issueId) : [];
   return fromIssue.length ? fromIssue : cloneAttachments(wo && wo.attachments);
 }
 function getSendableAttachments(wo){
-  // The Edge Function attaches files by fetching public URLs. Base64/local attachments remain as links/notice only.
   return getEffectiveOrderAttachments(wo).filter(a=>a && a.url);
 }
 function ensureIssueOption(sel, issueId){
   if(!sel || !issueId) return;
   if(Array.from(sel.options).some(o=>String(o.value)===String(issueId))) return;
-  const iss=findIssueById(issueId);
+  const iss = findIssueById(issueId);
   if(!iss) return;
-  const opt=document.createElement('option');
-  opt.value=iss.id;
-  opt.textContent=(iss.issueNum||iss.id.slice(-4).toUpperCase())+' – '+(iss.title||'').slice(0,50);
+  const opt = document.createElement('option');
+  opt.value = iss.id;
+  opt.textContent = (iss.issueNum||iss.id.slice(-4).toUpperCase())+' – '+(iss.title||'').slice(0,50);
   sel.appendChild(opt);
 }
 
@@ -1657,7 +1654,7 @@ function renderOrderAttachments(){
   if(!list.length){ box.innerHTML=''; box.style.display='none'; return; }
   box.style.display='block';
   const missingUrl = list.filter(a=>!a.url).length;
-  box.innerHTML='<label style="display:block;">📎 Συνημμένα από το αίτημα ('+list.length+')</label>'+
+  box.innerHTML='<label style="display:block;">📎 Συνημμένα από το αίτημα ('+list.length+')</label>'+ 
     (missingUrl ? '<div style="font-size:11px;color:#a32020;margin:4px 0;">⚠ '+missingUrl+' αρχείο/α δεν έχουν δημόσιο URL και δεν μπορούν να σταλούν ως πραγματικά συνημμένα email. Ανεβάστε τα ξανά ώστε να αποθηκευτούν στο Supabase Storage.</div>' : '')+
     list.map(a=>{
       const t=(a.type||''); const ic = t.startsWith('image')?'🖼️':(t.includes('pdf')?'📄':(t.includes('sheet')||t.includes('excel')?'📊':(t.includes('word')||t.includes('document')?'📝':(t.includes('zip')?'🗜️':'📎'))));
@@ -2491,14 +2488,15 @@ async function initLogin(){
 
 function renderLoginUsers(){
   // username/password login - no user list needed
-  setTimeout(()=>document.getElementById('loginUsername')?.focus(), 100);
+  setTimeout(()=>{
+    document.getElementById('loginUsername')?.focus();
+    loginCredChanged(); // catches browser/password-manager autofill too
+  }, 100);
 }
 
 function selectLoginUser(u){ _selectedLoginUser = u; }
 
 function loginCredChanged(){
-  // Do not keep the login button permanently disabled. Some browsers/password managers
-  // autofill without firing input events, leaving the button grey even though fields are filled.
   const btn = document.getElementById('loginBtn');
   const err = document.getElementById('loginError');
   if(btn) btn.disabled = false;
@@ -2657,7 +2655,7 @@ async function doLogout(){
   document.getElementById('loginScreen').style.display='flex';
   if(document.getElementById('loginUsername')) document.getElementById('loginUsername').value='';
   if(document.getElementById('loginPassword')) document.getElementById('loginPassword').value='';
-  document.getElementById('loginBtn').disabled=true;
+  document.getElementById('loginBtn').disabled=false;
   document.getElementById('loginError').style.display='none';
   _selectedLoginUser=null;
   renderLoginUsers();
@@ -4724,13 +4722,11 @@ function viewIssueAttachment(idx){
   const win = window.open('','_blank','width=900,height=700');
   if(a.type && a.type.startsWith('image/')){
     win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;">'
-      +'<img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;" crossorigin="anonymous"><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
-</body></html>');
+      +'<img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;" crossorigin="anonymous"></body></html>');
   } else {
     // For PDFs and other files — direct link opens better
     win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;">'
-      +'<iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
-</body></html>');
+      +'<iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe></body></html>');
   }
   win.document.close();
 }
@@ -5385,11 +5381,9 @@ function viewSavedAttachment(btn){
   if(!src){ toast('Δεν υπάρχει αρχείο.'); return; }
   const win = window.open('','_blank','width=900,height=700');
   if((a.type||'').startsWith('image/')){
-    win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;"><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
-</body></html>');
+    win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;"></body></html>');
   } else {
-    win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;"><iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
-</body></html>');
+    win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;"><iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe></body></html>');
   }
   win.document.close();
 }
@@ -5806,8 +5800,8 @@ function saveOrder(andPrint){
   const _adminReset = isAdmin && !!id && _hasLocks;
   const items=collectItems();
   const selectedIssueId = document.getElementById('wo_issue').value||null;
-  // Always copy the attachments from the selected/linked request at save time.
-  // This prevents stale attachments from a previous order/request being reused.
+  // Always copy attachments from the selected/linked request at save time.
+  // This prevents stale attachments from a previous request/order being reused.
   const effectiveWoAttachments = selectedIssueId ? getIssueAttachments(selectedIssueId) : cloneAttachments(woAttachments);
   woAttachments = cloneAttachments(effectiveWoAttachments);
   const data={
@@ -6059,7 +6053,6 @@ function printOrder(id){
   <br><button onclick="window.print()" style="margin-top:16px;padding:8px 20px;background:#1a3a5c;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">🖨 Εκτύπωση</button>
   
 
-<div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
 </body></html>`);
   win.document.close();
 }
@@ -6270,10 +6263,10 @@ async function prepareContractorEmailPayload(wo){
   if(wo.orderType !== 'service'){
     try { body += await buildAckCompletionText(wo); } catch(e){ console.error('ack link failed:', e); }
   }
-  // Τα links μένουν και μέσα στο σώμα ως ασφαλιστική δικλείδα, ενώ τα αρχεία στέλνονται και ως attachments.
+  // Refresh from the linked request before sending, so old/stale copied attachments are corrected.
   const allAtts = getEffectiveOrderAttachments(wo);
-  // Refresh the order copy before sending, so old/stale copied attachments are corrected from the linked request.
   wo.attachments = cloneAttachments(allAtts);
+  // Τα links μένουν και μέσα στο σώμα ως ασφαλιστική δικλείδα, ενώ τα αρχεία στέλνονται και ως attachments.
   body += attachmentLinksBlock(wo);
   const atts = getSendableAttachments(wo);
   return {
@@ -7422,8 +7415,7 @@ function printBulkProtocol(){
     +'<tr style="background:#1a3a5c;color:#fff;font-weight:700;"><td colspan="5" style="text-align:right;">ΓΕΝΙΚΟ ΣΥΝΟΛΟ ΜΕ ΦΠΑ '+vatR+'%:</td><td>'+fmt(totalNet*(1+vatR/100))+' €</td></tr>'
     +'</tbody></table>'
     +'<p style="margin-top:20px;"><strong>Η Επιτροπή Παραλαβής:</strong></p>'
-    +'<table><tr>'+sigCells+'</tr></table><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
-</body></html>';
+    +'<table><tr>'+sigCells+'</tr></table></body></html>';
   const win=window.open('','_blank','width=900,height=1000');
   win.document.write(html); win.document.close();
   setTimeout(()=>win.print(),600);
@@ -7748,23 +7740,26 @@ function printBulkProtocol(){
     </div>
     <div class="mfoot">
       <button class="btn" onclick="closeStaffModal()">Ακύρωση</button>
-      <butto
       <button class="btn btn-p" onclick="saveStaffMember()">Αποθήκευση</button>
     </div>
   </div>
 </div>
 
 <script>
-// v3 SMTP diagnostics — PWA cache disabled while email sending is being fixed.
-// This deliberately unregisters any old service worker that may serve an older cached build.
+// v7: combined fixes for login + request attachments + single build marker.
+// Keep service worker disabled while the app is being actively debugged, to avoid cached mixed builds.
 (function(){
-  window.RODIOS_BUILD = 'smtp-diagnostics-v3-2026-05-27-1548';
+  window.RODIOS_BUILD = 'combined-v7-login-attachments-clean-2026-05-29';
   window.addEventListener('load', function(){
     try{
+      document.querySelectorAll('.rodios-build-tag').forEach(function(el){ el.remove(); });
       var tag=document.createElement('div');
+      tag.className='rodios-build-tag';
       tag.textContent='Build: '+window.RODIOS_BUILD;
       tag.style.cssText='position:fixed;left:8px;bottom:6px;z-index:999999;background:#fffbe6;border:1px solid #f59e0b;color:#7c2d12;border-radius:4px;padding:3px 7px;font:10px system-ui;opacity:.85';
       document.body.appendChild(tag);
+      var loginBtn=document.getElementById('loginBtn');
+      if(loginBtn){ loginBtn.disabled=false; loginBtn.onclick=function(e){ e.preventDefault(); if(typeof doLogin==='function') doLogin(); }; }
     }catch(_){ }
     if('serviceWorker' in navigator){
       navigator.serviceWorker.getRegistrations().then(function(regs){
@@ -7779,6 +7774,5 @@ function printBulkProtocol(){
   });
 })();
 </script>
-<div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
 </body>
 </html>
