@@ -2497,10 +2497,12 @@ function renderLoginUsers(){
 function selectLoginUser(u){ _selectedLoginUser = u; }
 
 function loginCredChanged(){
-  const u = (document.getElementById('loginUsername')?.value||'').trim();
-  const p = (document.getElementById('loginPassword')?.value||'');
-  document.getElementById('loginBtn').disabled = !(u.includes('@') && u.length >= 5 && p.length >= 4);
-  document.getElementById('loginError').style.display='none';
+  // Do not keep the login button permanently disabled. Some browsers/password managers
+  // autofill without firing input events, leaving the button grey even though fields are filled.
+  const btn = document.getElementById('loginBtn');
+  const err = document.getElementById('loginError');
+  if(btn) btn.disabled = false;
+  if(err) err.style.display='none';
 }
 
 function toggleLoginPw(){
@@ -2516,6 +2518,9 @@ async function doLogin(){
   const btn = document.getElementById('loginBtn');
   const card = document.querySelector('.login-card');
   const shake = ()=>{ if(card){ card.style.animation='shake .4s'; setTimeout(()=>card.style.animation='',400); } };
+
+  if(!email || !email.includes('@')){ showLoginError('⚠️ Συμπληρώστε σωστό email.'); shake(); return; }
+  if(!password){ showLoginError('⚠️ Συμπληρώστε κωδικό πρόσβασης.'); shake(); return; }
 
   const sb = getSupabase();
   if(!sb || !sb.auth){ showLoginError('⚠️ Δεν υπάρχει σύνδεση με τον server.'); return; }
@@ -4719,12 +4724,12 @@ function viewIssueAttachment(idx){
   const win = window.open('','_blank','width=900,height=700');
   if(a.type && a.type.startsWith('image/')){
     win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;">'
-      +'<img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;" crossorigin="anonymous"><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
+      +'<img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;" crossorigin="anonymous"><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
 </body></html>');
   } else {
     // For PDFs and other files — direct link opens better
     win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;">'
-      +'<iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
+      +'<iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
 </body></html>');
   }
   win.document.close();
@@ -5380,10 +5385,10 @@ function viewSavedAttachment(btn){
   if(!src){ toast('Δεν υπάρχει αρχείο.'); return; }
   const win = window.open('','_blank','width=900,height=700');
   if((a.type||'').startsWith('image/')){
-    win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;"><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
+    win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;"><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
 </body></html>');
   } else {
-    win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;"><iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
+    win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;"><iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
 </body></html>');
   }
   win.document.close();
@@ -6054,7 +6059,7 @@ function printOrder(id){
   <br><button onclick="window.print()" style="margin-top:16px;padding:8px 20px;background:#1a3a5c;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">🖨 Εκτύπωση</button>
   
 
-<div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
+<div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
 </body></html>`);
   win.document.close();
 }
@@ -7417,7 +7422,7 @@ function printBulkProtocol(){
     +'<tr style="background:#1a3a5c;color:#fff;font-weight:700;"><td colspan="5" style="text-align:right;">ΓΕΝΙΚΟ ΣΥΝΟΛΟ ΜΕ ΦΠΑ '+vatR+'%:</td><td>'+fmt(totalNet*(1+vatR/100))+' €</td></tr>'
     +'</tbody></table>'
     +'<p style="margin-top:20px;"><strong>Η Επιτροπή Παραλαβής:</strong></p>'
-    +'<table><tr>'+sigCells+'</tr></table><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
+    +'<table><tr>'+sigCells+'</tr></table><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
 </body></html>';
   const win=window.open('','_blank','width=900,height=1000');
   win.document.write(html); win.document.close();
@@ -7513,7 +7518,7 @@ function printBulkProtocol(){
         </div>
       </div>
     </div>
-    <button class="login-btn" id="loginBtn" onclick="doLogin()" disabled>Είσοδος</button>
+    <button class="login-btn" id="loginBtn" onclick="doLogin()">Είσοδος</button>
     <div class="login-error" id="loginError" style="display:none;">❌ Λάθος email ή κωδικός.</div>
   </div>
 
@@ -7774,6 +7779,6 @@ function printBulkProtocol(){
   });
 })();
 </script>
-<div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
+<div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: combined-v6-attachments-login-2026-05-29</div>
 </body>
 </html>
