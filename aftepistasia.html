@@ -1264,6 +1264,15 @@ function save(){
   // Always save to localStorage as cache
   const histIds = new Set(getHistoricalData().map(i=>i.id));
   const userIssues = issues.filter(i=>!histIds.has(i.id));
+  const cleanIssuesForCache = userIssues.map(i=>({
+    ...i,
+    attachments: cloneAttachments(i.attachments).map(a=>{
+      if(a.url) return {...a, data:''};
+      // keep metadata but do not store huge base64 in localStorage; upload to Supabase Storage is required for email attachments
+      const {data, ...rest} = a;
+      return rest;
+    })
+  }));
   
   // Also strip base64 from localStorage cache (it's huge and we have signedPdfUrl)
   const cleanWorkOrders = workOrders.map(w=>{
@@ -1276,7 +1285,7 @@ function save(){
   });
   
   try {
-    localStorage.setItem('autopistasia_data',JSON.stringify({issues:userIssues,workOrders:cleanWorkOrders,payments,settings}));
+    localStorage.setItem('autopistasia_data',JSON.stringify({issues:cleanIssuesForCache,workOrders:cleanWorkOrders,payments,settings}));
   } catch(e) {
     console.warn('[SAVE] localStorage failed (quota?), trying without base64:', e);
     // Last resort: strip ALL signedPdfData
@@ -1289,7 +1298,7 @@ function save(){
       return w;
     });
     try {
-      localStorage.setItem('autopistasia_data',JSON.stringify({issues:userIssues,workOrders:minimalWorkOrders,payments,settings}));
+      localStorage.setItem('autopistasia_data',JSON.stringify({issues:cleanIssuesForCache,workOrders:minimalWorkOrders,payments,settings}));
     } catch(e2) {
       console.error('[SAVE] localStorage save completely failed:', e2);
     }
@@ -1319,7 +1328,14 @@ async function _saveToSupabase(){
     }catch(e){ /* offline or fetch failed — proceed with local only */ }
 
     const histIds = new Set(getHistoricalData().map(i=>i.id));
-    const localIssues = issues.filter(i=>!histIds.has(i.id));
+    const localIssues = issues.filter(i=>!histIds.has(i.id)).map(i=>({
+      ...i,
+      attachments: cloneAttachments(i.attachments).map(a=>{
+        if(a.url) return {...a, data:''};
+        const {data, ...rest} = a;
+        return rest;
+      })
+    }));
     const effUsers = getEffectiveUsers();
 
     // Strip huge base64 PDF data before saving (keep only URL reference)
@@ -1590,25 +1606,74 @@ function remaining(){return settings.contractValue-totalIssued();}
 let woMediaBefore=[], woMediaAfter=[];
 let woAttachments=[];   // citizen-request attachments carried onto the work order
 
+// ── ORDER ATTACHMENTS: always derive them from the linked request ──
+function cloneAttachment(a){
+  if(!a) return null;
+  return {
+    name: a.name || 'αρχείο',
+    size: a.size || 0,
+    type: a.type || '',
+    url: a.url || '',
+    path: a.path || '',
+    stored: a.stored || (a.url ? 'supabase' : ''),
+    data: a.data || ''
+  };
+}
+function cloneAttachments(list){
+  return (Array.isArray(list) ? list : []).map(cloneAttachment).filter(Boolean);
+}
+function findIssueById(issueId){
+  return issueId ? issues.find(i=>String(i.id)===String(issueId)) : null;
+}
+function getIssueAttachments(issueId){
+  const iss = findIssueById(issueId);
+  return cloneAttachments(iss && iss.attachments);
+}
+function getEffectiveOrderAttachments(wo){
+  // Source of truth: the linked request. If no linked request exists, keep the order's own copy.
+  const fromIssue = wo && wo.issueId ? getIssueAttachments(wo.issueId) : [];
+  return fromIssue.length ? fromIssue : cloneAttachments(wo && wo.attachments);
+}
+function getSendableAttachments(wo){
+  // The Edge Function attaches files by fetching public URLs. Base64/local attachments remain as links/notice only.
+  return getEffectiveOrderAttachments(wo).filter(a=>a && a.url);
+}
+function ensureIssueOption(sel, issueId){
+  if(!sel || !issueId) return;
+  if(Array.from(sel.options).some(o=>String(o.value)===String(issueId))) return;
+  const iss=findIssueById(issueId);
+  if(!iss) return;
+  const opt=document.createElement('option');
+  opt.value=iss.id;
+  opt.textContent=(iss.issueNum||iss.id.slice(-4).toUpperCase())+' – '+(iss.title||'').slice(0,50);
+  sel.appendChild(opt);
+}
+
 // Render the carried-over request attachments as a read-only link list in the order modal
 function renderOrderAttachments(){
   const box=document.getElementById('woIssueAttachments');
   if(!box) return;
-  if(!woAttachments || !woAttachments.length){ box.innerHTML=''; box.style.display='none'; return; }
+  const list = cloneAttachments(woAttachments);
+  if(!list.length){ box.innerHTML=''; box.style.display='none'; return; }
   box.style.display='block';
-  box.innerHTML='<label style="display:block;">📎 Συνημμένα από το αίτημα ('+woAttachments.length+')</label>'+
-    woAttachments.map(a=>{
+  const missingUrl = list.filter(a=>!a.url).length;
+  box.innerHTML='<label style="display:block;">📎 Συνημμένα από το αίτημα ('+list.length+')</label>'+
+    (missingUrl ? '<div style="font-size:11px;color:#a32020;margin:4px 0;">⚠ '+missingUrl+' αρχείο/α δεν έχουν δημόσιο URL και δεν μπορούν να σταλούν ως πραγματικά συνημμένα email. Ανεβάστε τα ξανά ώστε να αποθηκευτούν στο Supabase Storage.</div>' : '')+
+    list.map(a=>{
       const t=(a.type||''); const ic = t.startsWith('image')?'🖼️':(t.includes('pdf')?'📄':(t.includes('sheet')||t.includes('excel')?'📊':(t.includes('word')||t.includes('document')?'📝':(t.includes('zip')?'🗜️':'📎'))));
-      return '<a href="'+esc(a.url||'#')+'" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--bdr,#e5e7eb);border-radius:8px;margin-bottom:4px;text-decoration:none;color:var(--ink,#1a2744);font-size:13px;">'
-        +ic+'<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(a.name||'αρχείο')+'</span></a>';
+      if(a.url){
+        return '<a href="'+esc(a.url)+'" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--bdr,#e5e7eb);border-radius:8px;margin-bottom:4px;text-decoration:none;color:var(--ink,#1a2744);font-size:13px;">'
+          +ic+'<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(a.name||'αρχείο')+'</span></a>';
+      }
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid #e8a0a0;border-radius:8px;margin-bottom:4px;color:#a32020;font-size:13px;background:#fce8e8;">'
+        +ic+'<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(a.name||'αρχείο')+'</span><span style="font-size:10px;">χωρίς URL</span></div>';
     }).join('');
 }
 
 // When the linked request changes, the attachments follow it
 function orderIssueChanged(){
   const iid=document.getElementById('wo_issue').value;
-  const iss = iid ? issues.find(i=>i.id===iid) : null;
-  woAttachments = (iss && Array.isArray(iss.attachments)) ? iss.attachments.slice() : [];
+  woAttachments = getIssueAttachments(iid);
   renderOrderAttachments();
 }
 
@@ -4654,11 +4719,13 @@ function viewIssueAttachment(idx){
   const win = window.open('','_blank','width=900,height=700');
   if(a.type && a.type.startsWith('image/')){
     win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;">'
-      +'<img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;" crossorigin="anonymous"></body></html>');
+      +'<img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;" crossorigin="anonymous"><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
+</body></html>');
   } else {
     // For PDFs and other files — direct link opens better
     win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;">'
-      +'<iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe></body></html>');
+      +'<iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
+</body></html>');
   }
   win.document.close();
 }
@@ -5313,9 +5380,11 @@ function viewSavedAttachment(btn){
   if(!src){ toast('Δεν υπάρχει αρχείο.'); return; }
   const win = window.open('','_blank','width=900,height=700');
   if((a.type||'').startsWith('image/')){
-    win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;"></body></html>');
+    win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;"><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
+</body></html>');
   } else {
-    win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;"><iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe></body></html>');
+    win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;"><iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
+</body></html>');
   }
   win.document.close();
 }
@@ -5557,13 +5626,14 @@ function openNewOrderForIssue(issueId, orderType){
   }
   openNewOrder(orderType||'contractor');
   const sel=document.getElementById('wo_issue');
+  ensureIssueOption(sel, issueId);
   sel.value=issueId;
-  const iss=issues.find(i=>i.id===issueId);
+  const iss=findIssueById(issueId);
   if(iss){
     document.getElementById('wo_loc').value=iss.location||'';
     document.getElementById('wo_prio').value=iss.priority||'ΚΑΤ. 3 - ΥΨΗΛΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ';
     document.getElementById('wo_desc').value=iss.description||'';
-    woAttachments=(iss.attachments||[]).slice(); renderOrderAttachments();
+    woAttachments=getIssueAttachments(issueId); renderOrderAttachments();
     updateDeadline();
   }
 }
@@ -5613,7 +5683,7 @@ function editOrder(id){
   updateCoordsDisplay();
   woMediaBefore=(wo.mediaBefore||[]);
   woMediaAfter=(wo.mediaAfter||[]);
-  woAttachments=(wo.attachments||[]).slice(); renderOrderAttachments();
+  woAttachments=getEffectiveOrderAttachments(wo); renderOrderAttachments();
   renderThumbs('before'); renderThumbs('after');
   document.getElementById('orderModal').style.display='flex';
 }
@@ -5730,12 +5800,17 @@ function saveOrder(andPrint){
   const _hasLocks = _existingWo && (_existingWo.penaltyApplied || oldStatus === 'Παραλήφθηκε');
   const _adminReset = isAdmin && !!id && _hasLocks;
   const items=collectItems();
+  const selectedIssueId = document.getElementById('wo_issue').value||null;
+  // Always copy the attachments from the selected/linked request at save time.
+  // This prevents stale attachments from a previous order/request being reused.
+  const effectiveWoAttachments = selectedIssueId ? getIssueAttachments(selectedIssueId) : cloneAttachments(woAttachments);
+  woAttachments = cloneAttachments(effectiveWoAttachments);
   const data={
     id:id||genId(),
     orderNum:document.getElementById('wo_num').value,
     date:document.getElementById('wo_date').value,
     issuedTime:document.getElementById('wo_issuedTime')?.value||'',
-    issueId:document.getElementById('wo_issue').value||null,
+    issueId:selectedIssueId,
     orderType: orderType,
     serviceStaff: isService ? getServiceStaffSelected() : [],
     serviceStatus: isService ? (document.getElementById('wo_svc_status')?.value||'Δόθηκε εντολή') : '',
@@ -5750,7 +5825,7 @@ function saveOrder(andPrint){
     items,
     mediaBefore:woMediaBefore,
     mediaAfter:woMediaAfter,
-    attachments:woAttachments,
+    attachments:cloneAttachments(effectiveWoAttachments),
     lat:woMapLat,
     lng:woMapLng
   };
@@ -5850,6 +5925,8 @@ function saveOrder(andPrint){
 // ================================================================
 function buildWoHtml(wo){
   const issue=wo.issueId?issues.find(i=>i.id===wo.issueId):null;
+  const atts = getEffectiveOrderAttachments(wo);
+  const attRows = atts.length ? ('<div style="margin:8px 0;font-size:10pt;"><strong>Συνημμένα αιτήματος:</strong><ol style="margin:4px 0 0 18px;">'+atts.map(a=>'<li>'+esc(a.name||'αρχείο')+(a.url?' — '+esc(a.url):'')+'</li>').join('')+'</ol></div>') : '';
   const vatRate=settings.vatRate||24;
   const netTotal=woTotal(wo);
   const vatAmount=netTotal*vatRate/100;
@@ -5886,6 +5963,7 @@ function buildWoHtml(wo){
     </div>
     <p style="margin:8px 0;font-size:10pt;"><strong>${(wo.status==='Παραλήφθηκε'||wo.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') ? 'Περιγραφή Εργασιών που Παραλήφθηκαν:' : 'Περιγραφή Εντολής:'}</strong> ${esc(wo.description||'—')}</p>
     ${wo.notes?`<p style="margin:4px 0;font-size:10pt;"><strong>Ειδικές Οδηγίες:</strong> ${esc(wo.notes)}</p>`:''}
+    ${attRows}
     ${wo.status==='Παραλήφθηκε'&&wo.penaltyAmount>0?`<p style="margin:4px 0;font-size:10pt;color:#a32020;"><strong>⚠ Ποινική Ρήτρα:</strong> -${fmt(wo.penaltyAmount)} € (${esc(wo.penaltyNote||'')})</p>`:''}
     <br>
     <table class="wo-items">
@@ -5976,6 +6054,7 @@ function printOrder(id){
   <br><button onclick="window.print()" style="margin-top:16px;padding:8px 20px;background:#1a3a5c;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">🖨 Εκτύπωση</button>
   
 
+<div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
 </body></html>`);
   win.document.close();
 }
@@ -6033,11 +6112,21 @@ function buildEmailBody(wo){
 
 // Text block listing request-attachment download links (for mailto bodies)
 function attachmentLinksBlock(wo){
-  const atts = Array.isArray(wo&&wo.attachments) ? wo.attachments.filter(a=>a&&a.url) : [];
-  if(!atts.length) return '';
-  return '\n\n'+'─'.repeat(55)
-    +'\nΣΥΝΗΜΜΕΝΑ ΑΡΧΕΙΑ ΑΙΤΗΜΑΤΟΣ (σύνδεσμοι λήψης):\n'
-    + atts.map((a,i)=>(i+1)+'. '+(a.name||'αρχείο')+': '+a.url).join('\n');
+  const allAtts = getEffectiveOrderAttachments(wo);
+  const atts = allAtts.filter(a=>a&&a.url);
+  if(!allAtts.length) return '';
+  let txt = '\n\n'+'─'.repeat(55)
+    +'\nΣΥΝΗΜΜΕΝΑ ΑΡΧΕΙΑ ΑΙΤΗΜΑΤΟΣ (σύνδεσμοι λήψης):\n';
+  if(atts.length){
+    txt += atts.map((a,i)=>(i+1)+'. '+(a.name||'αρχείο')+': '+a.url).join('\n');
+  } else {
+    txt += 'Δεν υπάρχουν διαθέσιμοι δημόσιοι σύνδεσμοι λήψης για τα συνημμένα.';
+  }
+  const missing = allAtts.filter(a=>!a.url);
+  if(missing.length){
+    txt += '\n\nΠΡΟΣΟΧΗ: '+missing.length+' συνημμένο/α δεν στάλθηκαν ως αρχεία επειδή δεν έχουν αποθηκευμένο δημόσιο URL στο Supabase Storage.';
+  }
+  return txt;
 }
 
 async function emailProtocol(id){
@@ -6177,8 +6266,11 @@ async function prepareContractorEmailPayload(wo){
     try { body += await buildAckCompletionText(wo); } catch(e){ console.error('ack link failed:', e); }
   }
   // Τα links μένουν και μέσα στο σώμα ως ασφαλιστική δικλείδα, ενώ τα αρχεία στέλνονται και ως attachments.
+  const allAtts = getEffectiveOrderAttachments(wo);
+  // Refresh the order copy before sending, so old/stale copied attachments are corrected from the linked request.
+  wo.attachments = cloneAttachments(allAtts);
   body += attachmentLinksBlock(wo);
-  const atts = Array.isArray(wo.attachments) ? wo.attachments.filter(a=>a&&a.url) : [];
+  const atts = getSendableAttachments(wo);
   return {
     to: email,
     subject,
@@ -7325,7 +7417,8 @@ function printBulkProtocol(){
     +'<tr style="background:#1a3a5c;color:#fff;font-weight:700;"><td colspan="5" style="text-align:right;">ΓΕΝΙΚΟ ΣΥΝΟΛΟ ΜΕ ΦΠΑ '+vatR+'%:</td><td>'+fmt(totalNet*(1+vatR/100))+' €</td></tr>'
     +'</tbody></table>'
     +'<p style="margin-top:20px;"><strong>Η Επιτροπή Παραλαβής:</strong></p>'
-    +'<table><tr>'+sigCells+'</tr></table></body></html>';
+    +'<table><tr>'+sigCells+'</tr></table><div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
+</body></html>';
   const win=window.open('','_blank','width=900,height=1000');
   win.document.write(html); win.document.close();
   setTimeout(()=>win.print(),600);
@@ -7681,5 +7774,6 @@ function printBulkProtocol(){
   });
 })();
 </script>
+<div style="position:fixed;bottom:6px;left:6px;background:#fff3cd;border:1px solid #f59e0b;color:#92400e;border-radius:4px;padding:2px 6px;font-size:10px;z-index:9999;">Build: attachments-fix-v4-2026-05-29-1505</div>
 </body>
 </html>
