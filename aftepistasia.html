@@ -4722,309 +4722,11 @@ function viewIssueAttachment(idx){
   const win = window.open('','_blank','width=900,height=700');
   if(a.type && a.type.startsWith('image/')){
     win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;">'
-      +'<img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;" crossorigin="anonymous">
-
-<!-- RODIOS v9 migration helper - temporary build -->
-<style>
-#rodiosV9MigrationPanel{position:fixed;left:12px;bottom:34px;z-index:999999;background:#fff;border:2px solid #1a3a5c;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px 12px;font-family:Segoe UI,Arial,sans-serif;max-width:360px;font-size:12px;color:#1a1a1a}
-#rodiosV9MigrationPanel .t{font-weight:800;color:#1a3a5c;margin-bottom:4px}
-#rodiosV9MigrationPanel .s{font-size:11px;color:#555;line-height:1.35;margin-bottom:8px}
-#rodiosV9MigrationPanel button{background:#1a3a5c;color:#fff;border:none;border-radius:7px;padding:8px 10px;font-weight:700;cursor:pointer;font-size:12px;margin-right:6px}
-#rodiosV9MigrationPanel button.secondary{background:#eee;color:#1a1a1a;border:1px solid #bbb}
-#rodiosV9MigrationPanel pre{white-space:pre-wrap;background:#f6f6f6;border:1px solid #ddd;border-radius:6px;padding:6px;margin:7px 0 0;max-height:120px;overflow:auto;font-size:10px}
-</style>
-<div id="rodiosV9MigrationPanel">
-  <div class="t">RODIOS v9 Migration Helper</div>
-  <div class="s">Προσωρινή έκδοση μόνο για μεταφορά. Πρώτα περίμενε να εμφανιστούν όλα τα παλιά δεδομένα στην εφαρμογή.</div>
-  <button type="button" onclick="rodiosV9ShowCounts()">Έλεγχος μετρήσεων</button>
-  <button type="button" onclick="rodiosV9RunMigration()">Μεταφορά σε v9</button>
-  <pre id="rodiosV9MigOut">Αναμονή...</pre>
-</div>
-<script>
-(function(){
-  const OUT_ID='rodiosV9MigOut';
-  function out(msg,obj){
-    const el=document.getElementById(OUT_ID);
-    const line='['+new Date().toLocaleTimeString('el-GR')+'] '+msg+(obj?' '+JSON.stringify(obj,null,2):'');
-    if(el){ el.textContent=line+'\n'+(el.textContent||''); }
-    console.log('[RODIOS v9 MIGRATION]', msg, obj||'');
-  }
-  function arr(v){ if(Array.isArray(v)) return v; if(v&&Array.isArray(v.items)) return v.items; if(v&&Array.isArray(v.data)) return v.data; return []; }
-  function clean(value){ return JSON.parse(JSON.stringify(value,(key,val)=>{
-    if(['signedPdfData','pdfData','base64','base64Data','dataUrl'].includes(key)) return undefined;
-    if(typeof val==='string' && val.length>250000 && val.startsWith('data:')) return undefined;
-    return val;
-  })); }
-  function mergeById(...lists){
-    const map=new Map();
-    for(const list of lists){
-      for(const item of arr(list)){
-        if(!item || typeof item!=='object') continue;
-        const c=clean(item);
-        if(!c.id) c.id='id_'+crypto.randomUUID();
-        const id=String(c.id);
-        map.set(id,{...(map.get(id)||{}),...c});
-      }
-    }
-    return [...map.values()];
-  }
-  async function upsertChunks(sb,table,rows,onConflict='id',chunkSize=100){
-    if(!rows.length){ out(table+': 0'); return; }
-    for(let i=0;i<rows.length;i+=chunkSize){
-      const part=rows.slice(i,i+chunkSize);
-      const {error}=await sb.from(table).upsert(part,{onConflict});
-      if(error){ out('ΣΦΑΛΜΑ στο '+table,error); throw error; }
-      out(table+': '+Math.min(i+chunkSize,rows.length)+' / '+rows.length);
-    }
-  }
-  function attId(parentType,parentId,kind,idx,att){ return String(att?.id||att?.storage_path||att?.storagePath||att?.path||att?.url||att?.public_url||att?.publicUrl||`${parentType}_${parentId}_${kind}_${idx}`).slice(0,180).replace(/[^\w.\-:/]/g,'_'); }
-  function makeAttachmentRows(parentType,parentId,attachments,kind){
-    const rows=[];
-    arr(attachments).forEach((att,idx)=>{
-      if(!att || typeof att!=='object') return;
-      const c=clean(att);
-      rows.push({
-        id: attId(parentType,parentId,kind,idx,c),
-        parent_type: parentType,
-        parent_id: String(parentId),
-        file_name: c.name||c.filename||c.fileName||c.title||`${kind}_${idx+1}`,
-        file_type: c.type||c.fileType||c.mimeType||'',
-        file_size: Number(c.size||c.fileSize||0)||null,
-        storage_bucket: c.bucket||c.storage_bucket||'attachments',
-        storage_path: c.path||c.storage_path||c.storagePath||null,
-        public_url: c.url||c.public_url||c.publicUrl||c.downloadUrl||null,
-        data: {...c,kind}
-      });
-    });
-    return rows;
-  }
-  async function buildMigrationData(){
-    const sb=typeof getSupabase==='function'?getSupabase():null;
-    if(!sb) throw new Error('Δεν βρέθηκε Supabase client.');
-    const sess=await sb.auth.getSession();
-    if(!sess?.data?.session) throw new Error('Δεν υπάρχει Supabase Auth session. Κάνε login πρώτα.');
-
-    let old={};
-    try{
-      const {data,error}=await sb.from('app_data').select('key,value').in('key',['issues','workOrders','payments','settings','users','serviceStaff']);
-      if(!error){ (data||[]).forEach(r=>old[r.key]=r.value); }
-    }catch(e){ console.warn(e); }
-
-    let local={};
-    try{ local=JSON.parse(localStorage.getItem('autopistasia_data')||'{}'); }catch(e){}
-
-    const historicalIssues = typeof getHistoricalData==='function' ? getHistoricalData() : [];
-    const currentIssues = typeof issues!=='undefined' && Array.isArray(issues) ? issues : [];
-    const currentOrders = typeof workOrders!=='undefined' && Array.isArray(workOrders) ? workOrders : [];
-    const currentPayments = typeof payments!=='undefined' && Array.isArray(payments) ? payments : [];
-    const currentUsers = typeof getEffectiveUsers==='function' ? getEffectiveUsers() : JSON.parse(localStorage.getItem('rhodesAppUsers')||'[]');
-    const currentStaff = typeof SERVICE_STAFF!=='undefined' && Array.isArray(SERVICE_STAFF) ? SERVICE_STAFF : JSON.parse(localStorage.getItem('serviceStaff')||'[]');
-
-    const allIssues=mergeById(historicalIssues, old.issues, local.issues, currentIssues);
-    const allOrders=mergeById(old.workOrders, local.workOrders, currentOrders);
-    const allPayments=mergeById(old.payments, local.payments, currentPayments);
-    const allUsers=mergeById(old.users, currentUsers);
-    const allStaff=mergeById(old.serviceStaff, currentStaff);
-    const mergedSettings=clean({...(old.settings||{}),...(local.settings||{}),...(typeof settings!=='undefined'?settings:{})});
-
-    let attachmentRows=[];
-    for(const i of allIssues){ attachmentRows=attachmentRows.concat(makeAttachmentRows('issue',i.id,i.attachments,'issue_attachment')); }
-    for(const w of allOrders){
-      attachmentRows=attachmentRows.concat(
-        makeAttachmentRows('work_order',w.id,w.attachments,'work_order_attachment'),
-        makeAttachmentRows('work_order',w.id,w.mediaBefore,'media_before'),
-        makeAttachmentRows('work_order',w.id,w.mediaAfter,'media_after')
-      );
-    }
-    const seen=new Set();
-    attachmentRows=attachmentRows.filter(a=>{ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
-
-    return {sb, allIssues, allOrders, allPayments, allUsers, allStaff, mergedSettings, attachmentRows,
-      counts:{issues:allIssues.length,workOrders:allOrders.length,payments:allPayments.length,users:allUsers.length,serviceStaff:allStaff.length,attachments:attachmentRows.length,
-        currentIssues:currentIssues.length,currentOrders:currentOrders.length,historicalIssues:historicalIssues.length,appDataIssues:arr(old.issues).length,appDataOrders:arr(old.workOrders).length}};
-  }
-  window.rodiosV9ShowCounts=async function(){
-    try{ const d=await buildMigrationData(); out('Μετρήσεις migration',d.counts); alert('Μετρήσεις migration:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments); }
-    catch(e){ out('Σφάλμα ελέγχου',{message:e.message}); alert('Σφάλμα: '+e.message); }
-  };
-  window.rodiosV9RunMigration=async function(){
-    try{
-      const d=await buildMigrationData();
-      out('Έτοιμο για migration',d.counts);
-      const ok=confirm('Θα μεταφερθούν σε v9:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments+'\n\nΔεν διαγράφεται τίποτα. Συνέχεια;');
-      if(!ok) return;
-      await upsertChunks(d.sb,'rodios_issues',d.allIssues.map(i=>({id:String(i.id),data:i,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_work_orders',d.allOrders.map(w=>({id:String(w.id),issue_id:w.issueId||w.issue_id||null,data:w,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_payments',d.allPayments.map(p=>({id:String(p.id),work_order_id:p.workOrderId||p.orderId||p.woId||p.work_order_id||null,data:p,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_attachments',d.attachmentRows);
-      await upsertChunks(d.sb,'rodios_settings',[{key:'main',value:d.mergedSettings}], 'key');
-      await upsertChunks(d.sb,'rodios_app_users',d.allUsers.map(u=>({id:String(u.id),data:u,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_service_staff',d.allStaff.map((s,idx)=>({id:String(s.id||s.name||`staff_${idx+1}`).replace(/[^\w.\-:/]/g,'_'),data:s,deleted_at:null})));
-      try{ indexedDB.deleteDatabase('rodios_v9_cache_db'); }catch(e){}
-      localStorage.removeItem('rodios_v9_last_counts');
-      const {data:counts}=await d.sb.from('rodios_v9_counts').select('*');
-      out('Τελικά counts από v9',counts);
-      alert('✅ Migration v9 ολοκληρώθηκε.\n\nΤώρα έλεγξε rodios_v9_counts στο Supabase και μετά ανέβασε τη v9.2 ως κανονική εφαρμογή.');
-    }catch(e){ console.error(e); out('ΣΦΑΛΜΑ migration',{message:e.message}); alert('Σφάλμα migration: '+e.message); }
-  };
-  out('Migration helper φορτώθηκε. Πάτησε πρώτα Έλεγχος μετρήσεων.');
-})();
-</script>
-
-</body></html>');
+      +'<img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;" crossorigin="anonymous"></body></html>');
   } else {
     // For PDFs and other files — direct link opens better
     win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;">'
-      +'<iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe>
-
-<!-- RODIOS v9 migration helper - temporary build -->
-<style>
-#rodiosV9MigrationPanel{position:fixed;left:12px;bottom:34px;z-index:999999;background:#fff;border:2px solid #1a3a5c;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px 12px;font-family:Segoe UI,Arial,sans-serif;max-width:360px;font-size:12px;color:#1a1a1a}
-#rodiosV9MigrationPanel .t{font-weight:800;color:#1a3a5c;margin-bottom:4px}
-#rodiosV9MigrationPanel .s{font-size:11px;color:#555;line-height:1.35;margin-bottom:8px}
-#rodiosV9MigrationPanel button{background:#1a3a5c;color:#fff;border:none;border-radius:7px;padding:8px 10px;font-weight:700;cursor:pointer;font-size:12px;margin-right:6px}
-#rodiosV9MigrationPanel button.secondary{background:#eee;color:#1a1a1a;border:1px solid #bbb}
-#rodiosV9MigrationPanel pre{white-space:pre-wrap;background:#f6f6f6;border:1px solid #ddd;border-radius:6px;padding:6px;margin:7px 0 0;max-height:120px;overflow:auto;font-size:10px}
-</style>
-<div id="rodiosV9MigrationPanel">
-  <div class="t">RODIOS v9 Migration Helper</div>
-  <div class="s">Προσωρινή έκδοση μόνο για μεταφορά. Πρώτα περίμενε να εμφανιστούν όλα τα παλιά δεδομένα στην εφαρμογή.</div>
-  <button type="button" onclick="rodiosV9ShowCounts()">Έλεγχος μετρήσεων</button>
-  <button type="button" onclick="rodiosV9RunMigration()">Μεταφορά σε v9</button>
-  <pre id="rodiosV9MigOut">Αναμονή...</pre>
-</div>
-<script>
-(function(){
-  const OUT_ID='rodiosV9MigOut';
-  function out(msg,obj){
-    const el=document.getElementById(OUT_ID);
-    const line='['+new Date().toLocaleTimeString('el-GR')+'] '+msg+(obj?' '+JSON.stringify(obj,null,2):'');
-    if(el){ el.textContent=line+'\n'+(el.textContent||''); }
-    console.log('[RODIOS v9 MIGRATION]', msg, obj||'');
-  }
-  function arr(v){ if(Array.isArray(v)) return v; if(v&&Array.isArray(v.items)) return v.items; if(v&&Array.isArray(v.data)) return v.data; return []; }
-  function clean(value){ return JSON.parse(JSON.stringify(value,(key,val)=>{
-    if(['signedPdfData','pdfData','base64','base64Data','dataUrl'].includes(key)) return undefined;
-    if(typeof val==='string' && val.length>250000 && val.startsWith('data:')) return undefined;
-    return val;
-  })); }
-  function mergeById(...lists){
-    const map=new Map();
-    for(const list of lists){
-      for(const item of arr(list)){
-        if(!item || typeof item!=='object') continue;
-        const c=clean(item);
-        if(!c.id) c.id='id_'+crypto.randomUUID();
-        const id=String(c.id);
-        map.set(id,{...(map.get(id)||{}),...c});
-      }
-    }
-    return [...map.values()];
-  }
-  async function upsertChunks(sb,table,rows,onConflict='id',chunkSize=100){
-    if(!rows.length){ out(table+': 0'); return; }
-    for(let i=0;i<rows.length;i+=chunkSize){
-      const part=rows.slice(i,i+chunkSize);
-      const {error}=await sb.from(table).upsert(part,{onConflict});
-      if(error){ out('ΣΦΑΛΜΑ στο '+table,error); throw error; }
-      out(table+': '+Math.min(i+chunkSize,rows.length)+' / '+rows.length);
-    }
-  }
-  function attId(parentType,parentId,kind,idx,att){ return String(att?.id||att?.storage_path||att?.storagePath||att?.path||att?.url||att?.public_url||att?.publicUrl||`${parentType}_${parentId}_${kind}_${idx}`).slice(0,180).replace(/[^\w.\-:/]/g,'_'); }
-  function makeAttachmentRows(parentType,parentId,attachments,kind){
-    const rows=[];
-    arr(attachments).forEach((att,idx)=>{
-      if(!att || typeof att!=='object') return;
-      const c=clean(att);
-      rows.push({
-        id: attId(parentType,parentId,kind,idx,c),
-        parent_type: parentType,
-        parent_id: String(parentId),
-        file_name: c.name||c.filename||c.fileName||c.title||`${kind}_${idx+1}`,
-        file_type: c.type||c.fileType||c.mimeType||'',
-        file_size: Number(c.size||c.fileSize||0)||null,
-        storage_bucket: c.bucket||c.storage_bucket||'attachments',
-        storage_path: c.path||c.storage_path||c.storagePath||null,
-        public_url: c.url||c.public_url||c.publicUrl||c.downloadUrl||null,
-        data: {...c,kind}
-      });
-    });
-    return rows;
-  }
-  async function buildMigrationData(){
-    const sb=typeof getSupabase==='function'?getSupabase():null;
-    if(!sb) throw new Error('Δεν βρέθηκε Supabase client.');
-    const sess=await sb.auth.getSession();
-    if(!sess?.data?.session) throw new Error('Δεν υπάρχει Supabase Auth session. Κάνε login πρώτα.');
-
-    let old={};
-    try{
-      const {data,error}=await sb.from('app_data').select('key,value').in('key',['issues','workOrders','payments','settings','users','serviceStaff']);
-      if(!error){ (data||[]).forEach(r=>old[r.key]=r.value); }
-    }catch(e){ console.warn(e); }
-
-    let local={};
-    try{ local=JSON.parse(localStorage.getItem('autopistasia_data')||'{}'); }catch(e){}
-
-    const historicalIssues = typeof getHistoricalData==='function' ? getHistoricalData() : [];
-    const currentIssues = typeof issues!=='undefined' && Array.isArray(issues) ? issues : [];
-    const currentOrders = typeof workOrders!=='undefined' && Array.isArray(workOrders) ? workOrders : [];
-    const currentPayments = typeof payments!=='undefined' && Array.isArray(payments) ? payments : [];
-    const currentUsers = typeof getEffectiveUsers==='function' ? getEffectiveUsers() : JSON.parse(localStorage.getItem('rhodesAppUsers')||'[]');
-    const currentStaff = typeof SERVICE_STAFF!=='undefined' && Array.isArray(SERVICE_STAFF) ? SERVICE_STAFF : JSON.parse(localStorage.getItem('serviceStaff')||'[]');
-
-    const allIssues=mergeById(historicalIssues, old.issues, local.issues, currentIssues);
-    const allOrders=mergeById(old.workOrders, local.workOrders, currentOrders);
-    const allPayments=mergeById(old.payments, local.payments, currentPayments);
-    const allUsers=mergeById(old.users, currentUsers);
-    const allStaff=mergeById(old.serviceStaff, currentStaff);
-    const mergedSettings=clean({...(old.settings||{}),...(local.settings||{}),...(typeof settings!=='undefined'?settings:{})});
-
-    let attachmentRows=[];
-    for(const i of allIssues){ attachmentRows=attachmentRows.concat(makeAttachmentRows('issue',i.id,i.attachments,'issue_attachment')); }
-    for(const w of allOrders){
-      attachmentRows=attachmentRows.concat(
-        makeAttachmentRows('work_order',w.id,w.attachments,'work_order_attachment'),
-        makeAttachmentRows('work_order',w.id,w.mediaBefore,'media_before'),
-        makeAttachmentRows('work_order',w.id,w.mediaAfter,'media_after')
-      );
-    }
-    const seen=new Set();
-    attachmentRows=attachmentRows.filter(a=>{ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
-
-    return {sb, allIssues, allOrders, allPayments, allUsers, allStaff, mergedSettings, attachmentRows,
-      counts:{issues:allIssues.length,workOrders:allOrders.length,payments:allPayments.length,users:allUsers.length,serviceStaff:allStaff.length,attachments:attachmentRows.length,
-        currentIssues:currentIssues.length,currentOrders:currentOrders.length,historicalIssues:historicalIssues.length,appDataIssues:arr(old.issues).length,appDataOrders:arr(old.workOrders).length}};
-  }
-  window.rodiosV9ShowCounts=async function(){
-    try{ const d=await buildMigrationData(); out('Μετρήσεις migration',d.counts); alert('Μετρήσεις migration:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments); }
-    catch(e){ out('Σφάλμα ελέγχου',{message:e.message}); alert('Σφάλμα: '+e.message); }
-  };
-  window.rodiosV9RunMigration=async function(){
-    try{
-      const d=await buildMigrationData();
-      out('Έτοιμο για migration',d.counts);
-      const ok=confirm('Θα μεταφερθούν σε v9:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments+'\n\nΔεν διαγράφεται τίποτα. Συνέχεια;');
-      if(!ok) return;
-      await upsertChunks(d.sb,'rodios_issues',d.allIssues.map(i=>({id:String(i.id),data:i,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_work_orders',d.allOrders.map(w=>({id:String(w.id),issue_id:w.issueId||w.issue_id||null,data:w,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_payments',d.allPayments.map(p=>({id:String(p.id),work_order_id:p.workOrderId||p.orderId||p.woId||p.work_order_id||null,data:p,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_attachments',d.attachmentRows);
-      await upsertChunks(d.sb,'rodios_settings',[{key:'main',value:d.mergedSettings}], 'key');
-      await upsertChunks(d.sb,'rodios_app_users',d.allUsers.map(u=>({id:String(u.id),data:u,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_service_staff',d.allStaff.map((s,idx)=>({id:String(s.id||s.name||`staff_${idx+1}`).replace(/[^\w.\-:/]/g,'_'),data:s,deleted_at:null})));
-      try{ indexedDB.deleteDatabase('rodios_v9_cache_db'); }catch(e){}
-      localStorage.removeItem('rodios_v9_last_counts');
-      const {data:counts}=await d.sb.from('rodios_v9_counts').select('*');
-      out('Τελικά counts από v9',counts);
-      alert('✅ Migration v9 ολοκληρώθηκε.\n\nΤώρα έλεγξε rodios_v9_counts στο Supabase και μετά ανέβασε τη v9.2 ως κανονική εφαρμογή.');
-    }catch(e){ console.error(e); out('ΣΦΑΛΜΑ migration',{message:e.message}); alert('Σφάλμα migration: '+e.message); }
-  };
-  out('Migration helper φορτώθηκε. Πάτησε πρώτα Έλεγχος μετρήσεων.');
-})();
-</script>
-
-</body></html>');
+      +'<iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe></body></html>');
   }
   win.document.close();
 }
@@ -5679,307 +5381,9 @@ function viewSavedAttachment(btn){
   if(!src){ toast('Δεν υπάρχει αρχείο.'); return; }
   const win = window.open('','_blank','width=900,height=700');
   if((a.type||'').startsWith('image/')){
-    win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;">
-
-<!-- RODIOS v9 migration helper - temporary build -->
-<style>
-#rodiosV9MigrationPanel{position:fixed;left:12px;bottom:34px;z-index:999999;background:#fff;border:2px solid #1a3a5c;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px 12px;font-family:Segoe UI,Arial,sans-serif;max-width:360px;font-size:12px;color:#1a1a1a}
-#rodiosV9MigrationPanel .t{font-weight:800;color:#1a3a5c;margin-bottom:4px}
-#rodiosV9MigrationPanel .s{font-size:11px;color:#555;line-height:1.35;margin-bottom:8px}
-#rodiosV9MigrationPanel button{background:#1a3a5c;color:#fff;border:none;border-radius:7px;padding:8px 10px;font-weight:700;cursor:pointer;font-size:12px;margin-right:6px}
-#rodiosV9MigrationPanel button.secondary{background:#eee;color:#1a1a1a;border:1px solid #bbb}
-#rodiosV9MigrationPanel pre{white-space:pre-wrap;background:#f6f6f6;border:1px solid #ddd;border-radius:6px;padding:6px;margin:7px 0 0;max-height:120px;overflow:auto;font-size:10px}
-</style>
-<div id="rodiosV9MigrationPanel">
-  <div class="t">RODIOS v9 Migration Helper</div>
-  <div class="s">Προσωρινή έκδοση μόνο για μεταφορά. Πρώτα περίμενε να εμφανιστούν όλα τα παλιά δεδομένα στην εφαρμογή.</div>
-  <button type="button" onclick="rodiosV9ShowCounts()">Έλεγχος μετρήσεων</button>
-  <button type="button" onclick="rodiosV9RunMigration()">Μεταφορά σε v9</button>
-  <pre id="rodiosV9MigOut">Αναμονή...</pre>
-</div>
-<script>
-(function(){
-  const OUT_ID='rodiosV9MigOut';
-  function out(msg,obj){
-    const el=document.getElementById(OUT_ID);
-    const line='['+new Date().toLocaleTimeString('el-GR')+'] '+msg+(obj?' '+JSON.stringify(obj,null,2):'');
-    if(el){ el.textContent=line+'\n'+(el.textContent||''); }
-    console.log('[RODIOS v9 MIGRATION]', msg, obj||'');
-  }
-  function arr(v){ if(Array.isArray(v)) return v; if(v&&Array.isArray(v.items)) return v.items; if(v&&Array.isArray(v.data)) return v.data; return []; }
-  function clean(value){ return JSON.parse(JSON.stringify(value,(key,val)=>{
-    if(['signedPdfData','pdfData','base64','base64Data','dataUrl'].includes(key)) return undefined;
-    if(typeof val==='string' && val.length>250000 && val.startsWith('data:')) return undefined;
-    return val;
-  })); }
-  function mergeById(...lists){
-    const map=new Map();
-    for(const list of lists){
-      for(const item of arr(list)){
-        if(!item || typeof item!=='object') continue;
-        const c=clean(item);
-        if(!c.id) c.id='id_'+crypto.randomUUID();
-        const id=String(c.id);
-        map.set(id,{...(map.get(id)||{}),...c});
-      }
-    }
-    return [...map.values()];
-  }
-  async function upsertChunks(sb,table,rows,onConflict='id',chunkSize=100){
-    if(!rows.length){ out(table+': 0'); return; }
-    for(let i=0;i<rows.length;i+=chunkSize){
-      const part=rows.slice(i,i+chunkSize);
-      const {error}=await sb.from(table).upsert(part,{onConflict});
-      if(error){ out('ΣΦΑΛΜΑ στο '+table,error); throw error; }
-      out(table+': '+Math.min(i+chunkSize,rows.length)+' / '+rows.length);
-    }
-  }
-  function attId(parentType,parentId,kind,idx,att){ return String(att?.id||att?.storage_path||att?.storagePath||att?.path||att?.url||att?.public_url||att?.publicUrl||`${parentType}_${parentId}_${kind}_${idx}`).slice(0,180).replace(/[^\w.\-:/]/g,'_'); }
-  function makeAttachmentRows(parentType,parentId,attachments,kind){
-    const rows=[];
-    arr(attachments).forEach((att,idx)=>{
-      if(!att || typeof att!=='object') return;
-      const c=clean(att);
-      rows.push({
-        id: attId(parentType,parentId,kind,idx,c),
-        parent_type: parentType,
-        parent_id: String(parentId),
-        file_name: c.name||c.filename||c.fileName||c.title||`${kind}_${idx+1}`,
-        file_type: c.type||c.fileType||c.mimeType||'',
-        file_size: Number(c.size||c.fileSize||0)||null,
-        storage_bucket: c.bucket||c.storage_bucket||'attachments',
-        storage_path: c.path||c.storage_path||c.storagePath||null,
-        public_url: c.url||c.public_url||c.publicUrl||c.downloadUrl||null,
-        data: {...c,kind}
-      });
-    });
-    return rows;
-  }
-  async function buildMigrationData(){
-    const sb=typeof getSupabase==='function'?getSupabase():null;
-    if(!sb) throw new Error('Δεν βρέθηκε Supabase client.');
-    const sess=await sb.auth.getSession();
-    if(!sess?.data?.session) throw new Error('Δεν υπάρχει Supabase Auth session. Κάνε login πρώτα.');
-
-    let old={};
-    try{
-      const {data,error}=await sb.from('app_data').select('key,value').in('key',['issues','workOrders','payments','settings','users','serviceStaff']);
-      if(!error){ (data||[]).forEach(r=>old[r.key]=r.value); }
-    }catch(e){ console.warn(e); }
-
-    let local={};
-    try{ local=JSON.parse(localStorage.getItem('autopistasia_data')||'{}'); }catch(e){}
-
-    const historicalIssues = typeof getHistoricalData==='function' ? getHistoricalData() : [];
-    const currentIssues = typeof issues!=='undefined' && Array.isArray(issues) ? issues : [];
-    const currentOrders = typeof workOrders!=='undefined' && Array.isArray(workOrders) ? workOrders : [];
-    const currentPayments = typeof payments!=='undefined' && Array.isArray(payments) ? payments : [];
-    const currentUsers = typeof getEffectiveUsers==='function' ? getEffectiveUsers() : JSON.parse(localStorage.getItem('rhodesAppUsers')||'[]');
-    const currentStaff = typeof SERVICE_STAFF!=='undefined' && Array.isArray(SERVICE_STAFF) ? SERVICE_STAFF : JSON.parse(localStorage.getItem('serviceStaff')||'[]');
-
-    const allIssues=mergeById(historicalIssues, old.issues, local.issues, currentIssues);
-    const allOrders=mergeById(old.workOrders, local.workOrders, currentOrders);
-    const allPayments=mergeById(old.payments, local.payments, currentPayments);
-    const allUsers=mergeById(old.users, currentUsers);
-    const allStaff=mergeById(old.serviceStaff, currentStaff);
-    const mergedSettings=clean({...(old.settings||{}),...(local.settings||{}),...(typeof settings!=='undefined'?settings:{})});
-
-    let attachmentRows=[];
-    for(const i of allIssues){ attachmentRows=attachmentRows.concat(makeAttachmentRows('issue',i.id,i.attachments,'issue_attachment')); }
-    for(const w of allOrders){
-      attachmentRows=attachmentRows.concat(
-        makeAttachmentRows('work_order',w.id,w.attachments,'work_order_attachment'),
-        makeAttachmentRows('work_order',w.id,w.mediaBefore,'media_before'),
-        makeAttachmentRows('work_order',w.id,w.mediaAfter,'media_after')
-      );
-    }
-    const seen=new Set();
-    attachmentRows=attachmentRows.filter(a=>{ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
-
-    return {sb, allIssues, allOrders, allPayments, allUsers, allStaff, mergedSettings, attachmentRows,
-      counts:{issues:allIssues.length,workOrders:allOrders.length,payments:allPayments.length,users:allUsers.length,serviceStaff:allStaff.length,attachments:attachmentRows.length,
-        currentIssues:currentIssues.length,currentOrders:currentOrders.length,historicalIssues:historicalIssues.length,appDataIssues:arr(old.issues).length,appDataOrders:arr(old.workOrders).length}};
-  }
-  window.rodiosV9ShowCounts=async function(){
-    try{ const d=await buildMigrationData(); out('Μετρήσεις migration',d.counts); alert('Μετρήσεις migration:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments); }
-    catch(e){ out('Σφάλμα ελέγχου',{message:e.message}); alert('Σφάλμα: '+e.message); }
-  };
-  window.rodiosV9RunMigration=async function(){
-    try{
-      const d=await buildMigrationData();
-      out('Έτοιμο για migration',d.counts);
-      const ok=confirm('Θα μεταφερθούν σε v9:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments+'\n\nΔεν διαγράφεται τίποτα. Συνέχεια;');
-      if(!ok) return;
-      await upsertChunks(d.sb,'rodios_issues',d.allIssues.map(i=>({id:String(i.id),data:i,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_work_orders',d.allOrders.map(w=>({id:String(w.id),issue_id:w.issueId||w.issue_id||null,data:w,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_payments',d.allPayments.map(p=>({id:String(p.id),work_order_id:p.workOrderId||p.orderId||p.woId||p.work_order_id||null,data:p,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_attachments',d.attachmentRows);
-      await upsertChunks(d.sb,'rodios_settings',[{key:'main',value:d.mergedSettings}], 'key');
-      await upsertChunks(d.sb,'rodios_app_users',d.allUsers.map(u=>({id:String(u.id),data:u,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_service_staff',d.allStaff.map((s,idx)=>({id:String(s.id||s.name||`staff_${idx+1}`).replace(/[^\w.\-:/]/g,'_'),data:s,deleted_at:null})));
-      try{ indexedDB.deleteDatabase('rodios_v9_cache_db'); }catch(e){}
-      localStorage.removeItem('rodios_v9_last_counts');
-      const {data:counts}=await d.sb.from('rodios_v9_counts').select('*');
-      out('Τελικά counts από v9',counts);
-      alert('✅ Migration v9 ολοκληρώθηκε.\n\nΤώρα έλεγξε rodios_v9_counts στο Supabase και μετά ανέβασε τη v9.2 ως κανονική εφαρμογή.');
-    }catch(e){ console.error(e); out('ΣΦΑΛΜΑ migration',{message:e.message}); alert('Σφάλμα migration: '+e.message); }
-  };
-  out('Migration helper φορτώθηκε. Πάτησε πρώτα Έλεγχος μετρήσεων.');
-})();
-</script>
-
-</body></html>');
+    win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;"></body></html>');
   } else {
-    win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;"><iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe>
-
-<!-- RODIOS v9 migration helper - temporary build -->
-<style>
-#rodiosV9MigrationPanel{position:fixed;left:12px;bottom:34px;z-index:999999;background:#fff;border:2px solid #1a3a5c;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px 12px;font-family:Segoe UI,Arial,sans-serif;max-width:360px;font-size:12px;color:#1a1a1a}
-#rodiosV9MigrationPanel .t{font-weight:800;color:#1a3a5c;margin-bottom:4px}
-#rodiosV9MigrationPanel .s{font-size:11px;color:#555;line-height:1.35;margin-bottom:8px}
-#rodiosV9MigrationPanel button{background:#1a3a5c;color:#fff;border:none;border-radius:7px;padding:8px 10px;font-weight:700;cursor:pointer;font-size:12px;margin-right:6px}
-#rodiosV9MigrationPanel button.secondary{background:#eee;color:#1a1a1a;border:1px solid #bbb}
-#rodiosV9MigrationPanel pre{white-space:pre-wrap;background:#f6f6f6;border:1px solid #ddd;border-radius:6px;padding:6px;margin:7px 0 0;max-height:120px;overflow:auto;font-size:10px}
-</style>
-<div id="rodiosV9MigrationPanel">
-  <div class="t">RODIOS v9 Migration Helper</div>
-  <div class="s">Προσωρινή έκδοση μόνο για μεταφορά. Πρώτα περίμενε να εμφανιστούν όλα τα παλιά δεδομένα στην εφαρμογή.</div>
-  <button type="button" onclick="rodiosV9ShowCounts()">Έλεγχος μετρήσεων</button>
-  <button type="button" onclick="rodiosV9RunMigration()">Μεταφορά σε v9</button>
-  <pre id="rodiosV9MigOut">Αναμονή...</pre>
-</div>
-<script>
-(function(){
-  const OUT_ID='rodiosV9MigOut';
-  function out(msg,obj){
-    const el=document.getElementById(OUT_ID);
-    const line='['+new Date().toLocaleTimeString('el-GR')+'] '+msg+(obj?' '+JSON.stringify(obj,null,2):'');
-    if(el){ el.textContent=line+'\n'+(el.textContent||''); }
-    console.log('[RODIOS v9 MIGRATION]', msg, obj||'');
-  }
-  function arr(v){ if(Array.isArray(v)) return v; if(v&&Array.isArray(v.items)) return v.items; if(v&&Array.isArray(v.data)) return v.data; return []; }
-  function clean(value){ return JSON.parse(JSON.stringify(value,(key,val)=>{
-    if(['signedPdfData','pdfData','base64','base64Data','dataUrl'].includes(key)) return undefined;
-    if(typeof val==='string' && val.length>250000 && val.startsWith('data:')) return undefined;
-    return val;
-  })); }
-  function mergeById(...lists){
-    const map=new Map();
-    for(const list of lists){
-      for(const item of arr(list)){
-        if(!item || typeof item!=='object') continue;
-        const c=clean(item);
-        if(!c.id) c.id='id_'+crypto.randomUUID();
-        const id=String(c.id);
-        map.set(id,{...(map.get(id)||{}),...c});
-      }
-    }
-    return [...map.values()];
-  }
-  async function upsertChunks(sb,table,rows,onConflict='id',chunkSize=100){
-    if(!rows.length){ out(table+': 0'); return; }
-    for(let i=0;i<rows.length;i+=chunkSize){
-      const part=rows.slice(i,i+chunkSize);
-      const {error}=await sb.from(table).upsert(part,{onConflict});
-      if(error){ out('ΣΦΑΛΜΑ στο '+table,error); throw error; }
-      out(table+': '+Math.min(i+chunkSize,rows.length)+' / '+rows.length);
-    }
-  }
-  function attId(parentType,parentId,kind,idx,att){ return String(att?.id||att?.storage_path||att?.storagePath||att?.path||att?.url||att?.public_url||att?.publicUrl||`${parentType}_${parentId}_${kind}_${idx}`).slice(0,180).replace(/[^\w.\-:/]/g,'_'); }
-  function makeAttachmentRows(parentType,parentId,attachments,kind){
-    const rows=[];
-    arr(attachments).forEach((att,idx)=>{
-      if(!att || typeof att!=='object') return;
-      const c=clean(att);
-      rows.push({
-        id: attId(parentType,parentId,kind,idx,c),
-        parent_type: parentType,
-        parent_id: String(parentId),
-        file_name: c.name||c.filename||c.fileName||c.title||`${kind}_${idx+1}`,
-        file_type: c.type||c.fileType||c.mimeType||'',
-        file_size: Number(c.size||c.fileSize||0)||null,
-        storage_bucket: c.bucket||c.storage_bucket||'attachments',
-        storage_path: c.path||c.storage_path||c.storagePath||null,
-        public_url: c.url||c.public_url||c.publicUrl||c.downloadUrl||null,
-        data: {...c,kind}
-      });
-    });
-    return rows;
-  }
-  async function buildMigrationData(){
-    const sb=typeof getSupabase==='function'?getSupabase():null;
-    if(!sb) throw new Error('Δεν βρέθηκε Supabase client.');
-    const sess=await sb.auth.getSession();
-    if(!sess?.data?.session) throw new Error('Δεν υπάρχει Supabase Auth session. Κάνε login πρώτα.');
-
-    let old={};
-    try{
-      const {data,error}=await sb.from('app_data').select('key,value').in('key',['issues','workOrders','payments','settings','users','serviceStaff']);
-      if(!error){ (data||[]).forEach(r=>old[r.key]=r.value); }
-    }catch(e){ console.warn(e); }
-
-    let local={};
-    try{ local=JSON.parse(localStorage.getItem('autopistasia_data')||'{}'); }catch(e){}
-
-    const historicalIssues = typeof getHistoricalData==='function' ? getHistoricalData() : [];
-    const currentIssues = typeof issues!=='undefined' && Array.isArray(issues) ? issues : [];
-    const currentOrders = typeof workOrders!=='undefined' && Array.isArray(workOrders) ? workOrders : [];
-    const currentPayments = typeof payments!=='undefined' && Array.isArray(payments) ? payments : [];
-    const currentUsers = typeof getEffectiveUsers==='function' ? getEffectiveUsers() : JSON.parse(localStorage.getItem('rhodesAppUsers')||'[]');
-    const currentStaff = typeof SERVICE_STAFF!=='undefined' && Array.isArray(SERVICE_STAFF) ? SERVICE_STAFF : JSON.parse(localStorage.getItem('serviceStaff')||'[]');
-
-    const allIssues=mergeById(historicalIssues, old.issues, local.issues, currentIssues);
-    const allOrders=mergeById(old.workOrders, local.workOrders, currentOrders);
-    const allPayments=mergeById(old.payments, local.payments, currentPayments);
-    const allUsers=mergeById(old.users, currentUsers);
-    const allStaff=mergeById(old.serviceStaff, currentStaff);
-    const mergedSettings=clean({...(old.settings||{}),...(local.settings||{}),...(typeof settings!=='undefined'?settings:{})});
-
-    let attachmentRows=[];
-    for(const i of allIssues){ attachmentRows=attachmentRows.concat(makeAttachmentRows('issue',i.id,i.attachments,'issue_attachment')); }
-    for(const w of allOrders){
-      attachmentRows=attachmentRows.concat(
-        makeAttachmentRows('work_order',w.id,w.attachments,'work_order_attachment'),
-        makeAttachmentRows('work_order',w.id,w.mediaBefore,'media_before'),
-        makeAttachmentRows('work_order',w.id,w.mediaAfter,'media_after')
-      );
-    }
-    const seen=new Set();
-    attachmentRows=attachmentRows.filter(a=>{ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
-
-    return {sb, allIssues, allOrders, allPayments, allUsers, allStaff, mergedSettings, attachmentRows,
-      counts:{issues:allIssues.length,workOrders:allOrders.length,payments:allPayments.length,users:allUsers.length,serviceStaff:allStaff.length,attachments:attachmentRows.length,
-        currentIssues:currentIssues.length,currentOrders:currentOrders.length,historicalIssues:historicalIssues.length,appDataIssues:arr(old.issues).length,appDataOrders:arr(old.workOrders).length}};
-  }
-  window.rodiosV9ShowCounts=async function(){
-    try{ const d=await buildMigrationData(); out('Μετρήσεις migration',d.counts); alert('Μετρήσεις migration:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments); }
-    catch(e){ out('Σφάλμα ελέγχου',{message:e.message}); alert('Σφάλμα: '+e.message); }
-  };
-  window.rodiosV9RunMigration=async function(){
-    try{
-      const d=await buildMigrationData();
-      out('Έτοιμο για migration',d.counts);
-      const ok=confirm('Θα μεταφερθούν σε v9:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments+'\n\nΔεν διαγράφεται τίποτα. Συνέχεια;');
-      if(!ok) return;
-      await upsertChunks(d.sb,'rodios_issues',d.allIssues.map(i=>({id:String(i.id),data:i,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_work_orders',d.allOrders.map(w=>({id:String(w.id),issue_id:w.issueId||w.issue_id||null,data:w,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_payments',d.allPayments.map(p=>({id:String(p.id),work_order_id:p.workOrderId||p.orderId||p.woId||p.work_order_id||null,data:p,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_attachments',d.attachmentRows);
-      await upsertChunks(d.sb,'rodios_settings',[{key:'main',value:d.mergedSettings}], 'key');
-      await upsertChunks(d.sb,'rodios_app_users',d.allUsers.map(u=>({id:String(u.id),data:u,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_service_staff',d.allStaff.map((s,idx)=>({id:String(s.id||s.name||`staff_${idx+1}`).replace(/[^\w.\-:/]/g,'_'),data:s,deleted_at:null})));
-      try{ indexedDB.deleteDatabase('rodios_v9_cache_db'); }catch(e){}
-      localStorage.removeItem('rodios_v9_last_counts');
-      const {data:counts}=await d.sb.from('rodios_v9_counts').select('*');
-      out('Τελικά counts από v9',counts);
-      alert('✅ Migration v9 ολοκληρώθηκε.\n\nΤώρα έλεγξε rodios_v9_counts στο Supabase και μετά ανέβασε τη v9.2 ως κανονική εφαρμογή.');
-    }catch(e){ console.error(e); out('ΣΦΑΛΜΑ migration',{message:e.message}); alert('Σφάλμα migration: '+e.message); }
-  };
-  out('Migration helper φορτώθηκε. Πάτησε πρώτα Έλεγχος μετρήσεων.');
-})();
-</script>
-
-</body></html>');
+    win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;"><iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe></body></html>');
   }
   win.document.close();
 }
@@ -6648,155 +6052,6 @@ function printOrder(id){
   ${html}
   <br><button onclick="window.print()" style="margin-top:16px;padding:8px 20px;background:#1a3a5c;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">🖨 Εκτύπωση</button>
   
-
-
-
-<!-- RODIOS v9 migration helper - temporary build -->
-<style>
-#rodiosV9MigrationPanel{position:fixed;left:12px;bottom:34px;z-index:999999;background:#fff;border:2px solid #1a3a5c;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px 12px;font-family:Segoe UI,Arial,sans-serif;max-width:360px;font-size:12px;color:#1a1a1a}
-#rodiosV9MigrationPanel .t{font-weight:800;color:#1a3a5c;margin-bottom:4px}
-#rodiosV9MigrationPanel .s{font-size:11px;color:#555;line-height:1.35;margin-bottom:8px}
-#rodiosV9MigrationPanel button{background:#1a3a5c;color:#fff;border:none;border-radius:7px;padding:8px 10px;font-weight:700;cursor:pointer;font-size:12px;margin-right:6px}
-#rodiosV9MigrationPanel button.secondary{background:#eee;color:#1a1a1a;border:1px solid #bbb}
-#rodiosV9MigrationPanel pre{white-space:pre-wrap;background:#f6f6f6;border:1px solid #ddd;border-radius:6px;padding:6px;margin:7px 0 0;max-height:120px;overflow:auto;font-size:10px}
-</style>
-<div id="rodiosV9MigrationPanel">
-  <div class="t">RODIOS v9 Migration Helper</div>
-  <div class="s">Προσωρινή έκδοση μόνο για μεταφορά. Πρώτα περίμενε να εμφανιστούν όλα τα παλιά δεδομένα στην εφαρμογή.</div>
-  <button type="button" onclick="rodiosV9ShowCounts()">Έλεγχος μετρήσεων</button>
-  <button type="button" onclick="rodiosV9RunMigration()">Μεταφορά σε v9</button>
-  <pre id="rodiosV9MigOut">Αναμονή...</pre>
-</div>
-<script>
-(function(){
-  const OUT_ID='rodiosV9MigOut';
-  function out(msg,obj){
-    const el=document.getElementById(OUT_ID);
-    const line='['+new Date().toLocaleTimeString('el-GR')+'] '+msg+(obj?' '+JSON.stringify(obj,null,2):'');
-    if(el){ el.textContent=line+'\n'+(el.textContent||''); }
-    console.log('[RODIOS v9 MIGRATION]', msg, obj||'');
-  }
-  function arr(v){ if(Array.isArray(v)) return v; if(v&&Array.isArray(v.items)) return v.items; if(v&&Array.isArray(v.data)) return v.data; return []; }
-  function clean(value){ return JSON.parse(JSON.stringify(value,(key,val)=>{
-    if(['signedPdfData','pdfData','base64','base64Data','dataUrl'].includes(key)) return undefined;
-    if(typeof val==='string' && val.length>250000 && val.startsWith('data:')) return undefined;
-    return val;
-  })); }
-  function mergeById(...lists){
-    const map=new Map();
-    for(const list of lists){
-      for(const item of arr(list)){
-        if(!item || typeof item!=='object') continue;
-        const c=clean(item);
-        if(!c.id) c.id='id_'+crypto.randomUUID();
-        const id=String(c.id);
-        map.set(id,{...(map.get(id)||{}),...c});
-      }
-    }
-    return [...map.values()];
-  }
-  async function upsertChunks(sb,table,rows,onConflict='id',chunkSize=100){
-    if(!rows.length){ out(table+': 0'); return; }
-    for(let i=0;i<rows.length;i+=chunkSize){
-      const part=rows.slice(i,i+chunkSize);
-      const {error}=await sb.from(table).upsert(part,{onConflict});
-      if(error){ out('ΣΦΑΛΜΑ στο '+table,error); throw error; }
-      out(table+': '+Math.min(i+chunkSize,rows.length)+' / '+rows.length);
-    }
-  }
-  function attId(parentType,parentId,kind,idx,att){ return String(att?.id||att?.storage_path||att?.storagePath||att?.path||att?.url||att?.public_url||att?.publicUrl||`${parentType}_${parentId}_${kind}_${idx}`).slice(0,180).replace(/[^\w.\-:/]/g,'_'); }
-  function makeAttachmentRows(parentType,parentId,attachments,kind){
-    const rows=[];
-    arr(attachments).forEach((att,idx)=>{
-      if(!att || typeof att!=='object') return;
-      const c=clean(att);
-      rows.push({
-        id: attId(parentType,parentId,kind,idx,c),
-        parent_type: parentType,
-        parent_id: String(parentId),
-        file_name: c.name||c.filename||c.fileName||c.title||`${kind}_${idx+1}`,
-        file_type: c.type||c.fileType||c.mimeType||'',
-        file_size: Number(c.size||c.fileSize||0)||null,
-        storage_bucket: c.bucket||c.storage_bucket||'attachments',
-        storage_path: c.path||c.storage_path||c.storagePath||null,
-        public_url: c.url||c.public_url||c.publicUrl||c.downloadUrl||null,
-        data: {...c,kind}
-      });
-    });
-    return rows;
-  }
-  async function buildMigrationData(){
-    const sb=typeof getSupabase==='function'?getSupabase():null;
-    if(!sb) throw new Error('Δεν βρέθηκε Supabase client.');
-    const sess=await sb.auth.getSession();
-    if(!sess?.data?.session) throw new Error('Δεν υπάρχει Supabase Auth session. Κάνε login πρώτα.');
-
-    let old={};
-    try{
-      const {data,error}=await sb.from('app_data').select('key,value').in('key',['issues','workOrders','payments','settings','users','serviceStaff']);
-      if(!error){ (data||[]).forEach(r=>old[r.key]=r.value); }
-    }catch(e){ console.warn(e); }
-
-    let local={};
-    try{ local=JSON.parse(localStorage.getItem('autopistasia_data')||'{}'); }catch(e){}
-
-    const historicalIssues = typeof getHistoricalData==='function' ? getHistoricalData() : [];
-    const currentIssues = typeof issues!=='undefined' && Array.isArray(issues) ? issues : [];
-    const currentOrders = typeof workOrders!=='undefined' && Array.isArray(workOrders) ? workOrders : [];
-    const currentPayments = typeof payments!=='undefined' && Array.isArray(payments) ? payments : [];
-    const currentUsers = typeof getEffectiveUsers==='function' ? getEffectiveUsers() : JSON.parse(localStorage.getItem('rhodesAppUsers')||'[]');
-    const currentStaff = typeof SERVICE_STAFF!=='undefined' && Array.isArray(SERVICE_STAFF) ? SERVICE_STAFF : JSON.parse(localStorage.getItem('serviceStaff')||'[]');
-
-    const allIssues=mergeById(historicalIssues, old.issues, local.issues, currentIssues);
-    const allOrders=mergeById(old.workOrders, local.workOrders, currentOrders);
-    const allPayments=mergeById(old.payments, local.payments, currentPayments);
-    const allUsers=mergeById(old.users, currentUsers);
-    const allStaff=mergeById(old.serviceStaff, currentStaff);
-    const mergedSettings=clean({...(old.settings||{}),...(local.settings||{}),...(typeof settings!=='undefined'?settings:{})});
-
-    let attachmentRows=[];
-    for(const i of allIssues){ attachmentRows=attachmentRows.concat(makeAttachmentRows('issue',i.id,i.attachments,'issue_attachment')); }
-    for(const w of allOrders){
-      attachmentRows=attachmentRows.concat(
-        makeAttachmentRows('work_order',w.id,w.attachments,'work_order_attachment'),
-        makeAttachmentRows('work_order',w.id,w.mediaBefore,'media_before'),
-        makeAttachmentRows('work_order',w.id,w.mediaAfter,'media_after')
-      );
-    }
-    const seen=new Set();
-    attachmentRows=attachmentRows.filter(a=>{ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
-
-    return {sb, allIssues, allOrders, allPayments, allUsers, allStaff, mergedSettings, attachmentRows,
-      counts:{issues:allIssues.length,workOrders:allOrders.length,payments:allPayments.length,users:allUsers.length,serviceStaff:allStaff.length,attachments:attachmentRows.length,
-        currentIssues:currentIssues.length,currentOrders:currentOrders.length,historicalIssues:historicalIssues.length,appDataIssues:arr(old.issues).length,appDataOrders:arr(old.workOrders).length}};
-  }
-  window.rodiosV9ShowCounts=async function(){
-    try{ const d=await buildMigrationData(); out('Μετρήσεις migration',d.counts); alert('Μετρήσεις migration:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments); }
-    catch(e){ out('Σφάλμα ελέγχου',{message:e.message}); alert('Σφάλμα: '+e.message); }
-  };
-  window.rodiosV9RunMigration=async function(){
-    try{
-      const d=await buildMigrationData();
-      out('Έτοιμο για migration',d.counts);
-      const ok=confirm('Θα μεταφερθούν σε v9:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments+'\n\nΔεν διαγράφεται τίποτα. Συνέχεια;');
-      if(!ok) return;
-      await upsertChunks(d.sb,'rodios_issues',d.allIssues.map(i=>({id:String(i.id),data:i,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_work_orders',d.allOrders.map(w=>({id:String(w.id),issue_id:w.issueId||w.issue_id||null,data:w,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_payments',d.allPayments.map(p=>({id:String(p.id),work_order_id:p.workOrderId||p.orderId||p.woId||p.work_order_id||null,data:p,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_attachments',d.attachmentRows);
-      await upsertChunks(d.sb,'rodios_settings',[{key:'main',value:d.mergedSettings}], 'key');
-      await upsertChunks(d.sb,'rodios_app_users',d.allUsers.map(u=>({id:String(u.id),data:u,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_service_staff',d.allStaff.map((s,idx)=>({id:String(s.id||s.name||`staff_${idx+1}`).replace(/[^\w.\-:/]/g,'_'),data:s,deleted_at:null})));
-      try{ indexedDB.deleteDatabase('rodios_v9_cache_db'); }catch(e){}
-      localStorage.removeItem('rodios_v9_last_counts');
-      const {data:counts}=await d.sb.from('rodios_v9_counts').select('*');
-      out('Τελικά counts από v9',counts);
-      alert('✅ Migration v9 ολοκληρώθηκε.\n\nΤώρα έλεγξε rodios_v9_counts στο Supabase και μετά ανέβασε τη v9.2 ως κανονική εφαρμογή.');
-    }catch(e){ console.error(e); out('ΣΦΑΛΜΑ migration',{message:e.message}); alert('Σφάλμα migration: '+e.message); }
-  };
-  out('Migration helper φορτώθηκε. Πάτησε πρώτα Έλεγχος μετρήσεων.');
-})();
-</script>
 
 </body></html>`);
   win.document.close();
@@ -8160,156 +7415,7 @@ function printBulkProtocol(){
     +'<tr style="background:#1a3a5c;color:#fff;font-weight:700;"><td colspan="5" style="text-align:right;">ΓΕΝΙΚΟ ΣΥΝΟΛΟ ΜΕ ΦΠΑ '+vatR+'%:</td><td>'+fmt(totalNet*(1+vatR/100))+' €</td></tr>'
     +'</tbody></table>'
     +'<p style="margin-top:20px;"><strong>Η Επιτροπή Παραλαβής:</strong></p>'
-    +'<table><tr>'+sigCells+'</tr></table>
-
-<!-- RODIOS v9 migration helper - temporary build -->
-<style>
-#rodiosV9MigrationPanel{position:fixed;left:12px;bottom:34px;z-index:999999;background:#fff;border:2px solid #1a3a5c;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px 12px;font-family:Segoe UI,Arial,sans-serif;max-width:360px;font-size:12px;color:#1a1a1a}
-#rodiosV9MigrationPanel .t{font-weight:800;color:#1a3a5c;margin-bottom:4px}
-#rodiosV9MigrationPanel .s{font-size:11px;color:#555;line-height:1.35;margin-bottom:8px}
-#rodiosV9MigrationPanel button{background:#1a3a5c;color:#fff;border:none;border-radius:7px;padding:8px 10px;font-weight:700;cursor:pointer;font-size:12px;margin-right:6px}
-#rodiosV9MigrationPanel button.secondary{background:#eee;color:#1a1a1a;border:1px solid #bbb}
-#rodiosV9MigrationPanel pre{white-space:pre-wrap;background:#f6f6f6;border:1px solid #ddd;border-radius:6px;padding:6px;margin:7px 0 0;max-height:120px;overflow:auto;font-size:10px}
-</style>
-<div id="rodiosV9MigrationPanel">
-  <div class="t">RODIOS v9 Migration Helper</div>
-  <div class="s">Προσωρινή έκδοση μόνο για μεταφορά. Πρώτα περίμενε να εμφανιστούν όλα τα παλιά δεδομένα στην εφαρμογή.</div>
-  <button type="button" onclick="rodiosV9ShowCounts()">Έλεγχος μετρήσεων</button>
-  <button type="button" onclick="rodiosV9RunMigration()">Μεταφορά σε v9</button>
-  <pre id="rodiosV9MigOut">Αναμονή...</pre>
-</div>
-<script>
-(function(){
-  const OUT_ID='rodiosV9MigOut';
-  function out(msg,obj){
-    const el=document.getElementById(OUT_ID);
-    const line='['+new Date().toLocaleTimeString('el-GR')+'] '+msg+(obj?' '+JSON.stringify(obj,null,2):'');
-    if(el){ el.textContent=line+'\n'+(el.textContent||''); }
-    console.log('[RODIOS v9 MIGRATION]', msg, obj||'');
-  }
-  function arr(v){ if(Array.isArray(v)) return v; if(v&&Array.isArray(v.items)) return v.items; if(v&&Array.isArray(v.data)) return v.data; return []; }
-  function clean(value){ return JSON.parse(JSON.stringify(value,(key,val)=>{
-    if(['signedPdfData','pdfData','base64','base64Data','dataUrl'].includes(key)) return undefined;
-    if(typeof val==='string' && val.length>250000 && val.startsWith('data:')) return undefined;
-    return val;
-  })); }
-  function mergeById(...lists){
-    const map=new Map();
-    for(const list of lists){
-      for(const item of arr(list)){
-        if(!item || typeof item!=='object') continue;
-        const c=clean(item);
-        if(!c.id) c.id='id_'+crypto.randomUUID();
-        const id=String(c.id);
-        map.set(id,{...(map.get(id)||{}),...c});
-      }
-    }
-    return [...map.values()];
-  }
-  async function upsertChunks(sb,table,rows,onConflict='id',chunkSize=100){
-    if(!rows.length){ out(table+': 0'); return; }
-    for(let i=0;i<rows.length;i+=chunkSize){
-      const part=rows.slice(i,i+chunkSize);
-      const {error}=await sb.from(table).upsert(part,{onConflict});
-      if(error){ out('ΣΦΑΛΜΑ στο '+table,error); throw error; }
-      out(table+': '+Math.min(i+chunkSize,rows.length)+' / '+rows.length);
-    }
-  }
-  function attId(parentType,parentId,kind,idx,att){ return String(att?.id||att?.storage_path||att?.storagePath||att?.path||att?.url||att?.public_url||att?.publicUrl||`${parentType}_${parentId}_${kind}_${idx}`).slice(0,180).replace(/[^\w.\-:/]/g,'_'); }
-  function makeAttachmentRows(parentType,parentId,attachments,kind){
-    const rows=[];
-    arr(attachments).forEach((att,idx)=>{
-      if(!att || typeof att!=='object') return;
-      const c=clean(att);
-      rows.push({
-        id: attId(parentType,parentId,kind,idx,c),
-        parent_type: parentType,
-        parent_id: String(parentId),
-        file_name: c.name||c.filename||c.fileName||c.title||`${kind}_${idx+1}`,
-        file_type: c.type||c.fileType||c.mimeType||'',
-        file_size: Number(c.size||c.fileSize||0)||null,
-        storage_bucket: c.bucket||c.storage_bucket||'attachments',
-        storage_path: c.path||c.storage_path||c.storagePath||null,
-        public_url: c.url||c.public_url||c.publicUrl||c.downloadUrl||null,
-        data: {...c,kind}
-      });
-    });
-    return rows;
-  }
-  async function buildMigrationData(){
-    const sb=typeof getSupabase==='function'?getSupabase():null;
-    if(!sb) throw new Error('Δεν βρέθηκε Supabase client.');
-    const sess=await sb.auth.getSession();
-    if(!sess?.data?.session) throw new Error('Δεν υπάρχει Supabase Auth session. Κάνε login πρώτα.');
-
-    let old={};
-    try{
-      const {data,error}=await sb.from('app_data').select('key,value').in('key',['issues','workOrders','payments','settings','users','serviceStaff']);
-      if(!error){ (data||[]).forEach(r=>old[r.key]=r.value); }
-    }catch(e){ console.warn(e); }
-
-    let local={};
-    try{ local=JSON.parse(localStorage.getItem('autopistasia_data')||'{}'); }catch(e){}
-
-    const historicalIssues = typeof getHistoricalData==='function' ? getHistoricalData() : [];
-    const currentIssues = typeof issues!=='undefined' && Array.isArray(issues) ? issues : [];
-    const currentOrders = typeof workOrders!=='undefined' && Array.isArray(workOrders) ? workOrders : [];
-    const currentPayments = typeof payments!=='undefined' && Array.isArray(payments) ? payments : [];
-    const currentUsers = typeof getEffectiveUsers==='function' ? getEffectiveUsers() : JSON.parse(localStorage.getItem('rhodesAppUsers')||'[]');
-    const currentStaff = typeof SERVICE_STAFF!=='undefined' && Array.isArray(SERVICE_STAFF) ? SERVICE_STAFF : JSON.parse(localStorage.getItem('serviceStaff')||'[]');
-
-    const allIssues=mergeById(historicalIssues, old.issues, local.issues, currentIssues);
-    const allOrders=mergeById(old.workOrders, local.workOrders, currentOrders);
-    const allPayments=mergeById(old.payments, local.payments, currentPayments);
-    const allUsers=mergeById(old.users, currentUsers);
-    const allStaff=mergeById(old.serviceStaff, currentStaff);
-    const mergedSettings=clean({...(old.settings||{}),...(local.settings||{}),...(typeof settings!=='undefined'?settings:{})});
-
-    let attachmentRows=[];
-    for(const i of allIssues){ attachmentRows=attachmentRows.concat(makeAttachmentRows('issue',i.id,i.attachments,'issue_attachment')); }
-    for(const w of allOrders){
-      attachmentRows=attachmentRows.concat(
-        makeAttachmentRows('work_order',w.id,w.attachments,'work_order_attachment'),
-        makeAttachmentRows('work_order',w.id,w.mediaBefore,'media_before'),
-        makeAttachmentRows('work_order',w.id,w.mediaAfter,'media_after')
-      );
-    }
-    const seen=new Set();
-    attachmentRows=attachmentRows.filter(a=>{ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
-
-    return {sb, allIssues, allOrders, allPayments, allUsers, allStaff, mergedSettings, attachmentRows,
-      counts:{issues:allIssues.length,workOrders:allOrders.length,payments:allPayments.length,users:allUsers.length,serviceStaff:allStaff.length,attachments:attachmentRows.length,
-        currentIssues:currentIssues.length,currentOrders:currentOrders.length,historicalIssues:historicalIssues.length,appDataIssues:arr(old.issues).length,appDataOrders:arr(old.workOrders).length}};
-  }
-  window.rodiosV9ShowCounts=async function(){
-    try{ const d=await buildMigrationData(); out('Μετρήσεις migration',d.counts); alert('Μετρήσεις migration:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments); }
-    catch(e){ out('Σφάλμα ελέγχου',{message:e.message}); alert('Σφάλμα: '+e.message); }
-  };
-  window.rodiosV9RunMigration=async function(){
-    try{
-      const d=await buildMigrationData();
-      out('Έτοιμο για migration',d.counts);
-      const ok=confirm('Θα μεταφερθούν σε v9:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments+'\n\nΔεν διαγράφεται τίποτα. Συνέχεια;');
-      if(!ok) return;
-      await upsertChunks(d.sb,'rodios_issues',d.allIssues.map(i=>({id:String(i.id),data:i,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_work_orders',d.allOrders.map(w=>({id:String(w.id),issue_id:w.issueId||w.issue_id||null,data:w,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_payments',d.allPayments.map(p=>({id:String(p.id),work_order_id:p.workOrderId||p.orderId||p.woId||p.work_order_id||null,data:p,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_attachments',d.attachmentRows);
-      await upsertChunks(d.sb,'rodios_settings',[{key:'main',value:d.mergedSettings}], 'key');
-      await upsertChunks(d.sb,'rodios_app_users',d.allUsers.map(u=>({id:String(u.id),data:u,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_service_staff',d.allStaff.map((s,idx)=>({id:String(s.id||s.name||`staff_${idx+1}`).replace(/[^\w.\-:/]/g,'_'),data:s,deleted_at:null})));
-      try{ indexedDB.deleteDatabase('rodios_v9_cache_db'); }catch(e){}
-      localStorage.removeItem('rodios_v9_last_counts');
-      const {data:counts}=await d.sb.from('rodios_v9_counts').select('*');
-      out('Τελικά counts από v9',counts);
-      alert('✅ Migration v9 ολοκληρώθηκε.\n\nΤώρα έλεγξε rodios_v9_counts στο Supabase και μετά ανέβασε τη v9.2 ως κανονική εφαρμογή.');
-    }catch(e){ console.error(e); out('ΣΦΑΛΜΑ migration',{message:e.message}); alert('Σφάλμα migration: '+e.message); }
-  };
-  out('Migration helper φορτώθηκε. Πάτησε πρώτα Έλεγχος μετρήσεων.');
-})();
-</script>
-
-</body></html>';
+    +'<table><tr>'+sigCells+'</tr></table></body></html>';
   const win=window.open('','_blank','width=900,height=1000');
   win.document.write(html); win.document.close();
   setTimeout(()=>win.print(),600);
@@ -8669,152 +7775,202 @@ function printBulkProtocol(){
 })();
 </script>
 
-
-<!-- RODIOS v9 migration helper - temporary build -->
+<!-- RODIOS v9 migration helper - temporary build v8 login fixed -->
 <style>
-#rodiosV9MigrationPanel{position:fixed;left:12px;bottom:34px;z-index:999999;background:#fff;border:2px solid #1a3a5c;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px 12px;font-family:Segoe UI,Arial,sans-serif;max-width:360px;font-size:12px;color:#1a1a1a}
+#rodiosV9MigrationPanel{position:fixed;left:12px;bottom:34px;z-index:999999;background:#fff;border:2px solid #1a3a5c;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px 12px;font-family:Segoe UI,Arial,sans-serif;max-width:390px;font-size:12px;color:#1a1a1a}
 #rodiosV9MigrationPanel .t{font-weight:800;color:#1a3a5c;margin-bottom:4px}
 #rodiosV9MigrationPanel .s{font-size:11px;color:#555;line-height:1.35;margin-bottom:8px}
-#rodiosV9MigrationPanel button{background:#1a3a5c;color:#fff;border:none;border-radius:7px;padding:8px 10px;font-weight:700;cursor:pointer;font-size:12px;margin-right:6px}
+#rodiosV9MigrationPanel button{background:#1a3a5c;color:#fff;border:none;border-radius:7px;padding:8px 10px;font-weight:700;cursor:pointer;font-size:12px;margin:0 6px 6px 0}
 #rodiosV9MigrationPanel button.secondary{background:#eee;color:#1a1a1a;border:1px solid #bbb}
-#rodiosV9MigrationPanel pre{white-space:pre-wrap;background:#f6f6f6;border:1px solid #ddd;border-radius:6px;padding:6px;margin:7px 0 0;max-height:120px;overflow:auto;font-size:10px}
+#rodiosV9MigrationPanel pre{white-space:pre-wrap;background:#f6f6f6;border:1px solid #ddd;border-radius:6px;padding:6px;margin:7px 0 0;max-height:150px;overflow:auto;font-size:10px}
 </style>
 <div id="rodiosV9MigrationPanel">
   <div class="t">RODIOS v9 Migration Helper</div>
-  <div class="s">Προσωρινή έκδοση μόνο για μεταφορά. Πρώτα περίμενε να εμφανιστούν όλα τα παλιά δεδομένα στην εφαρμογή.</div>
+  <div class="s">Προσωρινή έκδοση μόνο για μεταφορά. Κάνε login και περίμενε να εμφανιστούν όλα τα παλιά δεδομένα, π.χ. 209 αιτήματα και 92 εντολές.</div>
   <button type="button" onclick="rodiosV9ShowCounts()">Έλεγχος μετρήσεων</button>
   <button type="button" onclick="rodiosV9RunMigration()">Μεταφορά σε v9</button>
-  <pre id="rodiosV9MigOut">Αναμονή...</pre>
+  <button type="button" class="secondary" onclick="rodiosV9ClearPanel()">Καθαρισμός</button>
+  <pre id="rodiosV9MigrationOut">Έτοιμο.</pre>
 </div>
 <script>
 (function(){
-  const OUT_ID='rodiosV9MigOut';
-  function out(msg,obj){
-    const el=document.getElementById(OUT_ID);
-    const line='['+new Date().toLocaleTimeString('el-GR')+'] '+msg+(obj?' '+JSON.stringify(obj,null,2):'');
-    if(el){ el.textContent=line+'\n'+(el.textContent||''); }
-    console.log('[RODIOS v9 MIGRATION]', msg, obj||'');
+  window.RODIOS_BUILD = 'v9-migration-source-v8-login-fixed-2026-05-30';
+  window.addEventListener('load', function(){
+    try{
+      document.querySelectorAll('.rodios-build-tag').forEach(function(el){ el.remove(); });
+      var tag=document.createElement('div');
+      tag.className='rodios-build-tag';
+      tag.textContent='Build: '+window.RODIOS_BUILD;
+      tag.style.cssText='position:fixed;left:8px;bottom:6px;z-index:999999;background:#fffbe6;border:1px solid #f59e0b;color:#7c2d12;border-radius:4px;padding:3px 7px;font:10px system-ui;opacity:.9';
+      document.body.appendChild(tag);
+      var loginBtn=document.getElementById('loginBtn');
+      if(loginBtn){
+        loginBtn.disabled=false;
+        loginBtn.onclick=function(e){ e.preventDefault(); if(typeof doLogin==='function') doLogin(); else alert('Δεν φορτώθηκε η συνάρτηση doLogin. Κάνε Ctrl+F5.'); };
+      }
+    }catch(e){ console.warn('v9 migration build tag/login fix failed', e); }
+  });
+})();
+
+function rodiosV9Out(msg, obj){
+  var el=document.getElementById('rodiosV9MigrationOut');
+  var text='['+(new Date()).toLocaleTimeString('el-GR')+'] '+msg;
+  if(obj!==undefined){
+    try{ text += '\n' + JSON.stringify(obj, null, 2); }catch(_){ text += '\n' + String(obj); }
   }
-  function arr(v){ if(Array.isArray(v)) return v; if(v&&Array.isArray(v.items)) return v.items; if(v&&Array.isArray(v.data)) return v.data; return []; }
-  function clean(value){ return JSON.parse(JSON.stringify(value,(key,val)=>{
-    if(['signedPdfData','pdfData','base64','base64Data','dataUrl'].includes(key)) return undefined;
+  if(el) el.textContent=text;
+  console.log('%c[RODIOS v9 migration] '+msg, 'color:#1a3a5c;font-weight:bold;', obj||'');
+}
+function rodiosV9ClearPanel(){ rodiosV9Out('Έτοιμο.'); }
+function rodiosV9Arr(v){
+  if(Array.isArray(v)) return v;
+  if(v && Array.isArray(v.items)) return v.items;
+  if(v && Array.isArray(v.data)) return v.data;
+  return [];
+}
+function rodiosV9Clean(value){
+  return JSON.parse(JSON.stringify(value, function(key, val){
+    if(key==='signedPdfData'||key==='pdfData'||key==='base64'||key==='base64Data'||key==='dataUrl') return undefined;
     if(typeof val==='string' && val.length>250000 && val.startsWith('data:')) return undefined;
     return val;
-  })); }
-  function mergeById(...lists){
-    const map=new Map();
-    for(const list of lists){
-      for(const item of arr(list)){
-        if(!item || typeof item!=='object') continue;
-        const c=clean(item);
-        if(!c.id) c.id='id_'+crypto.randomUUID();
-        const id=String(c.id);
-        map.set(id,{...(map.get(id)||{}),...c});
-      }
-    }
-    return [...map.values()];
-  }
-  async function upsertChunks(sb,table,rows,onConflict='id',chunkSize=100){
-    if(!rows.length){ out(table+': 0'); return; }
-    for(let i=0;i<rows.length;i+=chunkSize){
-      const part=rows.slice(i,i+chunkSize);
-      const {error}=await sb.from(table).upsert(part,{onConflict});
-      if(error){ out('ΣΦΑΛΜΑ στο '+table,error); throw error; }
-      out(table+': '+Math.min(i+chunkSize,rows.length)+' / '+rows.length);
+  }));
+}
+function rodiosV9MergeById(){
+  var map=new Map();
+  for(var a=0;a<arguments.length;a++){
+    var list=rodiosV9Arr(arguments[a]);
+    for(var i=0;i<list.length;i++){
+      var item=list[i];
+      if(!item || typeof item!=='object') continue;
+      var c=rodiosV9Clean(item);
+      if(!c.id) c.id='id_'+crypto.randomUUID();
+      var id=String(c.id);
+      map.set(id, Object.assign({}, map.get(id)||{}, c));
     }
   }
-  function attId(parentType,parentId,kind,idx,att){ return String(att?.id||att?.storage_path||att?.storagePath||att?.path||att?.url||att?.public_url||att?.publicUrl||`${parentType}_${parentId}_${kind}_${idx}`).slice(0,180).replace(/[^\w.\-:/]/g,'_'); }
-  function makeAttachmentRows(parentType,parentId,attachments,kind){
-    const rows=[];
-    arr(attachments).forEach((att,idx)=>{
-      if(!att || typeof att!=='object') return;
-      const c=clean(att);
-      rows.push({
-        id: attId(parentType,parentId,kind,idx,c),
-        parent_type: parentType,
-        parent_id: String(parentId),
-        file_name: c.name||c.filename||c.fileName||c.title||`${kind}_${idx+1}`,
-        file_type: c.type||c.fileType||c.mimeType||'',
-        file_size: Number(c.size||c.fileSize||0)||null,
-        storage_bucket: c.bucket||c.storage_bucket||'attachments',
-        storage_path: c.path||c.storage_path||c.storagePath||null,
-        public_url: c.url||c.public_url||c.publicUrl||c.downloadUrl||null,
-        data: {...c,kind}
-      });
+  return Array.from(map.values());
+}
+function rodiosV9CurrentCounts(){
+  var hist=[];
+  try{ hist = (typeof getHistoricalData==='function') ? getHistoricalData() : []; }catch(_){ hist=[]; }
+  var curIssues = (typeof issues!=='undefined' && Array.isArray(issues)) ? issues : [];
+  var curOrders = (typeof workOrders!=='undefined' && Array.isArray(workOrders)) ? workOrders : [];
+  var curPayments = (typeof payments!=='undefined' && Array.isArray(payments)) ? payments : [];
+  return {
+    historicalIssues: hist.length,
+    currentIssues: curIssues.length,
+    currentWorkOrders: curOrders.length,
+    currentPayments: curPayments.length,
+    loggedIn: !!(window.currentUser || window._currentUser)
+  };
+}
+function rodiosV9ShowCounts(){
+  var c=rodiosV9CurrentCounts();
+  rodiosV9Out('Τρέχουσες μετρήσεις εφαρμογής. Αν δεν βλέπεις 209/92, περίμενε να συγχρονίσει πρώτα.', c);
+}
+async function rodiosV9UpsertChunks(sb, table, rows, onConflict, chunkSize){
+  onConflict = onConflict || 'id';
+  chunkSize = chunkSize || 100;
+  if(!rows || !rows.length){ rodiosV9Out(table+': 0 εγγραφές — παράλειψη'); return; }
+  for(var i=0;i<rows.length;i+=chunkSize){
+    var part=rows.slice(i,i+chunkSize);
+    var res=await sb.from(table).upsert(part,{onConflict:onConflict});
+    if(res.error){ console.error('Σφάλμα στο '+table, res.error, part); throw res.error; }
+    rodiosV9Out(table+': '+Math.min(i+chunkSize, rows.length)+' / '+rows.length);
+  }
+}
+function rodiosV9AttId(parentType,parentId,kind,idx,att){
+  var raw=(att&& (att.id||att.storage_path||att.storagePath||att.path||att.url||att.public_url||att.publicUrl)) || (parentType+'_'+parentId+'_'+kind+'_'+idx);
+  return String(raw).slice(0,180).replace(/[^\w.\-:/]/g,'_');
+}
+function rodiosV9AttachmentRows(parentType,parentId,attachments,kind){
+  var out=[];
+  rodiosV9Arr(attachments).forEach(function(att,idx){
+    if(!att || typeof att!=='object') return;
+    var c=rodiosV9Clean(att);
+    out.push({
+      id: rodiosV9AttId(parentType,parentId,kind,idx,c),
+      parent_type: parentType,
+      parent_id: String(parentId),
+      file_name: c.name || c.filename || c.fileName || c.title || (kind+'_'+(idx+1)),
+      file_type: c.type || c.fileType || c.mimeType || '',
+      file_size: Number(c.size || c.fileSize || 0) || null,
+      storage_bucket: c.bucket || c.storage_bucket || 'attachments',
+      storage_path: c.path || c.storage_path || c.storagePath || null,
+      public_url: c.url || c.public_url || c.publicUrl || c.downloadUrl || null,
+      data: Object.assign({}, c, {kind:kind})
     });
-    return rows;
-  }
-  async function buildMigrationData(){
-    const sb=typeof getSupabase==='function'?getSupabase():null;
-    if(!sb) throw new Error('Δεν βρέθηκε Supabase client.');
-    const sess=await sb.auth.getSession();
-    if(!sess?.data?.session) throw new Error('Δεν υπάρχει Supabase Auth session. Κάνε login πρώτα.');
+  });
+  return out;
+}
+async function rodiosV9RunMigration(){
+  try{
+    var sb = (typeof getSupabase==='function') ? getSupabase() : null;
+    if(!sb){ alert('Δεν βρέθηκε Supabase client. Άνοιξε την κανονική εφαρμογή και κάνε login.'); return; }
+    var session = await sb.auth.getSession();
+    if(!session || !session.data || !session.data.session){ alert('Δεν υπάρχει ενεργό Supabase Auth session. Κάνε ξανά login και ξαναδοκίμασε.'); return; }
 
-    let old={};
-    try{
-      const {data,error}=await sb.from('app_data').select('key,value').in('key',['issues','workOrders','payments','settings','users','serviceStaff']);
-      if(!error){ (data||[]).forEach(r=>old[r.key]=r.value); }
-    }catch(e){ console.warn(e); }
-
-    let local={};
-    try{ local=JSON.parse(localStorage.getItem('autopistasia_data')||'{}'); }catch(e){}
-
-    const historicalIssues = typeof getHistoricalData==='function' ? getHistoricalData() : [];
-    const currentIssues = typeof issues!=='undefined' && Array.isArray(issues) ? issues : [];
-    const currentOrders = typeof workOrders!=='undefined' && Array.isArray(workOrders) ? workOrders : [];
-    const currentPayments = typeof payments!=='undefined' && Array.isArray(payments) ? payments : [];
-    const currentUsers = typeof getEffectiveUsers==='function' ? getEffectiveUsers() : JSON.parse(localStorage.getItem('rhodesAppUsers')||'[]');
-    const currentStaff = typeof SERVICE_STAFF!=='undefined' && Array.isArray(SERVICE_STAFF) ? SERVICE_STAFF : JSON.parse(localStorage.getItem('serviceStaff')||'[]');
-
-    const allIssues=mergeById(historicalIssues, old.issues, local.issues, currentIssues);
-    const allOrders=mergeById(old.workOrders, local.workOrders, currentOrders);
-    const allPayments=mergeById(old.payments, local.payments, currentPayments);
-    const allUsers=mergeById(old.users, currentUsers);
-    const allStaff=mergeById(old.serviceStaff, currentStaff);
-    const mergedSettings=clean({...(old.settings||{}),...(local.settings||{}),...(typeof settings!=='undefined'?settings:{})});
-
-    let attachmentRows=[];
-    for(const i of allIssues){ attachmentRows=attachmentRows.concat(makeAttachmentRows('issue',i.id,i.attachments,'issue_attachment')); }
-    for(const w of allOrders){
-      attachmentRows=attachmentRows.concat(
-        makeAttachmentRows('work_order',w.id,w.attachments,'work_order_attachment'),
-        makeAttachmentRows('work_order',w.id,w.mediaBefore,'media_before'),
-        makeAttachmentRows('work_order',w.id,w.mediaAfter,'media_after')
-      );
+    var counts=rodiosV9CurrentCounts();
+    if(counts.currentIssues < 150){
+      var cont=confirm('Βλέπω μόνο '+counts.currentIssues+' αιτήματα. Αν περιμένεις 209, πάτα Άκυρο και περίμενε τον συγχρονισμό. Να συνεχίσω;');
+      if(!cont) return;
     }
-    const seen=new Set();
-    attachmentRows=attachmentRows.filter(a=>{ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
 
-    return {sb, allIssues, allOrders, allPayments, allUsers, allStaff, mergedSettings, attachmentRows,
-      counts:{issues:allIssues.length,workOrders:allOrders.length,payments:allPayments.length,users:allUsers.length,serviceStaff:allStaff.length,attachments:attachmentRows.length,
-        currentIssues:currentIssues.length,currentOrders:currentOrders.length,historicalIssues:historicalIssues.length,appDataIssues:arr(old.issues).length,appDataOrders:arr(old.workOrders).length}};
+    rodiosV9Out('Διαβάζω παλιό app_data...');
+    var oldRes = await sb.from('app_data').select('key,value').in('key',['issues','workOrders','payments','settings','users','serviceStaff']);
+    if(oldRes.error){ console.warn('Δεν μπόρεσα να διαβάσω app_data', oldRes.error); }
+    var old={};
+    (oldRes.data||[]).forEach(function(r){ old[r.key]=r.value; });
+
+    var local={};
+    try{ local=JSON.parse(localStorage.getItem('autopistasia_data')||'{}'); }catch(_){ local={}; }
+    var hist=[];
+    try{ hist = (typeof getHistoricalData==='function') ? getHistoricalData() : []; }catch(_){ hist=[]; }
+
+    var allIssues=rodiosV9MergeById(hist, old.issues, local.issues, (typeof issues!=='undefined'?issues:[]));
+    var allOrders=rodiosV9MergeById(old.workOrders, local.workOrders, (typeof workOrders!=='undefined'?workOrders:[]));
+    var allPayments=rodiosV9MergeById(old.payments, local.payments, (typeof payments!=='undefined'?payments:[]));
+    var allUsers=rodiosV9MergeById(old.users, JSON.parse(localStorage.getItem('rhodesAppUsers')||'[]'), (typeof getEffectiveUsers==='function'?getEffectiveUsers():[]));
+    var allStaff=rodiosV9MergeById(old.serviceStaff, JSON.parse(localStorage.getItem('serviceStaff')||'[]'), (typeof SERVICE_STAFF!=='undefined'?SERVICE_STAFF:[]));
+    var mergedSettings=rodiosV9Clean(Object.assign({}, old.settings||{}, local.settings||{}, (typeof settings!=='undefined'?settings:{})));
+
+    var attachmentRows=[];
+    allIssues.forEach(function(i){ attachmentRows=attachmentRows.concat(rodiosV9AttachmentRows('issue', i.id, i.attachments, 'issue_attachment')); });
+    allOrders.forEach(function(w){
+      attachmentRows=attachmentRows.concat(
+        rodiosV9AttachmentRows('work_order', w.id, w.attachments, 'work_order_attachment'),
+        rodiosV9AttachmentRows('work_order', w.id, w.mediaBefore, 'media_before'),
+        rodiosV9AttachmentRows('work_order', w.id, w.mediaAfter, 'media_after')
+      );
+    });
+    var seen=new Set();
+    attachmentRows=attachmentRows.filter(function(a){ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
+
+    var summary={issues:allIssues.length, workOrders:allOrders.length, payments:allPayments.length, attachments:attachmentRows.length, users:allUsers.length, serviceStaff:allStaff.length};
+    console.table(summary);
+    var ok=confirm('Θα γίνει μεταφορά v9 με:\n\nΑιτήματα: '+summary.issues+'\nΕντολές: '+summary.workOrders+'\nΠληρωμές: '+summary.payments+'\nΣυνημμένα: '+summary.attachments+'\n\nΔεν θα διαγραφεί τίποτα. Συνέχεια;');
+    if(!ok) return;
+
+    await rodiosV9UpsertChunks(sb,'rodios_issues',allIssues.map(function(i){ return {id:String(i.id), data:i, deleted_at:null}; }),'id',100);
+    await rodiosV9UpsertChunks(sb,'rodios_work_orders',allOrders.map(function(w){ return {id:String(w.id), issue_id:w.issueId||w.issue_id||null, data:w, deleted_at:null}; }),'id',100);
+    await rodiosV9UpsertChunks(sb,'rodios_payments',allPayments.map(function(p){ return {id:String(p.id), work_order_id:p.workOrderId||p.orderId||p.woId||p.work_order_id||null, data:p, deleted_at:null}; }),'id',100);
+    await rodiosV9UpsertChunks(sb,'rodios_attachments',attachmentRows,'id',100);
+    await rodiosV9UpsertChunks(sb,'rodios_settings',[{key:'main', value:mergedSettings}],'key',50);
+    await rodiosV9UpsertChunks(sb,'rodios_app_users',allUsers.map(function(u){ return {id:String(u.id), data:u, deleted_at:null}; }),'id',100);
+    await rodiosV9UpsertChunks(sb,'rodios_service_staff',allStaff.map(function(s,idx){ return {id:String(s.id||s.name||('staff_'+(idx+1))).replace(/[^\w.\-:/]/g,'_'), data:s, deleted_at:null}; }),'id',100);
+
+    try{ indexedDB.deleteDatabase('rodios_v9_cache_db'); }catch(_){ }
+    localStorage.removeItem('rodios_v9_last_counts');
+    var countsRes=await sb.from('rodios_v9_counts').select('*');
+    if(!countsRes.error) console.table(countsRes.data);
+    rodiosV9Out('Η μεταφορά ολοκληρώθηκε.', summary);
+    alert('✅ Η μεταφορά v9 ολοκληρώθηκε. Τώρα έλεγξε το rodios_v9_counts στο Supabase.');
+  }catch(e){
+    console.error(e);
+    rodiosV9Out('Σφάλμα μεταφοράς: '+(e.message||String(e)), e);
+    alert('Σφάλμα μεταφοράς: '+(e.message||String(e)));
   }
-  window.rodiosV9ShowCounts=async function(){
-    try{ const d=await buildMigrationData(); out('Μετρήσεις migration',d.counts); alert('Μετρήσεις migration:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments); }
-    catch(e){ out('Σφάλμα ελέγχου',{message:e.message}); alert('Σφάλμα: '+e.message); }
-  };
-  window.rodiosV9RunMigration=async function(){
-    try{
-      const d=await buildMigrationData();
-      out('Έτοιμο για migration',d.counts);
-      const ok=confirm('Θα μεταφερθούν σε v9:\n\nΑιτήματα: '+d.counts.issues+'\nΕντολές: '+d.counts.workOrders+'\nΠληρωμές: '+d.counts.payments+'\nΣυνημμένα: '+d.counts.attachments+'\n\nΔεν διαγράφεται τίποτα. Συνέχεια;');
-      if(!ok) return;
-      await upsertChunks(d.sb,'rodios_issues',d.allIssues.map(i=>({id:String(i.id),data:i,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_work_orders',d.allOrders.map(w=>({id:String(w.id),issue_id:w.issueId||w.issue_id||null,data:w,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_payments',d.allPayments.map(p=>({id:String(p.id),work_order_id:p.workOrderId||p.orderId||p.woId||p.work_order_id||null,data:p,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_attachments',d.attachmentRows);
-      await upsertChunks(d.sb,'rodios_settings',[{key:'main',value:d.mergedSettings}], 'key');
-      await upsertChunks(d.sb,'rodios_app_users',d.allUsers.map(u=>({id:String(u.id),data:u,deleted_at:null})));
-      await upsertChunks(d.sb,'rodios_service_staff',d.allStaff.map((s,idx)=>({id:String(s.id||s.name||`staff_${idx+1}`).replace(/[^\w.\-:/]/g,'_'),data:s,deleted_at:null})));
-      try{ indexedDB.deleteDatabase('rodios_v9_cache_db'); }catch(e){}
-      localStorage.removeItem('rodios_v9_last_counts');
-      const {data:counts}=await d.sb.from('rodios_v9_counts').select('*');
-      out('Τελικά counts από v9',counts);
-      alert('✅ Migration v9 ολοκληρώθηκε.\n\nΤώρα έλεγξε rodios_v9_counts στο Supabase και μετά ανέβασε τη v9.2 ως κανονική εφαρμογή.');
-    }catch(e){ console.error(e); out('ΣΦΑΛΜΑ migration',{message:e.message}); alert('Σφάλμα migration: '+e.message); }
-  };
-  out('Migration helper φορτώθηκε. Πάτησε πρώτα Έλεγχος μετρήσεων.');
-})();
+}
 </script>
 
 </body>
