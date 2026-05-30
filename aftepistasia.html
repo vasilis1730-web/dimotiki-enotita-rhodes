@@ -1230,6 +1230,88 @@ function _v9ShowLoading(text){
 }
 function _v9HideLoading(){ const o=document.getElementById('loadingOverlay'); if(o) o.remove(); }
 
+function _v9UpdateLoading(text){
+  const o=document.getElementById('loadingOverlay');
+  if(!o) return;
+  const divs=o.querySelectorAll('div');
+  const msg=divs[divs.length-1];
+  if(msg) msg.textContent = text || 'Συγχρονισμός δεδομένων...';
+}
+
+// Γρήγορη τοπική cache v9 σε IndexedDB: δεν είναι η κύρια βάση,
+// απλώς εμφανίζει αμέσως το τελευταίο επιτυχημένο snapshot μέχρι να απαντήσει το Supabase.
+const RODIOS_V9_CACHE_DB = 'rodios_v9_cache_db';
+const RODIOS_V9_CACHE_STORE = 'snapshots';
+const RODIOS_V9_CACHE_KEY = 'latest';
+
+function _v9OpenCacheDb(){
+  return new Promise((resolve, reject)=>{
+    if(!('indexedDB' in window)) return resolve(null);
+    const req = indexedDB.open(RODIOS_V9_CACHE_DB, 1);
+    req.onupgradeneeded = ()=>{
+      const db = req.result;
+      if(!db.objectStoreNames.contains(RODIOS_V9_CACHE_STORE)) db.createObjectStore(RODIOS_V9_CACHE_STORE, {keyPath:'key'});
+    };
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+
+async function _v9GetSnapshotCache(){
+  try{
+    const db = await _v9OpenCacheDb();
+    if(!db) return null;
+    return await new Promise((resolve, reject)=>{
+      const tx = db.transaction(RODIOS_V9_CACHE_STORE, 'readonly');
+      const st = tx.objectStore(RODIOS_V9_CACHE_STORE);
+      const req = st.get(RODIOS_V9_CACHE_KEY);
+      req.onsuccess = ()=>resolve(req.result && req.result.snapshot ? req.result.snapshot : null);
+      req.onerror = ()=>reject(req.error);
+      tx.oncomplete = ()=>db.close();
+    });
+  }catch(e){ console.warn('[v9 cache] read failed:', e); return null; }
+}
+
+async function _v9SetSnapshotCache(snapshot){
+  try{
+    const db = await _v9OpenCacheDb();
+    if(!db) return;
+    await new Promise((resolve, reject)=>{
+      const tx = db.transaction(RODIOS_V9_CACHE_STORE, 'readwrite');
+      const st = tx.objectStore(RODIOS_V9_CACHE_STORE);
+      const req = st.put({key: RODIOS_V9_CACHE_KEY, snapshot});
+      req.onsuccess = ()=>{};
+      req.onerror = ()=>reject(req.error);
+      tx.oncomplete = ()=>{ db.close(); resolve(); };
+      tx.onerror = ()=>reject(tx.error);
+    });
+  }catch(e){ console.warn('[v9 cache] write failed:', e); }
+}
+
+function _v9MakeSnapshot(){
+  return {
+    at: new Date().toISOString(),
+    issues: (issues||[]).map(i=>_safeCloneForDb(i)),
+    workOrders: (workOrders||[]).map(w=>_safeCloneForDb(w)),
+    payments: (payments||[]).map(p=>_safeCloneForDb(p)),
+    settings: _safeCloneForDb(settings||{}),
+    users: (typeof getEffectiveUsers==='function' ? (getEffectiveUsers()||[]) : []).map(u=>_safeCloneForDb(u)),
+    serviceStaff: (SERVICE_STAFF||[]).map(s=>_safeCloneForDb(s))
+  };
+}
+
+function _v9ApplySnapshot(snap){
+  if(!snap || !Array.isArray(snap.issues)) return false;
+  issues = snap.issues || [];
+  workOrders = snap.workOrders || [];
+  payments = snap.payments || [];
+  if(snap.settings) settings = {...settings, ...snap.settings};
+  if(Array.isArray(snap.users) && snap.users.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(snap.users));
+  if(Array.isArray(snap.serviceStaff)){ SERVICE_STAFF = snap.serviceStaff; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
+  _lastSyncTime = snap.at ? new Date(snap.at).getTime() : Date.now();
+  return true;
+}
+
 // ── LOAD v9 ───────────────────────────────────────────────────────
 async function load(){
   const sb = getSupabase();
@@ -1239,8 +1321,24 @@ async function load(){
     return;
   }
 
+  let renderedFromCache = false;
+  _v9ShowLoading('Προετοιμασία δεδομένων...');
+
+  // 1) Άμεση προβολή τελευταίου επιτυχημένου v9 snapshot, αν υπάρχει.
+  // Έτσι στο refresh δεν φαίνεται 0 αιτήματα μέχρι να απαντήσει το Supabase.
   try{
-    _v9ShowLoading('Φόρτωση δεδομένων από τους νέους πίνακες v9...');
+    const cached = await _v9GetSnapshotCache();
+    if(cached && _v9ApplySnapshot(cached)){
+      renderedFromCache = true;
+      _showSyncDot('amber');
+      renderAll();
+      _v9UpdateLoading('Ενημέρωση από Supabase... Προσωρινά εμφανίζεται η τελευταία cache ('+(issues.length||0)+' αιτήματα).');
+    }
+  }catch(e){ console.warn('v9 cache apply failed:', e); }
+
+  // 2) Η κύρια αλήθεια έρχεται πάντα από τους πίνακες v9.
+  try{
+    if(!renderedFromCache) _v9UpdateLoading('Φόρτωση δεδομένων από τους νέους πίνακες v9...');
 
     const [issueRows, orderRows, paymentRows, settingRows, userRows, staffRows] = await Promise.all([
       _v9FetchPaged('rodios_issues', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
@@ -1252,7 +1350,7 @@ async function load(){
     ]);
 
     // Σημαντικό: δεν προσθέτουμε πλέον getHistoricalData() στην εκκίνηση.
-    // Η πλήρης αλήθεια πρέπει να είναι στους πίνακες v9 μετά το migration.
+    // Η πλήρης αλήθεια είναι στους πίνακες v9.
     issues = (issueRows||[]).map(r => ({...(r.data||{}), id: r.id}));
     workOrders = (orderRows||[]).map(r => ({...(r.data||{}), id: r.id, issueId: (r.data&&r.data.issueId) || r.issue_id || null}));
     payments = (paymentRows||[]).map(r => ({...(r.data||{}), id: r.id, orderId: (r.data&&r.data.orderId) || r.work_order_id || null}));
@@ -1269,7 +1367,6 @@ async function load(){
       localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
     }
 
-    // Μικρή cache μόνο για ένδειξη/τελευταίο snapshot. Δεν ξαναχρησιμοποιούμε τα 146 embedded ως κύρια πηγή.
     try{
       localStorage.setItem('rodios_v9_last_counts', JSON.stringify({
         issues: issues.length, workOrders: workOrders.length, payments: payments.length, at: new Date().toISOString()
@@ -1278,15 +1375,23 @@ async function load(){
 
     _lastSyncTime = Date.now();
     _showSyncDot('green');
+    renderAll();
+
+    // Ανανεώνουμε την cache αφού πρώτα φορτώσει η βάση.
+    _v9SetSnapshotCache(_v9MakeSnapshot()).catch(e=>console.warn('v9 snapshot cache save failed:', e));
   }catch(err){
-    console.warn('v9 load failed — fallback to local cache only:', err);
+    console.warn('v9 load failed:', err);
     _showSyncDot('red');
-    // Fallback μόνο για να ανοίξει η εφαρμογή. Δεν κάνουμε πλέον merge με historical ως κανονική ροή.
-    _loadFromLocalStorage([]);
+    if(!renderedFromCache){
+      // Fallback μόνο για να ανοίξει η εφαρμογή. Δεν κάνουμε πλέον merge με historical ως κανονική ροή.
+      _loadFromLocalStorage([]);
+      renderAll();
+    }else{
+      toast('⚠ Δεν ολοκληρώθηκε ο online συγχρονισμός. Εμφανίζονται προσωρινά cached δεδομένα.');
+    }
   }finally{
     _v9HideLoading();
   }
-  renderAll();
 }
 
 function _loadFromLocalStorage(hist){
@@ -1308,9 +1413,9 @@ function _loadFromLocalStorage(hist){
 function save(){
   // Το localStorage δεν είναι πλέον κύρια βάση. Κρατάμε μόνο ελαφριά προσωρινή cache χωρίς βαριά base64.
   try{
-    const lightIssues = (issues||[]).slice(-50).map(i=>_safeCloneForDb(i));
-    const lightOrders = (workOrders||[]).slice(-50).map(w=>_safeCloneForDb(w));
-    const lightPayments = (payments||[]).slice(-50).map(p=>_safeCloneForDb(p));
+    const lightIssues = (issues||[]).map(i=>_safeCloneForDb(i));
+    const lightOrders = (workOrders||[]).map(w=>_safeCloneForDb(w));
+    const lightPayments = (payments||[]).map(p=>_safeCloneForDb(p));
     localStorage.setItem('autopistasia_data', JSON.stringify({
       issues: lightIssues, workOrders: lightOrders, payments: lightPayments, settings
     }));
@@ -1362,6 +1467,7 @@ async function _saveToSupabase(){
 
     _lastSyncTime = Date.now();
     _showSyncDot('green');
+    _v9SetSnapshotCache(_v9MakeSnapshot()).catch(e=>console.warn('v9 snapshot cache save failed:', e));
   }catch(err){
     console.warn('Supabase v9 save failed:', err);
     _showSyncDot('red');
@@ -1415,6 +1521,7 @@ async function forceRefreshFromSupabase(silent){
     if(staffRows && staffRows.length){ SERVICE_STAFF = staffRows.map(r=>({...(r.data||{}), id:r.id})); localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
     _lastSyncTime = Date.now();
     renderAll();
+    _v9SetSnapshotCache(_v9MakeSnapshot()).catch(e=>console.warn('v9 snapshot cache save failed:', e));
     if(!silent) _showSyncDot('green');
   }catch(e){
     console.warn('forceRefreshFromSupabase v9 failed:', e);
@@ -1459,104 +1566,9 @@ function _showSyncDot(color){
   dot._timer = setTimeout(()=>{ if(dot) dot.style.background='transparent'; }, 3000);
 }
 
-// ── REALTIME SYNC ─────────────────────────────────────────────────
-function initRealtimeSync(){
-  const sb = getSupabase();
-  if(!sb) return;
-  sb.channel('app_data_changes')
-    .on('postgres_changes', {event:'*', schema:'public', table:'app_data'}, (payload)=>{
-      // Another user saved — reload affected key (INSERT, UPDATE, or DELETE)
-      const key = payload.new?.key || payload.old?.key;
-      const val = payload.new?.value;
-      if(payload.eventType==='DELETE' || !val){
-        // A key was deleted/cleared — safest is a full refetch
-        if(payload.eventType==='DELETE'){ forceRefreshFromSupabase(true); }
-        return;
-      }
-      if(key==='issues'){
-        const hist = getHistoricalData();
-        const histIds = new Set(hist.map(i=>i.id));
-        const remote = (val||[]).filter(i=>!histIds.has(i.id));
-        issues = [...hist, ...remote];
-      } else if(key==='workOrders') workOrders = val||[];
-      else if(key==='payments')    payments   = val||[];
-      else if(key==='settings')    settings   = {...settings,...(val||{})};
-      else if(key==='users'){      localStorage.setItem('rhodesAppUsers',JSON.stringify(val||[])); }
-      else if(key==='serviceStaff'){ // Fix #6: sync service staff across devices
-        if(Array.isArray(val) && val.length){ SERVICE_STAFF = val; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
-      }
-      renderAll();
-      _showSyncDot('green');
-    })
-    .subscribe();
-}
-
-// Refetch everything from Supabase (used on focus/online/delete events)
-async function forceRefreshFromSupabase(silent){
-  const sb = getSupabase();
-  if(!sb) return;
-  // SAFETY: never refresh while a save is pending/in-flight — that could
-  // overwrite local unsaved edits. Let the save finish first.
-  if(_savingInProgress || _saveTimer){
-    return;
-  }
-  try{
-    const {data, error} = await sb.from('app_data').select('key,value');
-    if(error) throw error;
-    const rows = {};
-    (data||[]).forEach(r=>{ rows[r.key]=r.value; });
-    const hist = getHistoricalData();
-    const histIds = new Set(hist.map(i=>i.id));
-    // Merge remote with any local-only records (don't drop unsaved local adds)
-    if(rows.workOrders){
-      const remoteIds = new Set(rows.workOrders.map(w=>w&&w.id).filter(Boolean));
-      const localOnly = workOrders.filter(w=> w && w.id && !remoteIds.has(w.id));
-      workOrders = [...rows.workOrders, ...localOnly];
-    }
-    if(rows.payments){
-      const remoteIds = new Set(rows.payments.map(p=>p&&p.id).filter(Boolean));
-      const localOnly = payments.filter(p=> p && p.id && !remoteIds.has(p.id));
-      payments = [...rows.payments, ...localOnly];
-    }
-    if(rows.settings)   settings = {...settings,...rows.settings};
-    if(rows.issues){
-      const remote = rows.issues.filter(i=>!histIds.has(i.id));
-      const remoteIds = new Set(remote.map(i=>i&&i.id).filter(Boolean));
-      const localOnly = issues.filter(i=> i && i.id && !histIds.has(i.id) && !remoteIds.has(i.id));
-      issues = [...hist, ...remote, ...localOnly];
-    }
-    if(rows.serviceStaff && Array.isArray(rows.serviceStaff) && rows.serviceStaff.length){
-      SERVICE_STAFF = rows.serviceStaff; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
-    }
-    if(rows.users && rows.users.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(rows.users));
-    _lastSyncTime = Date.now();
-    renderAll();
-    if(!silent) _showSyncDot('green');
-  }catch(e){
-    console.warn('forceRefreshFromSupabase failed:', e);
-    if(!silent) _showSyncDot('red');
-  }
-}
-
-// ── #5: Keep data fresh when the app regains attention/connectivity ──
-(function registerFreshnessListeners(){
-  let _refreshDebounce = null;
-  const safeRefresh = ()=>{
-    if(!currentUser) return;          // only when logged in
-    if(isCitizenMode && isCitizenMode()) return; // citizens have their own view
-    clearTimeout(_refreshDebounce);
-    _refreshDebounce = setTimeout(()=>forceRefreshFromSupabase(true), 400);
-  };
-  // Returning to the tab
-  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) safeRefresh(); });
-  // Window regains focus
-  window.addEventListener('focus', safeRefresh);
-  // Network came back online
-  window.addEventListener('online', ()=>{ _showSyncDot('amber'); safeRefresh(); });
-  // Periodic background check every 60s (light — only if logged in & tab visible)
-  setInterval(()=>{ if(!document.hidden) safeRefresh(); }, 60000);
-})();
-
+// ── OLD app_data REALTIME REMOVED IN v9.2 ──────────────────────────────
+// Η παλιά ροή app_data αφαιρέθηκε εδώ, γιατί επικάλυπτε τις v9 συναρτήσεις
+// forceRefreshFromSupabase/initRealtimeSync και προκαλούσε λάθος φόρτωση 50/146 εγγραφών.
 
 function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 
@@ -2614,8 +2626,8 @@ function loginSuccess(u){
     }
     // Reconcile any acknowledgments that were missed
     try { await syncAcknowledgmentsFromSupabase(); } catch(e) { console.warn('Ack sync on load failed:', e); }
+    toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
   });
-  toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
   setTimeout(munPingPresence,1000);
 }
 
@@ -7803,10 +7815,10 @@ function printBulkProtocol(){
 </div>
 
 <script>
-// v9: data tables, no 146 historical preload, login + attachments fixes.
+// v9.1: data tables + instant IndexedDB cache, login + attachments fixes.
 // Keep service worker disabled while the app is being actively debugged, to avoid cached mixed builds.
 (function(){
-  window.RODIOS_BUILD = 'v9-data-tables-no-146-cache-2026-05-30';
+  window.RODIOS_BUILD = 'v9.2-v9-only-cache-2026-05-30';
   window.addEventListener('load', function(){
     try{
       document.querySelectorAll('.rodios-build-tag').forEach(function(el){ el.remove(); });
