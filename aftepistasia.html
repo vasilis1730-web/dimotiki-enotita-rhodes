@@ -1169,81 +1169,233 @@ const _locallyDeleted = new Set(); // ids the user deleted, so merge doesn't res
 
 // getSupabase and isSupabaseConfigured defined in settings section below
 
-// ── LOAD ──────────────────────────────────────────────────────────
-async function load(){
-  const hist = getHistoricalData();
+// ── RODIOS v9 DATA LAYER ─────────────────────────────────────────
+// Από εδώ και κάτω η εφαρμογή διαβάζει/γράφει τους νέους κανονικούς πίνακες
+// rodios_issues, rodios_work_orders, rodios_payments κ.λπ. και όχι το παλιό app_data.
+const RODIOS_V9_ENABLED = true;
+let _v9RealtimeDebounce = null;
+
+function _safeCloneForDb(value){
+  return JSON.parse(JSON.stringify(value, (key, val) => {
+    if(key==='signedPdfData' || key==='pdfData' || key==='base64' || key==='base64Data' || key==='dataUrl') return undefined;
+    if(typeof val === 'string' && val.length > 250000 && val.startsWith('data:')) return undefined;
+    return val;
+  }));
+}
+
+function _ensureId(obj, prefix){
+  if(!obj || typeof obj !== 'object') obj = {};
+  if(!obj.id) obj.id = prefix + '_' + genId();
+  return obj;
+}
+
+async function _v9FetchPaged(table, select='*', opts={}){
   const sb = getSupabase();
-
-  if(sb){
-    try{
-      // Show loading indicator
-      document.body.insertAdjacentHTML('beforeend',
-        '<div id="loadingOverlay" style="position:fixed;inset:0;background:rgba(26,39,68,.85);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;">'
-        +'<div style="width:40px;height:40px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite;"></div>'
-        +'<div style="color:#fff;font-size:14px;">Φόρτωση δεδομένων...</div></div>');
-      if(!document.querySelector('#spinStyle')){
-        const s=document.createElement('style');s.id='spinStyle';
-        s.textContent='@keyframes spin{to{transform:rotate(360deg)}}';
-        document.head.appendChild(s);
-      }
-
-      const {data, error} = await sb.from('app_data').select('key,value');
-      if(error) throw error;
-
-      const rows = {};
-      (data||[]).forEach(r=>{ rows[r.key]=r.value; });
-
-      workOrders = rows.workOrders||[];
-      payments   = rows.payments||[];
-      settings   = {...settings,...(rows.settings||{})};
-
-      // Fix #6: Load serviceStaff from Supabase (was saved but never loaded)
-      if(rows.serviceStaff && Array.isArray(rows.serviceStaff) && rows.serviceStaff.length){
-        SERVICE_STAFF = rows.serviceStaff;
-        localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
-      }
-
-      // Users: merge Supabase users with defaults
-      const remoteUsers = rows.users||[];
-      if(remoteUsers.length > 0){
-        localStorage.setItem('rhodesAppUsers', JSON.stringify(remoteUsers));
-      }
-
-      // Issues: always keep historical + user-added from Supabase
-      const histIds = new Set(hist.map(i=>i.id));
-      const remoteIssues = (rows.issues||[]).filter(i=>!histIds.has(i.id));
-      issues = [...hist, ...remoteIssues];
-
-      // Also save to localStorage as offline cache
-      localStorage.setItem('autopistasia_data', JSON.stringify({issues:remoteIssues,workOrders,payments,settings}));
-
-    }catch(err){
-      console.warn('Supabase load failed, using localStorage cache:', err);
-      _loadFromLocalStorage(hist);
-    }finally{
-      const overlay = document.getElementById('loadingOverlay');
-      if(overlay) overlay.remove();
-    }
-  } else {
-    // No Supabase configured — use localStorage
-    _loadFromLocalStorage(hist);
-    if(!isSupabaseConfigured()){
-      // Show setup banner
-      setTimeout(()=>{
-        if(!document.getElementById('setupBanner')){
-          document.body.insertAdjacentHTML('beforeend',
-            '<div id="setupBanner" style="position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:#856404;color:#fff;padding:10px 20px;border-radius:8px;font-size:12px;z-index:500;max-width:90%;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,.3);">'
-            +'⚠️ <strong>Λειτουργία εκτός σύνδεσης</strong> — Τα δεδομένα αποθηκεύονται μόνο τοπικά σε αυτή τη συσκευή.'
-            +'<br><small>Για κοινή χρήση από όλους, ρύθμισε το Supabase στις Ρυθμίσεις.</small>'
-            +'<button onclick="closeSbBanner()" style="margin-left:10px;background:none;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;">✕</button></div>');
-        }
-      }, 2000);
-    }
+  const pageSize = opts.pageSize || 1000;
+  const rows = [];
+  for(let from=0;;from+=pageSize){
+    let q = sb.from(table).select(select);
+    if(opts.notDeleted) q = q.is('deleted_at', null);
+    if(opts.orderBy) q = q.order(opts.orderBy, {ascending: opts.ascending !== false});
+    q = q.range(from, from + pageSize - 1);
+    const {data, error} = await q;
+    if(error) throw error;
+    rows.push(...(data||[]));
+    if(!data || data.length < pageSize) break;
   }
-  renderAll();
+  return rows;
+}
+
+async function _v9UpsertChunks(table, rows, onConflict='id', chunkSize=100){
+  const sb = getSupabase();
+  if(!sb || !rows || !rows.length) return;
+  for(let i=0;i<rows.length;i+=chunkSize){
+    const part = rows.slice(i, i+chunkSize);
+    const {error} = await sb.from(table).upsert(part, {onConflict});
+    if(error) throw error;
+  }
+}
+
+function _v9ShowLoading(text){
+  if(document.getElementById('loadingOverlay')) return;
+  document.body.insertAdjacentHTML('beforeend',
+    '<div id="loadingOverlay" style="position:fixed;inset:0;background:rgba(26,39,68,.88);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;">'
+    +'<div style="width:40px;height:40px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite;"></div>'
+    +'<div style="color:#fff;font-size:14px;">'+esc(text||'Φόρτωση δεδομένων v9...')+'</div></div>');
+  if(!document.querySelector('#spinStyle')){
+    const st=document.createElement('style');st.id='spinStyle';
+    st.textContent='@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(st);
+  }
+}
+function _v9HideLoading(){ const o=document.getElementById('loadingOverlay'); if(o) o.remove(); }
+
+function _v9UpdateLoading(text){
+  const o=document.getElementById('loadingOverlay');
+  if(!o) return;
+  const divs=o.querySelectorAll('div');
+  const msg=divs[divs.length-1];
+  if(msg) msg.textContent = text || 'Συγχρονισμός δεδομένων...';
+}
+
+// Γρήγορη τοπική cache v9 σε IndexedDB: δεν είναι η κύρια βάση,
+// απλώς εμφανίζει αμέσως το τελευταίο επιτυχημένο snapshot μέχρι να απαντήσει το Supabase.
+const RODIOS_V9_CACHE_DB = 'rodios_v9_cache_db';
+const RODIOS_V9_CACHE_STORE = 'snapshots';
+const RODIOS_V9_CACHE_KEY = 'latest';
+
+function _v9OpenCacheDb(){
+  return new Promise((resolve, reject)=>{
+    if(!('indexedDB' in window)) return resolve(null);
+    const req = indexedDB.open(RODIOS_V9_CACHE_DB, 1);
+    req.onupgradeneeded = ()=>{
+      const db = req.result;
+      if(!db.objectStoreNames.contains(RODIOS_V9_CACHE_STORE)) db.createObjectStore(RODIOS_V9_CACHE_STORE, {keyPath:'key'});
+    };
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+
+async function _v9GetSnapshotCache(){
+  try{
+    const db = await _v9OpenCacheDb();
+    if(!db) return null;
+    return await new Promise((resolve, reject)=>{
+      const tx = db.transaction(RODIOS_V9_CACHE_STORE, 'readonly');
+      const st = tx.objectStore(RODIOS_V9_CACHE_STORE);
+      const req = st.get(RODIOS_V9_CACHE_KEY);
+      req.onsuccess = ()=>resolve(req.result && req.result.snapshot ? req.result.snapshot : null);
+      req.onerror = ()=>reject(req.error);
+      tx.oncomplete = ()=>db.close();
+    });
+  }catch(e){ console.warn('[v9 cache] read failed:', e); return null; }
+}
+
+async function _v9SetSnapshotCache(snapshot){
+  try{
+    const db = await _v9OpenCacheDb();
+    if(!db) return;
+    await new Promise((resolve, reject)=>{
+      const tx = db.transaction(RODIOS_V9_CACHE_STORE, 'readwrite');
+      const st = tx.objectStore(RODIOS_V9_CACHE_STORE);
+      const req = st.put({key: RODIOS_V9_CACHE_KEY, snapshot});
+      req.onsuccess = ()=>{};
+      req.onerror = ()=>reject(req.error);
+      tx.oncomplete = ()=>{ db.close(); resolve(); };
+      tx.onerror = ()=>reject(tx.error);
+    });
+  }catch(e){ console.warn('[v9 cache] write failed:', e); }
+}
+
+function _v9MakeSnapshot(){
+  return {
+    at: new Date().toISOString(),
+    issues: (issues||[]).map(i=>_safeCloneForDb(i)),
+    workOrders: (workOrders||[]).map(w=>_safeCloneForDb(w)),
+    payments: (payments||[]).map(p=>_safeCloneForDb(p)),
+    settings: _safeCloneForDb(settings||{}),
+    users: (typeof getEffectiveUsers==='function' ? (getEffectiveUsers()||[]) : []).map(u=>_safeCloneForDb(u)),
+    serviceStaff: (SERVICE_STAFF||[]).map(s=>_safeCloneForDb(s))
+  };
+}
+
+function _v9ApplySnapshot(snap){
+  if(!snap || !Array.isArray(snap.issues)) return false;
+  issues = snap.issues || [];
+  workOrders = snap.workOrders || [];
+  payments = snap.payments || [];
+  if(snap.settings) settings = {...settings, ...snap.settings};
+  if(Array.isArray(snap.users) && snap.users.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(snap.users));
+  if(Array.isArray(snap.serviceStaff)){ SERVICE_STAFF = snap.serviceStaff; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
+  _lastSyncTime = snap.at ? new Date(snap.at).getTime() : Date.now();
+  return true;
+}
+
+// ── LOAD v9 ───────────────────────────────────────────────────────
+async function load(){
+  const sb = getSupabase();
+  if(!sb){
+    _loadFromLocalStorage(getHistoricalData());
+    renderAll();
+    return;
+  }
+
+  let renderedFromCache = false;
+  _v9ShowLoading('Προετοιμασία δεδομένων...');
+
+  // 1) Άμεση προβολή τελευταίου επιτυχημένου v9 snapshot, αν υπάρχει.
+  // Έτσι στο refresh δεν φαίνεται 0 αιτήματα μέχρι να απαντήσει το Supabase.
+  try{
+    const cached = await _v9GetSnapshotCache();
+    if(cached && _v9ApplySnapshot(cached)){
+      renderedFromCache = true;
+      _showSyncDot('amber');
+      renderAll();
+      _v9UpdateLoading('Ενημέρωση από Supabase... Προσωρινά εμφανίζεται η τελευταία cache ('+(issues.length||0)+' αιτήματα).');
+    }
+  }catch(e){ console.warn('v9 cache apply failed:', e); }
+
+  // 2) Η κύρια αλήθεια έρχεται πάντα από τους πίνακες v9.
+  try{
+    if(!renderedFromCache) _v9UpdateLoading('Φόρτωση δεδομένων από τους νέους πίνακες v9...');
+
+    const [issueRows, orderRows, paymentRows, settingRows, userRows, staffRows] = await Promise.all([
+      _v9FetchPaged('rodios_issues', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_work_orders', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_payments', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_settings', '*', {orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_app_users', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_service_staff', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+    ]);
+
+    // Σημαντικό: δεν προσθέτουμε πλέον getHistoricalData() στην εκκίνηση.
+    // Η πλήρης αλήθεια είναι στους πίνακες v9.
+    issues = (issueRows||[]).map(r => ({...(r.data||{}), id: r.id}));
+    workOrders = (orderRows||[]).map(r => ({...(r.data||{}), id: r.id, issueId: (r.data&&r.data.issueId) || r.issue_id || null}));
+    payments = (paymentRows||[]).map(r => ({...(r.data||{}), id: r.id, orderId: (r.data&&r.data.orderId) || r.work_order_id || null}));
+
+    const mainSettings = (settingRows||[]).find(r=>r.key==='main');
+    if(mainSettings && mainSettings.value) settings = {...settings, ...mainSettings.value};
+
+    if(userRows && userRows.length){
+      const u = userRows.map(r=>({...(r.data||{}), id:r.id}));
+      localStorage.setItem('rhodesAppUsers', JSON.stringify(u));
+    }
+    if(staffRows && staffRows.length){
+      SERVICE_STAFF = staffRows.map(r=>({...(r.data||{}), id:r.id}));
+      localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
+    }
+
+    try{
+      localStorage.setItem('rodios_v9_last_counts', JSON.stringify({
+        issues: issues.length, workOrders: workOrders.length, payments: payments.length, at: new Date().toISOString()
+      }));
+    }catch(_){ }
+
+    _lastSyncTime = Date.now();
+    _showSyncDot('green');
+    renderAll();
+
+    // Ανανεώνουμε την cache αφού πρώτα φορτώσει η βάση.
+    _v9SetSnapshotCache(_v9MakeSnapshot()).catch(e=>console.warn('v9 snapshot cache save failed:', e));
+  }catch(err){
+    console.warn('v9 load failed:', err);
+    _showSyncDot('red');
+    if(!renderedFromCache){
+      // Fallback μόνο για να ανοίξει η εφαρμογή. Δεν κάνουμε πλέον merge με historical ως κανονική ροή.
+      _loadFromLocalStorage([]);
+      renderAll();
+    }else{
+      toast('⚠ Δεν ολοκληρώθηκε ο online συγχρονισμός. Εμφανίζονται προσωρινά cached δεδομένα.');
+    }
+  }finally{
+    _v9HideLoading();
+  }
 }
 
 function _loadFromLocalStorage(hist){
+  // v9 fallback. Χρησιμοποιείται μόνο αν αποτύχει ο Supabase.
   const d = localStorage.getItem('autopistasia_data');
   let saved = null;
   if(d){ try{ saved = JSON.parse(d); }catch(e){} }
@@ -1251,144 +1403,146 @@ function _loadFromLocalStorage(hist){
     workOrders = saved.workOrders||[];
     payments   = saved.payments||[];
     settings   = {...settings,...(saved.settings||{})};
-    const histIds = new Set(hist.map(i=>i.id));
-    const userIssues = (saved.issues||[]).filter(i=>!histIds.has(i.id));
-    issues = [...hist, ...userIssues];
+    issues = [...(hist||[]), ...(saved.issues||[])];
   } else {
-    issues = [...hist];
+    issues = hist||[];
   }
 }
 
-// ── SAVE ──────────────────────────────────────────────────────────
+// ── SAVE v9 ───────────────────────────────────────────────────────
 function save(){
-  // Always save to localStorage as cache
-  const histIds = new Set(getHistoricalData().map(i=>i.id));
-  const userIssues = issues.filter(i=>!histIds.has(i.id));
-  const cleanIssuesForCache = userIssues.map(i=>({
-    ...i,
-    attachments: cloneAttachments(i.attachments).map(a=>{
-      if(a.url) return {...a, data:''};
-      const {data, ...rest} = a;
-      return rest;
-    })
-  }));
-  
-  // Also strip base64 from localStorage cache (it's huge and we have signedPdfUrl)
-  const cleanWorkOrders = workOrders.map(w=>{
-    if(w.signedPdfUrl && w.signedPdfData){
-      const clone = {...w};
-      delete clone.signedPdfData;
-      return clone;
-    }
-    return w;
-  });
-  
-  try {
-    localStorage.setItem('autopistasia_data',JSON.stringify({issues:cleanIssuesForCache,workOrders:cleanWorkOrders,payments,settings}));
-  } catch(e) {
-    console.warn('[SAVE] localStorage failed (quota?), trying without base64:', e);
-    // Last resort: strip ALL signedPdfData
-    const minimalWorkOrders = workOrders.map(w=>{
-      if(w.signedPdfData){
-        const clone = {...w};
-        delete clone.signedPdfData;
-        return clone;
-      }
-      return w;
-    });
-    try {
-      localStorage.setItem('autopistasia_data',JSON.stringify({issues:cleanIssuesForCache,workOrders:minimalWorkOrders,payments,settings}));
-    } catch(e2) {
-      console.error('[SAVE] localStorage save completely failed:', e2);
-    }
-  }
+  // Το localStorage δεν είναι πλέον κύρια βάση. Κρατάμε μόνο ελαφριά προσωρινή cache χωρίς βαριά base64.
+  try{
+    const lightIssues = (issues||[]).map(i=>_safeCloneForDb(i));
+    const lightOrders = (workOrders||[]).map(w=>_safeCloneForDb(w));
+    const lightPayments = (payments||[]).map(p=>_safeCloneForDb(p));
+    localStorage.setItem('autopistasia_data', JSON.stringify({
+      issues: lightIssues, workOrders: lightOrders, payments: lightPayments, settings
+    }));
+  }catch(e){ console.warn('[SAVE v9] localStorage light cache failed:', e); }
 
-  // Debounced save to Supabase
   if(!isSupabaseConfigured()) return;
   clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(()=>_saveToSupabase(), 800);
+  _saveTimer = setTimeout(()=>_saveToSupabase(), 900);
 }
 
 async function _saveToSupabase(){
   const sb = getSupabase();
   if(!sb) return;
-  if(_savingInProgress){ _savePendingAgain = true; return; } // avoid overlapping saves
+  if(_savingInProgress){ _savePendingAgain = true; return; }
   _savingInProgress = true;
   _showSyncDot('amber');
+
   try{
-    // ── MERGE-ON-SAVE (data-loss protection) ──────────────────────
-    // Before overwriting the cloud, fetch the current cloud state and merge
-    // by record id, so we don't blindly erase records another user added
-    // while we had a stale copy open.
-    let cloud = {};
-    try{
-      const {data} = await sb.from('app_data').select('key,value');
-      (data||[]).forEach(r=>{ cloud[r.key]=r.value; });
-    }catch(e){ /* offline or fetch failed — proceed with local only */ }
-
-    const histIds = new Set(getHistoricalData().map(i=>i.id));
-    const localIssues = issues.filter(i=>!histIds.has(i.id)).map(i=>({
-      ...i,
-      attachments: cloneAttachments(i.attachments).map(a=>{
-        if(a.url) return {...a, data:''};
-        const {data, ...rest} = a;
-        return rest;
-      })
-    }));
-    const effUsers = getEffectiveUsers();
-
-    // Strip huge base64 PDF data before saving (keep only URL reference)
-    const cleanWorkOrders = workOrders.map(w=>{
-      const clone = {...w};
-      if(clone.signedPdfUrl && clone.signedPdfData) delete clone.signedPdfData;
-      return clone;
+    const issueRows = (issues||[]).filter(Boolean).map(i=>{
+      const c = _ensureId(_safeCloneForDb(i), 'issue');
+      return {id:String(c.id), data:c, deleted_at:null};
+    });
+    const orderRows = (workOrders||[]).filter(Boolean).map(w=>{
+      const c = _ensureId(_safeCloneForDb(w), 'wo');
+      return {id:String(c.id), issue_id:c.issueId||c.issue_id||null, data:c, deleted_at:null};
+    });
+    const paymentRows = (payments||[]).filter(Boolean).map(p=>{
+      const c = _ensureId(_safeCloneForDb(p), 'pay');
+      return {id:String(c.id), work_order_id:c.workOrderId||c.orderId||c.woId||c.work_order_id||null, data:c, deleted_at:null};
+    });
+    const settingsRows = [{key:'main', value:_safeCloneForDb(settings||{})}];
+    const userRows = (getEffectiveUsers()||[]).filter(Boolean).map(u=>{
+      const c = _ensureId(_safeCloneForDb(u), 'user');
+      return {id:String(c.id), data:c, deleted_at:null};
+    });
+    const staffRows = (SERVICE_STAFF||[]).filter(Boolean).map((s,idx)=>{
+      const c = _safeCloneForDb(s);
+      const id = String(c.id || c.name || ('staff_'+idx)).replace(/[^\w.\-:/]/g,'_');
+      c.id = id;
+      return {id, data:c, deleted_at:null};
     });
 
-    // Merge helper: union by id. Local record wins for items present locally
-    // (those reflect the user's latest edits); remote-only records are kept
-    // (they were added by another user and must not be erased).
-    const mergeById = (localArr, remoteArr)=>{
-      if(!Array.isArray(remoteArr) || !remoteArr.length) return localArr;
-      const localIds = new Set(localArr.map(x=>x && x.id).filter(Boolean));
-      const remoteOnly = remoteArr.filter(r=> r && r.id && !localIds.has(r.id) && !_locallyDeleted.has(r.id));
-      return [...localArr, ...remoteOnly];
-    };
+    await _v9UpsertChunks('rodios_issues', issueRows, 'id', 100);
+    await _v9UpsertChunks('rodios_work_orders', orderRows, 'id', 100);
+    await _v9UpsertChunks('rodios_payments', paymentRows, 'id', 100);
+    await _v9UpsertChunks('rodios_settings', settingsRows, 'key', 50);
+    await _v9UpsertChunks('rodios_app_users', userRows, 'id', 100);
+    await _v9UpsertChunks('rodios_service_staff', staffRows, 'id', 100);
 
-    const mergedIssues  = mergeById(localIssues, cloud.issues);
-    const mergedOrders  = mergeById(cleanWorkOrders, cloud.workOrders);
-    const mergedPays    = mergeById(payments, cloud.payments);
-
-    // Reflect the merge back into local state so the UI shows everyone's data
-    workOrders = workOrders.concat(
-      (cloud.workOrders||[]).filter(r=> r && r.id && !new Set(workOrders.map(w=>w.id)).has(r.id) && !_locallyDeleted.has(r.id))
-    );
-    payments = mergedPays;
-    {
-      const hist = getHistoricalData();
-      const hIds = new Set(hist.map(i=>i.id));
-      issues = [...hist, ...mergedIssues.filter(i=>!hIds.has(i.id))];
-    }
-
-    const rows = [
-      {key:'issues',     value:mergedIssues},
-      {key:'workOrders', value:mergedOrders},
-      {key:'payments',   value:mergedPays},
-      {key:'settings',   value:settings},
-      {key:'users',      value:effUsers},
-    ];
-
-    const {error} = await sb.from('app_data').upsert(rows, {onConflict:'key'});
-    if(error) throw error;
     _lastSyncTime = Date.now();
     _showSyncDot('green');
+    _v9SetSnapshotCache(_v9MakeSnapshot()).catch(e=>console.warn('v9 snapshot cache save failed:', e));
   }catch(err){
-    console.warn('Supabase save failed:', err);
+    console.warn('Supabase v9 save failed:', err);
     _showSyncDot('red');
   }finally{
     _savingInProgress = false;
-    if(_savePendingAgain){ _savePendingAgain = false; setTimeout(()=>_saveToSupabase(), 300); }
+    if(_savePendingAgain){ _savePendingAgain=false; setTimeout(()=>_saveToSupabase(), 300); }
   }
 }
+
+// ── REALTIME SYNC v9 ──────────────────────────────────────────────
+function initRealtimeSync(){
+  const sb = getSupabase();
+  if(!sb) return;
+  try{ sb.removeAllChannels && sb.removeAllChannels(); }catch(_){ }
+
+  const scheduleRefresh = ()=>{
+    clearTimeout(_v9RealtimeDebounce);
+    _v9RealtimeDebounce = setTimeout(()=>forceRefreshFromSupabase(true), 600);
+  };
+
+  sb.channel('rodios_v9_changes')
+    .on('postgres_changes', {event:'*', schema:'public', table:'rodios_issues'}, scheduleRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'rodios_work_orders'}, scheduleRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'rodios_payments'}, scheduleRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'rodios_settings'}, scheduleRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'rodios_app_users'}, scheduleRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'rodios_service_staff'}, scheduleRefresh)
+    .subscribe();
+}
+
+// Refetch everything from v9 Supabase tables.
+async function forceRefreshFromSupabase(silent){
+  const sb = getSupabase();
+  if(!sb) return;
+  if(_savingInProgress || _saveTimer) return;
+  try{
+    const [issueRows, orderRows, paymentRows, settingRows, userRows, staffRows] = await Promise.all([
+      _v9FetchPaged('rodios_issues', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_work_orders', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_payments', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_settings', '*', {orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_app_users', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_service_staff', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+    ]);
+    issues = (issueRows||[]).map(r=>({...(r.data||{}), id:r.id}));
+    workOrders = (orderRows||[]).map(r=>({...(r.data||{}), id:r.id, issueId:(r.data&&r.data.issueId)||r.issue_id||null}));
+    payments = (paymentRows||[]).map(r=>({...(r.data||{}), id:r.id, orderId:(r.data&&r.data.orderId)||r.work_order_id||null}));
+    const mainSettings = (settingRows||[]).find(r=>r.key==='main');
+    if(mainSettings && mainSettings.value) settings = {...settings, ...mainSettings.value};
+    if(userRows && userRows.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(userRows.map(r=>({...(r.data||{}), id:r.id}))));
+    if(staffRows && staffRows.length){ SERVICE_STAFF = staffRows.map(r=>({...(r.data||{}), id:r.id})); localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
+    _lastSyncTime = Date.now();
+    renderAll();
+    _v9SetSnapshotCache(_v9MakeSnapshot()).catch(e=>console.warn('v9 snapshot cache save failed:', e));
+    if(!silent) _showSyncDot('green');
+  }catch(e){
+    console.warn('forceRefreshFromSupabase v9 failed:', e);
+    if(!silent) _showSyncDot('red');
+  }
+}
+
+// ── #5: Keep data fresh when the app regains attention/connectivity ──
+(function registerFreshnessListeners(){
+  let _refreshDebounce = null;
+  const safeRefresh = ()=>{
+    if(!currentUser) return;
+    if(isCitizenMode && isCitizenMode()) return;
+    clearTimeout(_refreshDebounce);
+    _refreshDebounce = setTimeout(()=>forceRefreshFromSupabase(true), 400);
+  };
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) safeRefresh(); });
+  window.addEventListener('focus', safeRefresh);
+  window.addEventListener('online', ()=>{ _showSyncDot('amber'); safeRefresh(); });
+  setInterval(()=>{ if(!document.hidden) safeRefresh(); }, 60000);
+})();
 
 function closeSbBanner(){const b=document.getElementById("setupBanner");if(b)b.remove();}
 
@@ -1412,104 +1566,9 @@ function _showSyncDot(color){
   dot._timer = setTimeout(()=>{ if(dot) dot.style.background='transparent'; }, 3000);
 }
 
-// ── REALTIME SYNC ─────────────────────────────────────────────────
-function initRealtimeSync(){
-  const sb = getSupabase();
-  if(!sb) return;
-  sb.channel('app_data_changes')
-    .on('postgres_changes', {event:'*', schema:'public', table:'app_data'}, (payload)=>{
-      // Another user saved — reload affected key (INSERT, UPDATE, or DELETE)
-      const key = payload.new?.key || payload.old?.key;
-      const val = payload.new?.value;
-      if(payload.eventType==='DELETE' || !val){
-        // A key was deleted/cleared — safest is a full refetch
-        if(payload.eventType==='DELETE'){ forceRefreshFromSupabase(true); }
-        return;
-      }
-      if(key==='issues'){
-        const hist = getHistoricalData();
-        const histIds = new Set(hist.map(i=>i.id));
-        const remote = (val||[]).filter(i=>!histIds.has(i.id));
-        issues = [...hist, ...remote];
-      } else if(key==='workOrders') workOrders = val||[];
-      else if(key==='payments')    payments   = val||[];
-      else if(key==='settings')    settings   = {...settings,...(val||{})};
-      else if(key==='users'){      localStorage.setItem('rhodesAppUsers',JSON.stringify(val||[])); }
-      else if(key==='serviceStaff'){ // Fix #6: sync service staff across devices
-        if(Array.isArray(val) && val.length){ SERVICE_STAFF = val; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
-      }
-      renderAll();
-      _showSyncDot('green');
-    })
-    .subscribe();
-}
-
-// Refetch everything from Supabase (used on focus/online/delete events)
-async function forceRefreshFromSupabase(silent){
-  const sb = getSupabase();
-  if(!sb) return;
-  // SAFETY: never refresh while a save is pending/in-flight — that could
-  // overwrite local unsaved edits. Let the save finish first.
-  if(_savingInProgress || _saveTimer){
-    return;
-  }
-  try{
-    const {data, error} = await sb.from('app_data').select('key,value');
-    if(error) throw error;
-    const rows = {};
-    (data||[]).forEach(r=>{ rows[r.key]=r.value; });
-    const hist = getHistoricalData();
-    const histIds = new Set(hist.map(i=>i.id));
-    // Merge remote with any local-only records (don't drop unsaved local adds)
-    if(rows.workOrders){
-      const remoteIds = new Set(rows.workOrders.map(w=>w&&w.id).filter(Boolean));
-      const localOnly = workOrders.filter(w=> w && w.id && !remoteIds.has(w.id));
-      workOrders = [...rows.workOrders, ...localOnly];
-    }
-    if(rows.payments){
-      const remoteIds = new Set(rows.payments.map(p=>p&&p.id).filter(Boolean));
-      const localOnly = payments.filter(p=> p && p.id && !remoteIds.has(p.id));
-      payments = [...rows.payments, ...localOnly];
-    }
-    if(rows.settings)   settings = {...settings,...rows.settings};
-    if(rows.issues){
-      const remote = rows.issues.filter(i=>!histIds.has(i.id));
-      const remoteIds = new Set(remote.map(i=>i&&i.id).filter(Boolean));
-      const localOnly = issues.filter(i=> i && i.id && !histIds.has(i.id) && !remoteIds.has(i.id));
-      issues = [...hist, ...remote, ...localOnly];
-    }
-    if(rows.serviceStaff && Array.isArray(rows.serviceStaff) && rows.serviceStaff.length){
-      SERVICE_STAFF = rows.serviceStaff; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
-    }
-    if(rows.users && rows.users.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(rows.users));
-    _lastSyncTime = Date.now();
-    renderAll();
-    if(!silent) _showSyncDot('green');
-  }catch(e){
-    console.warn('forceRefreshFromSupabase failed:', e);
-    if(!silent) _showSyncDot('red');
-  }
-}
-
-// ── #5: Keep data fresh when the app regains attention/connectivity ──
-(function registerFreshnessListeners(){
-  let _refreshDebounce = null;
-  const safeRefresh = ()=>{
-    if(!currentUser) return;          // only when logged in
-    if(isCitizenMode && isCitizenMode()) return; // citizens have their own view
-    clearTimeout(_refreshDebounce);
-    _refreshDebounce = setTimeout(()=>forceRefreshFromSupabase(true), 400);
-  };
-  // Returning to the tab
-  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) safeRefresh(); });
-  // Window regains focus
-  window.addEventListener('focus', safeRefresh);
-  // Network came back online
-  window.addEventListener('online', ()=>{ _showSyncDot('amber'); safeRefresh(); });
-  // Periodic background check every 60s (light — only if logged in & tab visible)
-  setInterval(()=>{ if(!document.hidden) safeRefresh(); }, 60000);
-})();
-
+// ── OLD app_data REALTIME REMOVED IN v9.2 ──────────────────────────────
+// Η παλιά ροή app_data αφαιρέθηκε εδώ, γιατί επικάλυπτε τις v9 συναρτήσεις
+// forceRefreshFromSupabase/initRealtimeSync και προκαλούσε λάθος φόρτωση 50/146 εγγραφών.
 
 function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 
@@ -2567,8 +2626,8 @@ function loginSuccess(u){
     }
     // Reconcile any acknowledgments that were missed
     try { await syncAcknowledgmentsFromSupabase(); } catch(e) { console.warn('Ack sync on load failed:', e); }
+    toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
   });
-  toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
   setTimeout(munPingPresence,1000);
 }
 
@@ -2692,10 +2751,13 @@ function getEffectiveUsers(){
 }
 function saveUsers(users){
   localStorage.setItem('rhodesAppUsers',JSON.stringify(users));
-  // Also sync users to Supabase
+  // v9: sync users as individual rows
   if(isSupabaseConfigured()){
     const sb=getSupabase();
-    if(sb) sb.from('app_data').upsert({key:'users',value:users},{onConflict:'key'}).then(()=>{});
+    if(sb){
+      const rows=(users||[]).map(u=>{ const c=_safeCloneForDb(u); if(!c.id)c.id='user_'+genId(); return {id:String(c.id), data:c, deleted_at:null}; });
+      _v9UpsertChunks('rodios_app_users', rows, 'id', 100).catch(e=>console.warn('saveUsers v9 failed:', e));
+    }
   }
 }
 
@@ -5533,7 +5595,13 @@ function loadServiceStaff(){
 }
 function saveServiceStaff(){
   localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
-  if(isSupabaseConfigured()){ const sb=getSupabase(); if(sb) sb.from('app_data').upsert({key:'serviceStaff',value:SERVICE_STAFF},{onConflict:'key'}).then(()=>{}); }
+  if(isSupabaseConfigured()){
+    const sb=getSupabase();
+    if(sb){
+      const rows=(SERVICE_STAFF||[]).map((s,idx)=>{ const c=_safeCloneForDb(s); const id=String(c.id||c.name||('staff_'+idx)).replace(/[^\w.\-:/]/g,'_'); c.id=id; return {id, data:c, deleted_at:null}; });
+      _v9UpsertChunks('rodios_service_staff', rows, 'id', 100).catch(e=>console.warn('saveServiceStaff v9 failed:', e));
+    }
+  }
 }
 loadServiceStaff();
 
@@ -6667,11 +6735,12 @@ async function testSupabaseConnection(){
   const btn = event.target;
   btn.disabled=true; btn.textContent='⏳ Δοκιμή...';
   try{
-    const {data,error} = await sb.from('app_data').select('key').limit(1);
+    const {data,error} = await sb.from('rodios_v9_counts').select('*');
     if(error) throw error;
     btn.textContent='🔌 Δοκιμή Σύνδεσης';
     btn.disabled=false;
-    alert('✅ Σύνδεση επιτυχής! Βρέθηκαν '+data.length+' εγγραφές. Supabase λειτουργεί κανονικά.');
+    const issuesCount = (data||[]).find(r=>r.table_name==='issues')?.total || 0;
+    alert('✅ Σύνδεση επιτυχής! v9 ενεργό. Αιτήματα στη βάση: '+issuesCount);
     updateSupabaseStatus();
   }catch(err){
     btn.textContent='🔌 Δοκιμή Σύνδεσης';
@@ -6682,14 +6751,14 @@ async function testSupabaseConnection(){
 
 async function forceSyncToSupabase(){
   if(!isSupabaseConfigured()){alert('Ρύθμισε πρώτα το Supabase.');return;}
-  if(!confirm('Ανέβασμα τοπικών δεδομένων στο Supabase;\nΘα αντικαταστήσουν τα υπάρχοντα online.'))return;
+  if(!confirm('Συγχρονισμός τοπικών δεδομένων στους πίνακες v9;\nΔεν διαγράφει τα υπάρχοντα, κάνει upsert ανά εγγραφή.'))return;
   await _saveToSupabase();
   toast('✅ Δεδομένα ανέβηκαν στο Supabase');
 }
 
 async function forceLoadFromSupabase(){
   if(!isSupabaseConfigured()){alert('Ρύθμισε πρώτα το Supabase.');return;}
-  if(!confirm('Κατέβασμα δεδομένων από Supabase;\nΘα αντικαταστήσουν τα τοπικά.'))return;
+  if(!confirm('Κατέβασμα δεδομένων από τους πίνακες v9;\nΘα αντικαταστήσουν την τρέχουσα μνήμη της εφαρμογής.'))return;
   _supabase = null; // force re-init
   await load();
   toast('✅ Δεδομένα κατέβηκαν από Supabase');
@@ -7746,10 +7815,10 @@ function printBulkProtocol(){
 </div>
 
 <script>
-// v7: combined fixes for login + request attachments + single build marker.
+// v9.1: data tables + instant IndexedDB cache, login + attachments fixes.
 // Keep service worker disabled while the app is being actively debugged, to avoid cached mixed builds.
 (function(){
-  window.RODIOS_BUILD = 'combined-v7-login-attachments-clean-2026-05-29';
+  window.RODIOS_BUILD = 'v9.2-v9-only-cache-2026-05-30';
   window.addEventListener('load', function(){
     try{
       document.querySelectorAll('.rodios-build-tag').forEach(function(el){ el.remove(); });
@@ -7774,204 +7843,5 @@ function printBulkProtocol(){
   });
 })();
 </script>
-
-<!-- RODIOS v9 migration helper - temporary build v8 login fixed -->
-<style>
-#rodiosV9MigrationPanel{position:fixed;left:12px;bottom:34px;z-index:999999;background:#fff;border:2px solid #1a3a5c;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.25);padding:10px 12px;font-family:Segoe UI,Arial,sans-serif;max-width:390px;font-size:12px;color:#1a1a1a}
-#rodiosV9MigrationPanel .t{font-weight:800;color:#1a3a5c;margin-bottom:4px}
-#rodiosV9MigrationPanel .s{font-size:11px;color:#555;line-height:1.35;margin-bottom:8px}
-#rodiosV9MigrationPanel button{background:#1a3a5c;color:#fff;border:none;border-radius:7px;padding:8px 10px;font-weight:700;cursor:pointer;font-size:12px;margin:0 6px 6px 0}
-#rodiosV9MigrationPanel button.secondary{background:#eee;color:#1a1a1a;border:1px solid #bbb}
-#rodiosV9MigrationPanel pre{white-space:pre-wrap;background:#f6f6f6;border:1px solid #ddd;border-radius:6px;padding:6px;margin:7px 0 0;max-height:150px;overflow:auto;font-size:10px}
-</style>
-<div id="rodiosV9MigrationPanel">
-  <div class="t">RODIOS v9 Migration Helper</div>
-  <div class="s">Προσωρινή έκδοση μόνο για μεταφορά. Κάνε login και περίμενε να εμφανιστούν όλα τα παλιά δεδομένα, π.χ. 209 αιτήματα και 92 εντολές.</div>
-  <button type="button" onclick="rodiosV9ShowCounts()">Έλεγχος μετρήσεων</button>
-  <button type="button" onclick="rodiosV9RunMigration()">Μεταφορά σε v9</button>
-  <button type="button" class="secondary" onclick="rodiosV9ClearPanel()">Καθαρισμός</button>
-  <pre id="rodiosV9MigrationOut">Έτοιμο.</pre>
-</div>
-<script>
-(function(){
-  window.RODIOS_BUILD = 'v9-migration-source-v8-login-fixed-2026-05-30';
-  window.addEventListener('load', function(){
-    try{
-      document.querySelectorAll('.rodios-build-tag').forEach(function(el){ el.remove(); });
-      var tag=document.createElement('div');
-      tag.className='rodios-build-tag';
-      tag.textContent='Build: '+window.RODIOS_BUILD;
-      tag.style.cssText='position:fixed;left:8px;bottom:6px;z-index:999999;background:#fffbe6;border:1px solid #f59e0b;color:#7c2d12;border-radius:4px;padding:3px 7px;font:10px system-ui;opacity:.9';
-      document.body.appendChild(tag);
-      var loginBtn=document.getElementById('loginBtn');
-      if(loginBtn){
-        loginBtn.disabled=false;
-        loginBtn.onclick=function(e){ e.preventDefault(); if(typeof doLogin==='function') doLogin(); else alert('Δεν φορτώθηκε η συνάρτηση doLogin. Κάνε Ctrl+F5.'); };
-      }
-    }catch(e){ console.warn('v9 migration build tag/login fix failed', e); }
-  });
-})();
-
-function rodiosV9Out(msg, obj){
-  var el=document.getElementById('rodiosV9MigrationOut');
-  var text='['+(new Date()).toLocaleTimeString('el-GR')+'] '+msg;
-  if(obj!==undefined){
-    try{ text += '\n' + JSON.stringify(obj, null, 2); }catch(_){ text += '\n' + String(obj); }
-  }
-  if(el) el.textContent=text;
-  console.log('%c[RODIOS v9 migration] '+msg, 'color:#1a3a5c;font-weight:bold;', obj||'');
-}
-function rodiosV9ClearPanel(){ rodiosV9Out('Έτοιμο.'); }
-function rodiosV9Arr(v){
-  if(Array.isArray(v)) return v;
-  if(v && Array.isArray(v.items)) return v.items;
-  if(v && Array.isArray(v.data)) return v.data;
-  return [];
-}
-function rodiosV9Clean(value){
-  return JSON.parse(JSON.stringify(value, function(key, val){
-    if(key==='signedPdfData'||key==='pdfData'||key==='base64'||key==='base64Data'||key==='dataUrl') return undefined;
-    if(typeof val==='string' && val.length>250000 && val.startsWith('data:')) return undefined;
-    return val;
-  }));
-}
-function rodiosV9MergeById(){
-  var map=new Map();
-  for(var a=0;a<arguments.length;a++){
-    var list=rodiosV9Arr(arguments[a]);
-    for(var i=0;i<list.length;i++){
-      var item=list[i];
-      if(!item || typeof item!=='object') continue;
-      var c=rodiosV9Clean(item);
-      if(!c.id) c.id='id_'+crypto.randomUUID();
-      var id=String(c.id);
-      map.set(id, Object.assign({}, map.get(id)||{}, c));
-    }
-  }
-  return Array.from(map.values());
-}
-function rodiosV9CurrentCounts(){
-  var hist=[];
-  try{ hist = (typeof getHistoricalData==='function') ? getHistoricalData() : []; }catch(_){ hist=[]; }
-  var curIssues = (typeof issues!=='undefined' && Array.isArray(issues)) ? issues : [];
-  var curOrders = (typeof workOrders!=='undefined' && Array.isArray(workOrders)) ? workOrders : [];
-  var curPayments = (typeof payments!=='undefined' && Array.isArray(payments)) ? payments : [];
-  return {
-    historicalIssues: hist.length,
-    currentIssues: curIssues.length,
-    currentWorkOrders: curOrders.length,
-    currentPayments: curPayments.length,
-    loggedIn: !!(window.currentUser || window._currentUser)
-  };
-}
-function rodiosV9ShowCounts(){
-  var c=rodiosV9CurrentCounts();
-  rodiosV9Out('Τρέχουσες μετρήσεις εφαρμογής. Αν δεν βλέπεις 209/92, περίμενε να συγχρονίσει πρώτα.', c);
-}
-async function rodiosV9UpsertChunks(sb, table, rows, onConflict, chunkSize){
-  onConflict = onConflict || 'id';
-  chunkSize = chunkSize || 100;
-  if(!rows || !rows.length){ rodiosV9Out(table+': 0 εγγραφές — παράλειψη'); return; }
-  for(var i=0;i<rows.length;i+=chunkSize){
-    var part=rows.slice(i,i+chunkSize);
-    var res=await sb.from(table).upsert(part,{onConflict:onConflict});
-    if(res.error){ console.error('Σφάλμα στο '+table, res.error, part); throw res.error; }
-    rodiosV9Out(table+': '+Math.min(i+chunkSize, rows.length)+' / '+rows.length);
-  }
-}
-function rodiosV9AttId(parentType,parentId,kind,idx,att){
-  var raw=(att&& (att.id||att.storage_path||att.storagePath||att.path||att.url||att.public_url||att.publicUrl)) || (parentType+'_'+parentId+'_'+kind+'_'+idx);
-  return String(raw).slice(0,180).replace(/[^\w.\-:/]/g,'_');
-}
-function rodiosV9AttachmentRows(parentType,parentId,attachments,kind){
-  var out=[];
-  rodiosV9Arr(attachments).forEach(function(att,idx){
-    if(!att || typeof att!=='object') return;
-    var c=rodiosV9Clean(att);
-    out.push({
-      id: rodiosV9AttId(parentType,parentId,kind,idx,c),
-      parent_type: parentType,
-      parent_id: String(parentId),
-      file_name: c.name || c.filename || c.fileName || c.title || (kind+'_'+(idx+1)),
-      file_type: c.type || c.fileType || c.mimeType || '',
-      file_size: Number(c.size || c.fileSize || 0) || null,
-      storage_bucket: c.bucket || c.storage_bucket || 'attachments',
-      storage_path: c.path || c.storage_path || c.storagePath || null,
-      public_url: c.url || c.public_url || c.publicUrl || c.downloadUrl || null,
-      data: Object.assign({}, c, {kind:kind})
-    });
-  });
-  return out;
-}
-async function rodiosV9RunMigration(){
-  try{
-    var sb = (typeof getSupabase==='function') ? getSupabase() : null;
-    if(!sb){ alert('Δεν βρέθηκε Supabase client. Άνοιξε την κανονική εφαρμογή και κάνε login.'); return; }
-    var session = await sb.auth.getSession();
-    if(!session || !session.data || !session.data.session){ alert('Δεν υπάρχει ενεργό Supabase Auth session. Κάνε ξανά login και ξαναδοκίμασε.'); return; }
-
-    var counts=rodiosV9CurrentCounts();
-    if(counts.currentIssues < 150){
-      var cont=confirm('Βλέπω μόνο '+counts.currentIssues+' αιτήματα. Αν περιμένεις 209, πάτα Άκυρο και περίμενε τον συγχρονισμό. Να συνεχίσω;');
-      if(!cont) return;
-    }
-
-    rodiosV9Out('Διαβάζω παλιό app_data...');
-    var oldRes = await sb.from('app_data').select('key,value').in('key',['issues','workOrders','payments','settings','users','serviceStaff']);
-    if(oldRes.error){ console.warn('Δεν μπόρεσα να διαβάσω app_data', oldRes.error); }
-    var old={};
-    (oldRes.data||[]).forEach(function(r){ old[r.key]=r.value; });
-
-    var local={};
-    try{ local=JSON.parse(localStorage.getItem('autopistasia_data')||'{}'); }catch(_){ local={}; }
-    var hist=[];
-    try{ hist = (typeof getHistoricalData==='function') ? getHistoricalData() : []; }catch(_){ hist=[]; }
-
-    var allIssues=rodiosV9MergeById(hist, old.issues, local.issues, (typeof issues!=='undefined'?issues:[]));
-    var allOrders=rodiosV9MergeById(old.workOrders, local.workOrders, (typeof workOrders!=='undefined'?workOrders:[]));
-    var allPayments=rodiosV9MergeById(old.payments, local.payments, (typeof payments!=='undefined'?payments:[]));
-    var allUsers=rodiosV9MergeById(old.users, JSON.parse(localStorage.getItem('rhodesAppUsers')||'[]'), (typeof getEffectiveUsers==='function'?getEffectiveUsers():[]));
-    var allStaff=rodiosV9MergeById(old.serviceStaff, JSON.parse(localStorage.getItem('serviceStaff')||'[]'), (typeof SERVICE_STAFF!=='undefined'?SERVICE_STAFF:[]));
-    var mergedSettings=rodiosV9Clean(Object.assign({}, old.settings||{}, local.settings||{}, (typeof settings!=='undefined'?settings:{})));
-
-    var attachmentRows=[];
-    allIssues.forEach(function(i){ attachmentRows=attachmentRows.concat(rodiosV9AttachmentRows('issue', i.id, i.attachments, 'issue_attachment')); });
-    allOrders.forEach(function(w){
-      attachmentRows=attachmentRows.concat(
-        rodiosV9AttachmentRows('work_order', w.id, w.attachments, 'work_order_attachment'),
-        rodiosV9AttachmentRows('work_order', w.id, w.mediaBefore, 'media_before'),
-        rodiosV9AttachmentRows('work_order', w.id, w.mediaAfter, 'media_after')
-      );
-    });
-    var seen=new Set();
-    attachmentRows=attachmentRows.filter(function(a){ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
-
-    var summary={issues:allIssues.length, workOrders:allOrders.length, payments:allPayments.length, attachments:attachmentRows.length, users:allUsers.length, serviceStaff:allStaff.length};
-    console.table(summary);
-    var ok=confirm('Θα γίνει μεταφορά v9 με:\n\nΑιτήματα: '+summary.issues+'\nΕντολές: '+summary.workOrders+'\nΠληρωμές: '+summary.payments+'\nΣυνημμένα: '+summary.attachments+'\n\nΔεν θα διαγραφεί τίποτα. Συνέχεια;');
-    if(!ok) return;
-
-    await rodiosV9UpsertChunks(sb,'rodios_issues',allIssues.map(function(i){ return {id:String(i.id), data:i, deleted_at:null}; }),'id',100);
-    await rodiosV9UpsertChunks(sb,'rodios_work_orders',allOrders.map(function(w){ return {id:String(w.id), issue_id:w.issueId||w.issue_id||null, data:w, deleted_at:null}; }),'id',100);
-    await rodiosV9UpsertChunks(sb,'rodios_payments',allPayments.map(function(p){ return {id:String(p.id), work_order_id:p.workOrderId||p.orderId||p.woId||p.work_order_id||null, data:p, deleted_at:null}; }),'id',100);
-    await rodiosV9UpsertChunks(sb,'rodios_attachments',attachmentRows,'id',100);
-    await rodiosV9UpsertChunks(sb,'rodios_settings',[{key:'main', value:mergedSettings}],'key',50);
-    await rodiosV9UpsertChunks(sb,'rodios_app_users',allUsers.map(function(u){ return {id:String(u.id), data:u, deleted_at:null}; }),'id',100);
-    await rodiosV9UpsertChunks(sb,'rodios_service_staff',allStaff.map(function(s,idx){ return {id:String(s.id||s.name||('staff_'+(idx+1))).replace(/[^\w.\-:/]/g,'_'), data:s, deleted_at:null}; }),'id',100);
-
-    try{ indexedDB.deleteDatabase('rodios_v9_cache_db'); }catch(_){ }
-    localStorage.removeItem('rodios_v9_last_counts');
-    var countsRes=await sb.from('rodios_v9_counts').select('*');
-    if(!countsRes.error) console.table(countsRes.data);
-    rodiosV9Out('Η μεταφορά ολοκληρώθηκε.', summary);
-    alert('✅ Η μεταφορά v9 ολοκληρώθηκε. Τώρα έλεγξε το rodios_v9_counts στο Supabase.');
-  }catch(e){
-    console.error(e);
-    rodiosV9Out('Σφάλμα μεταφοράς: '+(e.message||String(e)), e);
-    alert('Σφάλμα μεταφοράς: '+(e.message||String(e)));
-  }
-}
-</script>
-
 </body>
 </html>
