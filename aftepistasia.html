@@ -622,6 +622,10 @@ function hideDisclaimerModal(){
           <button class="btn btn-sm" onclick="exportCSV()">⬇ CSV Αιτημάτων</button>
           <button class="btn btn-sm" style="color:var(--red);border-color:var(--red);" onclick="clearAll()">🗑 Καθαρισμός προστεθέντων</button>
         </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;border-top:1px dashed var(--border);padding-top:10px;">
+          <button class="btn btn-sm" onclick="diagnoseDataSize()">🔍 Διάγνωση μεγέθους δεδομένων</button>
+          <button class="btn btn-sm" style="color:#1a7a4a;border-color:#3ecf8e;" onclick="migrateMediaToStorage()">🔄 Μεταφορά φωτογραφιών στο Storage</button>
+        </div>
         <input type="file" id="impFile" accept=".json" style="display:none" onchange="importAll(event)">
       </div>
 
@@ -1260,6 +1264,22 @@ function _loadFromLocalStorage(hist){
 }
 
 // ── SAVE ──────────────────────────────────────────────────────────
+// Strip heavy base64 from an order when a Storage URL already exists (for both cache and cloud).
+function _cleanMediaArr(arr){
+  return (Array.isArray(arr)?arr:[]).map(m=>{
+    if(m && m.uploading){ m = {...m}; delete m.uploading; }
+    if(m && m.url && m.data){ const c={...m}; delete c.data; return c; }
+    return m;
+  });
+}
+function _cleanOrderForStorage(w){
+  const clone = {...w};
+  if(clone.signedPdfUrl && clone.signedPdfData) delete clone.signedPdfData;
+  if(clone.mediaBefore) clone.mediaBefore = _cleanMediaArr(clone.mediaBefore);
+  if(clone.mediaAfter)  clone.mediaAfter  = _cleanMediaArr(clone.mediaAfter);
+  return clone;
+}
+
 function save(){
   // Always save to localStorage as cache
   const histIds = new Set(getHistoricalData().map(i=>i.id));
@@ -1273,15 +1293,8 @@ function save(){
     })
   }));
   
-  // Also strip base64 from localStorage cache (it's huge and we have signedPdfUrl)
-  const cleanWorkOrders = workOrders.map(w=>{
-    if(w.signedPdfUrl && w.signedPdfData){
-      const clone = {...w};
-      delete clone.signedPdfData;
-      return clone;
-    }
-    return w;
-  });
+  // Strip base64 (signed PDF + order photos) from localStorage cache when a URL exists
+  const cleanWorkOrders = workOrders.map(_cleanOrderForStorage);
   
   try {
     localStorage.setItem('autopistasia_data',JSON.stringify({issues:cleanIssuesForCache,workOrders:cleanWorkOrders,payments,settings}));
@@ -1337,12 +1350,8 @@ async function _saveToSupabase(){
     }));
     const effUsers = getEffectiveUsers();
 
-    // Strip huge base64 PDF data before saving (keep only URL reference)
-    const cleanWorkOrders = workOrders.map(w=>{
-      const clone = {...w};
-      if(clone.signedPdfUrl && clone.signedPdfData) delete clone.signedPdfData;
-      return clone;
-    });
+    // Strip huge base64 (signed PDF + order photos) before saving — keep only URL references
+    const cleanWorkOrders = workOrders.map(_cleanOrderForStorage);
 
     // Merge helper: union by id. Local record wins for items present locally
     // (those reflect the user's latest edits); remote-only records are kept
@@ -1388,6 +1397,96 @@ async function _saveToSupabase(){
     _savingInProgress = false;
     if(_savePendingAgain){ _savePendingAgain = false; setTimeout(()=>_saveToSupabase(), 300); }
   }
+}
+
+// ── DATA SIZE DIAGNOSTIC ──────────────────────────────────────────
+function _b64len(x){ return (x && typeof x==='string') ? x.length : 0; }
+function _mediaB64Bytes(arr){
+  return (Array.isArray(arr)?arr:[]).reduce((s,m)=> s + ((m && m.data && !m.url) ? _b64len(m.data) : 0), 0);
+}
+function diagnoseDataSize(){
+  const totalBlob = JSON.stringify({issues, workOrders, payments, settings}).length;
+  let mediaBytes=0, pdfBytes=0, attBytes=0, mediaCount=0, ordersWithB64=0;
+  workOrders.forEach(w=>{
+    const mb=_mediaB64Bytes(w.mediaBefore), ma=_mediaB64Bytes(w.mediaAfter);
+    if(mb+ma>0) ordersWithB64++;
+    mediaBytes += mb+ma;
+    mediaCount += (w.mediaBefore||[]).filter(m=>m&&m.data&&!m.url).length + (w.mediaAfter||[]).filter(m=>m&&m.data&&!m.url).length;
+    if(w.signedPdfData && !w.signedPdfUrl) pdfBytes += _b64len(w.signedPdfData);
+  });
+  issues.forEach(i=>{ (i.attachments||[]).forEach(a=>{ if(a&&a.data&&!a.url) attBytes += _b64len(a.data); }); });
+  const mb = b=>(b/1024/1024).toFixed(2);
+  alert(
+    '📊 ΔΙΑΓΝΩΣΗ ΜΕΓΕΘΟΥΣ\n\n'+
+    'Αιτήματα: '+issues.length+'  |  Εντολές: '+workOrders.length+'  |  Πληρωμές: '+payments.length+'\n'+
+    'Συνολικό μπλοκ δεδομένων: '+mb(totalBlob)+' MB\n\n'+
+    '— Πού κρύβονται τα MB (base64 χωρίς link) —\n'+
+    '📷 Φωτογραφίες εντολών: '+mb(mediaBytes)+' MB  ('+mediaCount+' φωτό σε '+ordersWithB64+' εντολές)\n'+
+    '📄 Υπογεγραμμένα PDF: '+mb(pdfBytes)+' MB\n'+
+    '📎 Συνημμένα αιτημάτων: '+mb(attBytes)+' MB\n\n'+
+    (mediaBytes>500000
+      ? '➡️ Πάτησε «🔄 Μεταφορά φωτογραφιών στο Storage» για να τα μετακινήσεις και να επιταχύνεις την εφαρμογή.'
+      : '✅ Δεν υπάρχει σημαντικό base64 βάρος.')
+  );
+}
+
+// ── ONE-TIME MIGRATION: move base64 order photos to Supabase Storage ──
+async function migrateMediaToStorage(){
+  const sb = getSupabase();
+  if(!sb || !isSupabaseConfigured()){ alert('⚠️ Το Supabase δεν είναι ρυθμισμένο.'); return; }
+
+  // Measure first
+  let mediaCount=0, totalBytes=0, ordersAffected=0;
+  workOrders.forEach(w=>{
+    let n=0;
+    ['mediaBefore','mediaAfter'].forEach(slot=>{ (w[slot]||[]).forEach(m=>{ if(m&&m.data&&!m.url){ n++; totalBytes+=_b64len(m.data); } }); });
+    if(n>0){ ordersAffected++; mediaCount+=n; }
+  });
+  if(mediaCount===0){ alert('✅ Δεν βρέθηκαν base64 φωτογραφίες προς μεταφορά.\nΌλες είναι ήδη στο Storage.'); return; }
+
+  if(!confirm(
+    '🔄 ΜΕΤΑΦΟΡΑ ΦΩΤΟΓΡΑΦΙΩΝ ΣΤΟ STORAGE\n\n'+
+    'Βρέθηκαν '+mediaCount+' φωτογραφίες ('+(totalBytes/1024/1024).toFixed(2)+' MB) σε '+ordersAffected+' εντολές.\n\n'+
+    'Θα ανέβουν στο Supabase Storage και θα αντικατασταθούν με links, ώστε να μικρύνει το μπλοκ δεδομένων και να επιταχυνθεί η εφαρμογή.\n\n'+
+    '⚠️ Συνιστάται να έχεις κάνει «Εξαγωγή JSON» πρώτα ως αντίγραφο.\n\nΣυνέχεια;'
+  )) return;
+
+  // Progress overlay
+  const ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;background:rgba(26,39,68,.9);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;color:#fff;font-size:15px;text-align:center;padding:20px;';
+  ov.innerHTML='<div style="width:46px;height:46px;border:4px solid rgba(255,255,255,.3);border-top-color:#3ecf8e;border-radius:50%;animation:spin 1s linear infinite;"></div><div id="migMsg">Προετοιμασία…</div>';
+  document.body.appendChild(ov);
+  const msg=ov.querySelector('#migMsg');
+
+  let done=0, failed=0;
+  for(const w of workOrders){
+    for(const slot of ['mediaBefore','mediaAfter']){
+      const arr = w[slot]; if(!Array.isArray(arr)) continue;
+      for(let i=0;i<arr.length;i++){
+        const m=arr[i];
+        if(!m || !m.data || m.url) continue;
+        msg.textContent='Ανέβασμα '+(done+failed+1)+' / '+mediaCount+' …';
+        try{
+          const blob = await (await fetch(m.data)).blob();
+          const safe = (m.name||'photo').replace(/[^a-zA-Z0-9._-]/g,'_');
+          const path = 'orders/'+(w.id||'x')+'/'+Date.now()+'_'+i+'_'+safe;
+          const {error} = await sb.storage.from('attachments').upload(path, blob, {cacheControl:'3600', upsert:false, contentType:m.type||blob.type||'image/jpeg'});
+          if(error) throw error;
+          const {data:{publicUrl}} = sb.storage.from('attachments').getPublicUrl(path);
+          arr[i] = {name:m.name||safe, type:m.type||blob.type||'', url:publicUrl, path:path, stored:'supabase'};
+          done++;
+        }catch(err){ console.warn('Migration failed for one media:', err); failed++; }
+      }
+    }
+  }
+
+  msg.textContent='Αποθήκευση…';
+  try{ await _saveToSupabase(); }catch(e){ console.warn(e); }
+  // refresh local cache too
+  try{ save(); }catch(e){}
+
+  ov.remove();
+  alert('✅ Ολοκληρώθηκε η μεταφορά.\n\n✓ Επιτυχία: '+done+' φωτογραφίες\n'+(failed?('✗ Αποτυχία: '+failed+' (παρέμειναν ως base64)\n'):'')+'\nΚάνε τώρα ανανέωση (refresh) — η εφαρμογή θα φορτώνει πολύ πιο γρήγορα και θα σταματήσει το «146».');
 }
 
 function closeSbBanner(){const b=document.getElementById("setupBanner");if(b)b.remove();}
@@ -1677,14 +1776,31 @@ function orderIssueChanged(){
 function addMedia(slot, input){
   const arr = slot==='before' ? woMediaBefore : woMediaAfter;
   const files = Array.from(input.files);
-  let pending = files.length;
-  if(!pending) return;
+  if(!files.length) return;
+  const sb = getSupabase();
   files.forEach(file=>{
     const reader = new FileReader();
     reader.onload = ev=>{
-      arr.push({name:file.name, type:file.type, data:ev.target.result});
-      pending--;
-      if(pending===0) renderThumbs(slot);
+      // Instant preview using base64; mark as uploading so save() won't persist base64 yet
+      const item = {name:file.name, type:file.type, data:ev.target.result, uploading:true};
+      arr.push(item);
+      renderThumbs(slot);
+      // Upload to Supabase Storage in the background, then swap base64 → URL
+      if(sb && isSupabaseConfigured()){
+        const safe = (file.name||'photo').replace(/[^a-zA-Z0-9._-]/g,'_');
+        const path = 'orders/' + Date.now() + '_' + Math.random().toString(36).slice(2,8) + '_' + safe;
+        sb.storage.from('attachments').upload(path, file, {cacheControl:'3600', upsert:false, contentType:file.type||'image/jpeg'})
+          .then(({error})=>{
+            if(error) throw error;
+            const {data:{publicUrl}} = sb.storage.from('attachments').getPublicUrl(path);
+            item.url = publicUrl; item.path = path; item.stored='supabase';
+            delete item.data; delete item.uploading;
+            renderThumbs(slot);
+          })
+          .catch(err=>{ console.warn('Media upload failed, keeping base64:', err); delete item.uploading; });
+      } else {
+        delete item.uploading; // offline: keep base64
+      }
     };
     reader.readAsDataURL(file);
   });
@@ -1696,11 +1812,13 @@ function renderThumbs(slot){
   const container = document.getElementById(slot==='before'?'thumbsBefore':'thumbsAfter');
   if(!container) return;
   container.innerHTML = arr.map((m,idx)=>{
+    const src = m.url || m.data || '';
     const isVideo = m.type && m.type.startsWith('video');
     const tag = isVideo
-      ? `<video src="${m.data}" muted playsinline style="width:100%;height:100%;object-fit:cover;"></video>`
-      : `<img src="${m.data}" alt="${esc(m.name)}">`;
-    return `<div class="photo-thumb">${tag}<button class="del-thumb" onclick="delMedia('${slot}',${idx})">✕</button></div>`;
+      ? `<video src="${src}" muted playsinline style="width:100%;height:100%;object-fit:cover;"></video>`
+      : `<img src="${src}" alt="${esc(m.name||'')}">`;
+    const badge = m.uploading ? `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;">⬆️…</div>` : '';
+    return `<div class="photo-thumb">${tag}${badge}<button class="del-thumb" onclick="delMedia('${slot}',${idx})">✕</button></div>`;
   }).join('');
 }
 
@@ -7749,7 +7867,7 @@ function printBulkProtocol(){
 // v7: combined fixes for login + request attachments + single build marker.
 // Keep service worker disabled while the app is being actively debugged, to avoid cached mixed builds.
 (function(){
-  window.RODIOS_BUILD = 'combined-v7-login-attachments-clean-2026-05-29';
+  window.RODIOS_BUILD = 'phaseB-media-storage-2026-05-29';
   window.addEventListener('load', function(){
     try{
       document.querySelectorAll('.rodios-build-tag').forEach(function(el){ el.remove(); });
