@@ -1375,7 +1375,7 @@ async function load(){
     if(mainSettings && mainSettings.value) settings = {...settings, ...mainSettings.value};
 
     if(userRows && userRows.length){
-      const u = userRows.map(r=>({...(r.data||{}), id:r.id}));
+      const u = userRows.map(r=>normalizeUserProfile(r.data||{}, r.id));
       localStorage.setItem('rhodesAppUsers', JSON.stringify(u));
     }
     if(staffRows && staffRows.length){
@@ -2275,12 +2275,39 @@ let currentUser = null;
 let _selectedLoginUser = null;
 
 // ── Supabase Auth helpers (committee login) ───────────────────────
+// v9.7: Normalize app profiles loaded from rodios_app_users.
+// Some clean-start migrations store rows as user_001/user_002 while the original
+// profile id remains inside data.id. For permissions, we must keep the original
+// application id, especially admin.
+function normalizeUserProfile(u, rowId){
+  const out = {...(u||{})};
+  if(!out.id && rowId) out.id = rowId;
+  const email = String(out.email||'').trim().toLowerCase();
+  if(email === 'diakolios@rhodes.gr'){
+    out.id = 'admin';
+    out.name = out.name || 'Διακολιός Βασίλειος';
+    out.role = out.role || 'Διαχειριστής Εφαρμογής';
+    out.username = out.username || 'diakolios';
+    out.initials = out.initials || 'ΔΒ';
+    out.color = out.color || '#1a2744';
+    out.canEdit = true;
+    out.canDelete = true;
+    out.canPenalty = true;
+    out.canOrders = true;
+  }
+  if(!out.initials && out.name){
+    out.initials = out.name.split(' ').filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase();
+  }
+  if(!out.color) out.color = '#2d4a8a';
+  return out;
+}
+
 // Maps an authenticated Supabase email to the local role/permission profile.
 function findProfileByEmail(email){
   const e = (email||'').trim().toLowerCase();
   if(!e) return null;
   let list = [];
-  try { list = getEffectiveUsers() || []; } catch(_) {}
+  try { list = (getEffectiveUsers() || []).map(u=>normalizeUserProfile(u, u.id)); } catch(_) {}
   return list.find(u => (u.email||'').trim().toLowerCase() === e)
       || USERS.find(u => (u.email||'').trim().toLowerCase() === e)
       || null;
@@ -2661,8 +2688,9 @@ function loginSuccess(u){
     try { await syncAcknowledgmentsFromSupabase(); } catch(e) { console.warn('Ack sync on load failed:', e); }
     toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
   });
-  setTimeout(munPingPresence,1000);
+  // v9.7: user-presence disabled to keep console/network clean.
 }
+
 
 function applyTabPermissions(u){
   // Show user management button in header for admin/canDelete
@@ -2670,7 +2698,7 @@ function applyTabPermissions(u){
   const mgmtBtn = document.getElementById('userMgmtHeaderBtn');
   if(mgmtBtn) mgmtBtn.style.display = canManage ? 'inline-flex' : 'none';
 
-  const isAdmin = (u.id==='admin'); // ONLY admin (diakolios) sees settings
+  const isAdmin = (u.id==='admin' || String(u.email||'').toLowerCase()==='diakolios@rhodes.gr'); // ONLY admin (diakolios) sees settings
   const canOrders = u.canOrders !== false; // default true if not set
   const navBtns = document.querySelectorAll('nav button');
   const tabNames = ['dashboard','issues','orders','finance','catalog','reports','settings'];
@@ -2771,15 +2799,16 @@ function getUsersData(){
 }
 function getEffectiveUsers(){
   const saved = getUsersData();
-  if(!saved) return USERS;
+  if(!saved) return USERS.map(u=>normalizeUserProfile(u, u.id));
   // Merge: if saved users lack username/password, supplement from USERS defaults
   return saved.map(u=>{
-    const def = USERS.find(d=>d.id===u.id);
-    return {
-      ...u,
-      username: u.username || (def&&def.username) || u.name.split(' ').pop().toLowerCase(),
-      password: u.password || (def&&def.password) || u.pin,
-    };
+    const base = normalizeUserProfile(u, u.id);
+    const def = USERS.find(d=>d.id===base.id || (d.email||'').toLowerCase()===(base.email||'').toLowerCase());
+    return normalizeUserProfile({
+      ...base,
+      username: base.username || (def&&def.username) || (base.name?base.name.split(' ').pop().toLowerCase():''),
+      password: base.password || (def&&def.password) || base.pin,
+    }, base.id);
   });
 }
 function saveUsers(users){
@@ -2800,13 +2829,22 @@ function changeAdminPass(){const p=prompt("Νέος κωδικός Admin:");if(!
 function renderUsersList(){
   const card = document.getElementById('userMgmtCard');
   if(!card) return;
-  // Admin or users with canDelete permission can manage users
-  const canManageUsers = currentUser && (currentUser.id==='admin' || currentUser.canDelete===true);
+  const curEmail = String((currentUser&&currentUser.email)||'').trim().toLowerCase();
+  // Admin or users with canDelete permission can manage users. v9.7: diakolios email is always admin.
+  const canManageUsers = currentUser && (currentUser.id==='admin' || currentUser.canDelete===true || curEmail==='diakolios@rhodes.gr');
   if(!canManageUsers){
     card.style.display='none'; return;
   }
   card.style.display='block';
-  const users = getEffectiveUsers();
+  const users = (getEffectiveUsers()||[]).map(u=>normalizeUserProfile(u, u.id));
+  const statusEl = document.getElementById('userMgmtStatus');
+  if(statusEl){
+    statusEl.innerHTML = 'Ενεργό πάνελ διαχείρισης χρηστών · Χρήστες: <strong>'+users.length+'</strong> · Edge Function: <code>manage-app-user</code>';
+  }
+  if(!users.length){
+    document.getElementById('usersList').innerHTML = '<div class="empty" style="padding:16px;">Δεν βρέθηκαν χρήστες. Πατήστε <strong>+ Νέος Χρήστης</strong> για δημιουργία.</div>';
+    return;
+  }
   document.getElementById('usersList').innerHTML = users.map((u,idx)=>{
     // Build permission badges
     const badges = [];
@@ -3685,7 +3723,7 @@ function showTab(tab){
     return;
   }
   // Settings: ONLY admin (diakolios)
-  if(tab==='settings' && currentUser && currentUser.id!=='admin'){
+  if(tab==='settings' && currentUser && currentUser.id!=='admin' && String(currentUser.email||'').toLowerCase()!=='diakolios@rhodes.gr'){
     toast('⛔ Οι Ρυθμίσεις είναι διαθέσιμες μόνο στον διαχειριστή.');
     return;
   }
@@ -3727,7 +3765,7 @@ function renderAll(){
 }
 
 function updateHeader(){
-  var nb=document.querySelectorAll("nav button");nb.forEach(function(b){if(b.textContent.includes("Ρυθμίσεις")){b.style.display=(currentUser&&currentUser.id==="admin")?"":"none";}});
+  var nb=document.querySelectorAll("nav button");nb.forEach(function(b){if(b.textContent.includes("Ρυθμίσεις")){b.style.display=(currentUser&&(currentUser.id==="admin"||String(currentUser.email||'').toLowerCase()==='diakolios@rhodes.gr'))?"":"none";}});
   const days=['Κυριακή','Δευτέρα','Τρίτη','Τετάρτη','Πέμπτη','Παρασκευή','Σάββατο'];
   const months=['Ιαν','Φεβ','Μαρ','Απρ','Μαΐ','Ιουν','Ιουλ','Αυγ','Σεπ','Οκτ','Νοε','Δεκ'];
   const d=new Date();
@@ -7072,7 +7110,7 @@ function delStaff(idx){
 function loadSettings(){
   renderUsersList();
   renderStaffList();
-  var oc=document.getElementById('onlineUsersCard');if(oc){if(currentUser&&currentUser.id==='admin'){oc.style.display='block';munUpdateOnline();}else oc.style.display='none';}
+  var oc=document.getElementById('onlineUsersCard');if(oc){oc.style.display='none';}
   document.getElementById('sDate').value=settings.listDate||todayStr();
   document.getElementById('sContract').value=(settings.contractValue||967741.20).toString().replace('.',',');
   document.getElementById('sContractor').value=settings.contractor||'';
@@ -8029,7 +8067,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.6-combined-photos-users-fixed-2026-05-31';
+  window.RODIOS_BUILD = 'v9.7-users-panel-fixed-2026-05-31';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
