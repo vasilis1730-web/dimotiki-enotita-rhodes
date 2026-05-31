@@ -6572,6 +6572,29 @@ function emailOrder(id){
   document.getElementById('econfWrap').style.display='flex';
 }
 
+// Ensure the order's BEFORE/AFTER photos are uploaded to Storage (in case a background upload hadn't finished)
+async function ensureOrderMediaUploaded(wo){
+  const sb = getSupabase();
+  if(!sb || !isSupabaseConfigured() || !wo) return;
+  for(const slot of ['mediaBefore','mediaAfter']){
+    const arr = wo[slot];
+    if(!Array.isArray(arr)) continue;
+    for(let i=0;i<arr.length;i++){
+      const m = arr[i];
+      if(!m || m.url || !(typeof m.data==='string' && m.data.startsWith('data:'))) continue;
+      try{
+        const blob = await (await fetch(m.data)).blob();
+        const safe = (m.name||'photo').replace(/[^a-zA-Z0-9._-]/g,'_');
+        const path = 'orders/'+(wo.id||'x')+'/'+Date.now()+'_'+i+'_'+safe;
+        const { error } = await sb.storage.from('attachments').upload(path, blob, {cacheControl:'3600', upsert:false, contentType:m.type||blob.type||'image/jpeg'});
+        if(error) throw error;
+        const { data:{ publicUrl } } = sb.storage.from('attachments').getPublicUrl(path);
+        arr[i] = {name:m.name||safe, type:m.type||'', url:publicUrl, path, stored:'supabase'};
+      }catch(e){ console.warn('media upload (pre-send) failed', e); }
+    }
+  }
+}
+
 async function prepareContractorEmailPayload(wo){
   const email = (settings.contractorEmail||'').trim();
   if(!email) throw new Error('Δεν έχει οριστεί email αναδόχου στις Ρυθμίσεις.');
@@ -6583,15 +6606,27 @@ async function prepareContractorEmailPayload(wo){
   // Refresh from the linked request before sending, so old/stale copied attachments are corrected.
   const allAtts = getEffectiveOrderAttachments(wo);
   wo.attachments = cloneAttachments(allAtts);
-  // Τα links μένουν και μέσα στο σώμα ως ασφαλιστική δικλείδα, ενώ τα αρχεία στέλνονται και ως attachments.
+  // Make sure the order's BEFORE/AFTER photos are in Storage (so they can be attached).
+  await ensureOrderMediaUploaded(wo);
+  // Body: request-attachment links (existing safety net).
   body += attachmentLinksBlock(wo);
-  const atts = getSendableAttachments(wo);
-  return {
-    to: email,
-    subject,
-    body,
-    attachments: atts.map(a=>({name:a.name,url:a.url,type:a.type}))
-  };
+  // Gather ALL sendable files: request attachments + the order's BEFORE/AFTER photos.
+  const issueAtts = getSendableAttachments(wo).map(a=>({name:a.name, url:a.url, type:a.type}));
+  const mediaAtts = []
+    .concat(Array.isArray(wo.mediaBefore)?wo.mediaBefore:[])
+    .concat(Array.isArray(wo.mediaAfter)?wo.mediaAfter:[])
+    .filter(m=>m && m.url)
+    .map(m=>({name:m.name||'photo', url:m.url, type:m.type||''}));
+  // Body: also list the photo links as a safety net.
+  if(mediaAtts.length){
+    body += '\n\nΦωτογραφίες/Βίντεο εντολής:';
+    mediaAtts.forEach((m,i)=>{ body += '\n  '+(i+1)+'. '+(m.name||'αρχείο')+': '+m.url; });
+  }
+  // Merge + dedup by url.
+  const seenUrls = new Set();
+  const attachments = [];
+  issueAtts.concat(mediaAtts).forEach(f=>{ if(f.url && !seenUrls.has(f.url)){ seenUrls.add(f.url); attachments.push(f); } });
+  return { to: email, subject, body, attachments };
 }
 
 async function sendOrderEmailViaServer(wo){
@@ -8067,7 +8102,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.8-users-panel-visible-2026-05-31';
+  window.RODIOS_BUILD = 'v9.8-users-panel-LIVE-2026-06-01';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
@@ -8122,14 +8157,8 @@ function printBulkProtocol(){
       var online=document.getElementById('onlineUsersCard');
       if(online) online.style.display='none';
 
-      // v9.8: Do NOT override renderUsersList/openAddUser here.
-      // The real admin user panel uses the secure Edge Function manage-app-user.
-      // If settings is already open after load/login, render it once after the app has currentUser.
-      setTimeout(function(){
-        try{
-          if(typeof renderUsersList==='function') renderUsersList();
-        }catch(e){ console.warn('renderUsersList deferred failed', e); }
-      }, 800);
+      // [v9.8] Αφαιρέθηκε το παλιό override που έκρυβε το πάνελ χρηστών.
+      // Πλέον χρησιμοποιείται η κανονική renderUsersList/openAddUser (με την Edge Function manage-app-user).
     }catch(_){}
 
     // Keep service worker/browser caches off while the app is under active development.
@@ -8143,28 +8172,6 @@ function printBulkProtocol(){
         return Promise.all(keys.map(function(k){ return caches.delete(k); }));
       }).catch(function(e){ console.warn('Cache delete failed', e); });
     }
-  });
-
-
-
-  // v9.8 guard: when admin opens Settings, keep the real user-management panel visible.
-  window.addEventListener('load', function(){
-    setInterval(function(){
-      try{
-        var card=document.getElementById('userMgmtCard');
-        if(!card || typeof currentUser==='undefined' || !currentUser) return;
-        var email=String(currentUser.email||'').toLowerCase();
-        var canManage=(currentUser.id==='admin' || currentUser.canDelete===true || email==='diakolios@rhodes.gr');
-        var settingsTab=document.getElementById('tab-settings');
-        var settingsVisible=settingsTab && settingsTab.style.display!=='none';
-        if(canManage && settingsVisible){
-          if(card.style.display==='none'){
-            card.style.setProperty('display','block');
-            if(typeof renderUsersList==='function') renderUsersList();
-          }
-        }
-      }catch(_){ }
-    }, 1200);
   });
 
   // Hard no-op for user presence, in case old code calls these names.
