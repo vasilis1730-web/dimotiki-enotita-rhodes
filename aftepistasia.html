@@ -11,6 +11,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <title>ΡΟΔΙΟΣ - Αιτήματα Πολιτών</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231a3a5c'/%3E%3Cpath d='M10 32 32 14l22 18H10Z' fill='%23ffffff'/%3E%3Crect x='14' y='32' width='36' height='20' rx='3' fill='%23ffffff'/%3E%3Crect x='20' y='37' width='6' height='10' fill='%231a3a5c'/%3E%3Crect x='29' y='37' width='6' height='15' fill='%231a3a5c'/%3E%3Crect x='38' y='37' width='6' height='10' fill='%231a3a5c'/%3E%3Ccircle cx='32' cy='11' r='4' fill='%23f0b429'/%3E%3C/svg%3E">
+<link rel="shortcut icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231a3a5c'/%3E%3Cpath d='M10 32 32 14l22 18H10Z' fill='%23ffffff'/%3E%3Crect x='14' y='32' width='36' height='20' rx='3' fill='%23ffffff'/%3E%3Crect x='20' y='37' width='6' height='10' fill='%231a3a5c'/%3E%3Crect x='29' y='37' width='6' height='15' fill='%231a3a5c'/%3E%3Crect x='38' y='37' width='6' height='10' fill='%231a3a5c'/%3E%3Ccircle cx='32' cy='11' r='4' fill='%23f0b429'/%3E%3C/svg%3E">
+
 <style>
 :root{
   --navy:#1a3a5c;--navy2:#2a5080;--navy3:#0f2235;
@@ -347,6 +350,7 @@ tr:hover td{background:#faf9f7;}
 .huser-name{font-size:12px;font-weight:600;color:#fff;}
 
 .app-credit{position:fixed;bottom:6px;right:12px;font-size:10px;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:4px;padding:3px 8px;z-index:5;letter-spacing:.3px;opacity:.8;}
+#onlineUsersCard{display:none!important;}
 </style>
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
@@ -622,10 +626,6 @@ function hideDisclaimerModal(){
           <button class="btn btn-sm" onclick="exportCSV()">⬇ CSV Αιτημάτων</button>
           <button class="btn btn-sm" style="color:var(--red);border-color:var(--red);" onclick="clearAll()">🗑 Καθαρισμός προστεθέντων</button>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;border-top:1px dashed var(--border);padding-top:10px;">
-          <button class="btn btn-sm" onclick="diagnoseDataSize()">🔍 Διάγνωση μεγέθους δεδομένων</button>
-          <button class="btn btn-sm" style="color:#1a7a4a;border-color:#3ecf8e;" onclick="migrateMediaToStorage()">🔄 Μεταφορά φωτογραφιών στο Storage</button>
-        </div>
         <input type="file" id="impFile" accept=".json" style="display:none" onchange="importAll(event)">
       </div>
 
@@ -669,14 +669,19 @@ function hideDisclaimerModal(){
         <div id="staffList"></div>
       </div>
 
-      <!-- USER MANAGEMENT — only visible to admin -->
-      <div id="userMgmtCard" style="display:none;background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:18px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-          <h3 style="font-size:13px;font-weight:600;color:var(--navy);">👥 Διαχείριση Χρηστών</h3>
-          <button class="btn btn-p btn-sm" onclick="openAddUser()">+ Νέος Χρήστης</button>
+      <!-- USER MANAGEMENT v9.5 — real Supabase Auth users via secure Edge Function -->
+      <div id="userMgmtCard" style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:14px;display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px;">
+          <div>
+            <h3 style="font-size:13px;font-weight:600;color:var(--navy);margin:0;">👥 Διαχείριση Χρηστών Εφαρμογής</h3>
+            <p style="font-size:10px;color:var(--muted);margin:4px 0 0;">Δημιουργία/τροποποίηση πραγματικών λογαριασμών Supabase Auth μέσω ασφαλούς Edge Function.</p>
+          </div>
+          <button class="btn btn-sm btn-p" onclick="openAddUser()">+ Νέος Χρήστης</button>
+        </div>
+        <div id="userMgmtStatus" style="font-size:10px;color:var(--muted);margin-bottom:10px;">
+          Απαιτείται ενεργή Edge Function: <code>manage-app-user</code>
         </div>
         <div id="usersList"></div>
-        <p style="font-size:10px;color:var(--muted);margin-top:8px;">* Διαθέσιμο μόνο για τον Administrator.</p>
       </div>
     </div>
   </div>
@@ -1140,6 +1145,12 @@ const PRIO_DATA = {
 let issues=[], workOrders=[], payments=[];
 let iSortCol='date', iSortDir='desc';
 let oSortCol='date', oSortDir='desc';
+
+// v9.4: Client-side pagination/render window.
+// Τα δεδομένα μένουν σε πίνακες v9, αλλά στην οθόνη αποδίδουμε μόνο την τρέχουσα σελίδα.
+let iPage=1, iPageSize=50, _lastIssueFilterKey='';
+let oPage=1, oPageSize=50, _lastOrderFilterKey='';
+let pPage=1, pPageSize=50;
 let settings={listDate:todayStr(),contractValue:967741.20,contractor:'',contractorEmail:'',contractorPhone:'',contractorContact:'',vatRate:24,orderSeq:1,issueSeq:1,
   eSignUrl:'https://webapp.mindigital-shde.gr/login',
   eSignUsers:[
@@ -1173,354 +1184,381 @@ const _locallyDeleted = new Set(); // ids the user deleted, so merge doesn't res
 
 // getSupabase and isSupabaseConfigured defined in settings section below
 
-// ── LOAD ──────────────────────────────────────────────────────────
-async function load(){
-  const hist = getHistoricalData();
+// ── RODIOS v9 DATA LAYER ─────────────────────────────────────────
+// Από εδώ και κάτω η εφαρμογή διαβάζει/γράφει τους νέους κανονικούς πίνακες
+// rodios_issues, rodios_work_orders, rodios_payments κ.λπ. και όχι το παλιό app_data.
+const RODIOS_V9_ENABLED = true;
+let _v9RealtimeDebounce = null;
+
+function _safeCloneForDb(value){
+  return JSON.parse(JSON.stringify(value, (key, val) => {
+    if(key==='signedPdfData' || key==='pdfData' || key==='base64' || key==='base64Data' || key==='dataUrl') return undefined;
+    if(typeof val === 'string' && val.length > 250000 && val.startsWith('data:')) return undefined;
+    return val;
+  }));
+}
+
+function _ensureId(obj, prefix){
+  if(!obj || typeof obj !== 'object') obj = {};
+  if(!obj.id) obj.id = prefix + '_' + genId();
+  return obj;
+}
+
+async function _v9FetchPaged(table, select='*', opts={}){
   const sb = getSupabase();
-
-  if(sb){
-    try{
-      // Show loading indicator
-      document.body.insertAdjacentHTML('beforeend',
-        '<div id="loadingOverlay" style="position:fixed;inset:0;background:rgba(26,39,68,.85);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;">'
-        +'<div style="width:40px;height:40px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite;"></div>'
-        +'<div style="color:#fff;font-size:14px;">Φόρτωση δεδομένων...</div></div>');
-      if(!document.querySelector('#spinStyle')){
-        const s=document.createElement('style');s.id='spinStyle';
-        s.textContent='@keyframes spin{to{transform:rotate(360deg)}}';
-        document.head.appendChild(s);
-      }
-
-      const {data, error} = await sb.from('app_data').select('key,value');
-      if(error) throw error;
-
-      const rows = {};
-      (data||[]).forEach(r=>{ rows[r.key]=r.value; });
-
-      workOrders = rows.workOrders||[];
-      payments   = rows.payments||[];
-      settings   = {...settings,...(rows.settings||{})};
-
-      // Fix #6: Load serviceStaff from Supabase (was saved but never loaded)
-      if(rows.serviceStaff && Array.isArray(rows.serviceStaff) && rows.serviceStaff.length){
-        SERVICE_STAFF = rows.serviceStaff;
-        localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
-      }
-
-      // Users: merge Supabase users with defaults
-      const remoteUsers = rows.users||[];
-      if(remoteUsers.length > 0){
-        localStorage.setItem('rhodesAppUsers', JSON.stringify(remoteUsers));
-      }
-
-      // Issues: always keep historical + user-added from Supabase
-      const histIds = new Set(hist.map(i=>i.id));
-      const remoteIssues = (rows.issues||[]).filter(i=>!histIds.has(i.id));
-      issues = [...hist, ...remoteIssues];
-
-      // Also save to localStorage as offline cache
-      localStorage.setItem('autopistasia_data', JSON.stringify({issues:remoteIssues,workOrders,payments,settings}));
-
-    }catch(err){
-      console.warn('Supabase load failed, using localStorage cache:', err);
-      _loadFromLocalStorage(hist);
-    }finally{
-      const overlay = document.getElementById('loadingOverlay');
-      if(overlay) overlay.remove();
-    }
-  } else {
-    // No Supabase configured — use localStorage
-    _loadFromLocalStorage(hist);
-    if(!isSupabaseConfigured()){
-      // Show setup banner
-      setTimeout(()=>{
-        if(!document.getElementById('setupBanner')){
-          document.body.insertAdjacentHTML('beforeend',
-            '<div id="setupBanner" style="position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:#856404;color:#fff;padding:10px 20px;border-radius:8px;font-size:12px;z-index:500;max-width:90%;text-align:center;box-shadow:0 4px 12px rgba(0,0,0,.3);">'
-            +'⚠️ <strong>Λειτουργία εκτός σύνδεσης</strong> — Τα δεδομένα αποθηκεύονται μόνο τοπικά σε αυτή τη συσκευή.'
-            +'<br><small>Για κοινή χρήση από όλους, ρύθμισε το Supabase στις Ρυθμίσεις.</small>'
-            +'<button onclick="closeSbBanner()" style="margin-left:10px;background:none;border:1px solid rgba(255,255,255,.5);color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px;">✕</button></div>');
-        }
-      }, 2000);
-    }
+  const pageSize = opts.pageSize || 1000;
+  const rows = [];
+  for(let from=0;;from+=pageSize){
+    let q = sb.from(table).select(select);
+    if(opts.notDeleted) q = q.is('deleted_at', null);
+    if(opts.orderBy) q = q.order(opts.orderBy, {ascending: opts.ascending !== false});
+    q = q.range(from, from + pageSize - 1);
+    const {data, error} = await q;
+    if(error) throw error;
+    rows.push(...(data||[]));
+    if(!data || data.length < pageSize) break;
   }
-  renderAll();
+  return rows;
+}
+
+async function _v9UpsertChunks(table, rows, onConflict='id', chunkSize=100){
+  const sb = getSupabase();
+  if(!sb || !rows || !rows.length) return;
+  for(let i=0;i<rows.length;i+=chunkSize){
+    const part = rows.slice(i, i+chunkSize);
+    const {error} = await sb.from(table).upsert(part, {onConflict});
+    if(error) throw error;
+  }
+}
+
+function _v9ShowLoading(text){
+  if(document.getElementById('loadingOverlay')) return;
+  document.body.insertAdjacentHTML('beforeend',
+    '<div id="loadingOverlay" style="position:fixed;inset:0;background:rgba(26,39,68,.88);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;">'
+    +'<div style="width:40px;height:40px;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite;"></div>'
+    +'<div style="color:#fff;font-size:14px;">'+esc(text||'Φόρτωση δεδομένων v9...')+'</div></div>');
+  if(!document.querySelector('#spinStyle')){
+    const st=document.createElement('style');st.id='spinStyle';
+    st.textContent='@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(st);
+  }
+}
+function _v9HideLoading(){ const o=document.getElementById('loadingOverlay'); if(o) o.remove(); }
+
+function _v9UpdateLoading(text){
+  const o=document.getElementById('loadingOverlay');
+  if(!o) return;
+  const divs=o.querySelectorAll('div');
+  const msg=divs[divs.length-1];
+  if(msg) msg.textContent = text || 'Συγχρονισμός δεδομένων...';
+}
+
+// Γρήγορη τοπική cache v9 σε IndexedDB: δεν είναι η κύρια βάση,
+// απλώς εμφανίζει αμέσως το τελευταίο επιτυχημένο snapshot μέχρι να απαντήσει το Supabase.
+const RODIOS_V9_CACHE_DB = 'rodios_v9_clean_cache_db_v4';
+const RODIOS_V9_CACHE_STORE = 'snapshots';
+const RODIOS_V9_CACHE_KEY = 'latest_v9_4_paginated';
+
+function _v9OpenCacheDb(){
+  return new Promise((resolve, reject)=>{
+    if(!('indexedDB' in window)) return resolve(null);
+    const req = indexedDB.open(RODIOS_V9_CACHE_DB, 1);
+    req.onupgradeneeded = ()=>{
+      const db = req.result;
+      if(!db.objectStoreNames.contains(RODIOS_V9_CACHE_STORE)) db.createObjectStore(RODIOS_V9_CACHE_STORE, {keyPath:'key'});
+    };
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+
+async function _v9GetSnapshotCache(){
+  try{
+    const db = await _v9OpenCacheDb();
+    if(!db) return null;
+    return await new Promise((resolve, reject)=>{
+      const tx = db.transaction(RODIOS_V9_CACHE_STORE, 'readonly');
+      const st = tx.objectStore(RODIOS_V9_CACHE_STORE);
+      const req = st.get(RODIOS_V9_CACHE_KEY);
+      req.onsuccess = ()=>resolve(req.result && req.result.snapshot ? req.result.snapshot : null);
+      req.onerror = ()=>reject(req.error);
+      tx.oncomplete = ()=>db.close();
+    });
+  }catch(e){ console.warn('[v9 cache] read failed:', e); return null; }
+}
+
+async function _v9SetSnapshotCache(snapshot){
+  try{
+    const db = await _v9OpenCacheDb();
+    if(!db) return;
+    await new Promise((resolve, reject)=>{
+      const tx = db.transaction(RODIOS_V9_CACHE_STORE, 'readwrite');
+      const st = tx.objectStore(RODIOS_V9_CACHE_STORE);
+      const req = st.put({key: RODIOS_V9_CACHE_KEY, snapshot});
+      req.onsuccess = ()=>{};
+      req.onerror = ()=>reject(req.error);
+      tx.oncomplete = ()=>{ db.close(); resolve(); };
+      tx.onerror = ()=>reject(tx.error);
+    });
+  }catch(e){ console.warn('[v9 cache] write failed:', e); }
+}
+
+function _v9MakeSnapshot(){
+  return {
+    at: new Date().toISOString(),
+    issues: (issues||[]).map(i=>_safeCloneForDb(i)),
+    workOrders: (workOrders||[]).map(w=>_safeCloneForDb(w)),
+    payments: (payments||[]).map(p=>_safeCloneForDb(p)),
+    settings: _safeCloneForDb(settings||{}),
+    users: (typeof getEffectiveUsers==='function' ? (getEffectiveUsers()||[]) : []).map(u=>_safeCloneForDb(u)),
+    serviceStaff: (SERVICE_STAFF||[]).map(s=>_safeCloneForDb(s))
+  };
+}
+
+function _v9ApplySnapshot(snap){
+  if(!snap || !Array.isArray(snap.issues)) return false;
+  issues = snap.issues || [];
+  workOrders = snap.workOrders || [];
+  payments = snap.payments || [];
+  if(snap.settings) settings = {...settings, ...snap.settings};
+  if(Array.isArray(snap.users) && snap.users.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(snap.users));
+  if(Array.isArray(snap.serviceStaff)){ SERVICE_STAFF = snap.serviceStaff; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
+  _lastSyncTime = snap.at ? new Date(snap.at).getTime() : Date.now();
+  return true;
+}
+
+// ── LOAD v9 ───────────────────────────────────────────────────────
+async function load(){
+  const sb = getSupabase();
+  if(!sb){
+    // v9.3: never fall back to embedded historical data, to avoid 146/old-data confusion.
+    _loadFromLocalStorage([]);
+    renderAll();
+    return;
+  }
+
+  let renderedFromCache = false;
+  _v9ShowLoading('Προετοιμασία δεδομένων...');
+
+  // 1) Άμεση προβολή τελευταίου επιτυχημένου v9 snapshot, αν υπάρχει.
+  // Έτσι στο refresh δεν φαίνεται 0 αιτήματα μέχρι να απαντήσει το Supabase.
+  try{
+    const cached = await _v9GetSnapshotCache();
+    if(cached && _v9ApplySnapshot(cached)){
+      renderedFromCache = true;
+      _showSyncDot('amber');
+      renderAll();
+      _v9UpdateLoading('Ενημέρωση από Supabase... Προσωρινά εμφανίζεται η τελευταία cache ('+(issues.length||0)+' αιτήματα).');
+    }
+  }catch(e){ console.warn('v9 cache apply failed:', e); }
+
+  // 2) Η κύρια αλήθεια έρχεται πάντα από τους πίνακες v9.
+  try{
+    if(!renderedFromCache) _v9UpdateLoading('Φόρτωση δεδομένων από τους νέους πίνακες v9...');
+
+    const [issueRows, orderRows, paymentRows, settingRows, userRows, staffRows] = await Promise.all([
+      _v9FetchPaged('rodios_issues', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_work_orders', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_payments', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_settings', '*', {orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_app_users', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_service_staff', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+    ]);
+
+    // Σημαντικό: δεν προσθέτουμε πλέον getHistoricalData() στην εκκίνηση.
+    // Η πλήρης αλήθεια είναι στους πίνακες v9.
+    issues = (issueRows||[]).map(r => ({...(r.data||{}), id: r.id}));
+    workOrders = (orderRows||[]).map(r => ({...(r.data||{}), id: r.id, issueId: (r.data&&r.data.issueId) || r.issue_id || null}));
+    payments = (paymentRows||[]).map(r => ({...(r.data||{}), id: r.id, orderId: (r.data&&r.data.orderId) || r.work_order_id || null}));
+
+    const mainSettings = (settingRows||[]).find(r=>r.key==='main');
+    if(mainSettings && mainSettings.value) settings = {...settings, ...mainSettings.value};
+
+    if(userRows && userRows.length){
+      const u = userRows.map(r=>({...(r.data||{}), id:r.id}));
+      localStorage.setItem('rhodesAppUsers', JSON.stringify(u));
+    }
+    if(staffRows && staffRows.length){
+      SERVICE_STAFF = staffRows.map(r=>({...(r.data||{}), id:r.id}));
+      localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
+    }
+
+    try{
+      localStorage.setItem('rodios_v9_last_counts', JSON.stringify({
+        issues: issues.length, workOrders: workOrders.length, payments: payments.length, at: new Date().toISOString()
+      }));
+    }catch(_){ }
+
+    _lastSyncTime = Date.now();
+    _showSyncDot('green');
+    renderAll();
+
+    // Ανανεώνουμε την cache αφού πρώτα φορτώσει η βάση.
+    _v9SetSnapshotCache(_v9MakeSnapshot()).catch(e=>console.warn('v9 snapshot cache save failed:', e));
+  }catch(err){
+    console.warn('v9 load failed:', err);
+    _showSyncDot('red');
+    if(!renderedFromCache){
+      // Fallback μόνο για να ανοίξει η εφαρμογή. Δεν κάνουμε πλέον merge με historical ως κανονική ροή.
+      _loadFromLocalStorage([]);
+      renderAll();
+    }else{
+      toast('⚠ Δεν ολοκληρώθηκε ο online συγχρονισμός. Εμφανίζονται προσωρινά cached δεδομένα.');
+    }
+  }finally{
+    _v9HideLoading();
+  }
 }
 
 function _loadFromLocalStorage(hist){
-  const d = localStorage.getItem('autopistasia_data');
+  // v9 fallback. Χρησιμοποιείται μόνο αν αποτύχει ο Supabase.
+  const d = localStorage.getItem('rodios_v9_light_cache');
   let saved = null;
   if(d){ try{ saved = JSON.parse(d); }catch(e){} }
   if(saved){
     workOrders = saved.workOrders||[];
     payments   = saved.payments||[];
     settings   = {...settings,...(saved.settings||{})};
-    const histIds = new Set(hist.map(i=>i.id));
-    const userIssues = (saved.issues||[]).filter(i=>!histIds.has(i.id));
-    issues = [...hist, ...userIssues];
+    issues = [...(hist||[]), ...(saved.issues||[])];
   } else {
-    issues = [...hist];
+    issues = hist||[];
   }
 }
 
-// ── SAVE ──────────────────────────────────────────────────────────
-// Strip heavy base64 from an order when a Storage URL already exists (cache + cloud).
-function _cleanMediaArr(arr){
-  return (Array.isArray(arr)?arr:[]).map(m=>{
-    if(m && m.uploading){ m = {...m}; delete m.uploading; }
-    if(m && m.url && m.data){ const c={...m}; delete c.data; return c; }
-    return m;
-  });
-}
-function _cleanOrderForStorage(w){
-  const clone = {...w};
-  if(clone.signedPdfUrl && clone.signedPdfData) delete clone.signedPdfData;
-  if(clone.mediaBefore) clone.mediaBefore = _cleanMediaArr(clone.mediaBefore);
-  if(clone.mediaAfter)  clone.mediaAfter  = _cleanMediaArr(clone.mediaAfter);
-  return clone;
-}
-
+// ── SAVE v9 ───────────────────────────────────────────────────────
 function save(){
-  // Always save to localStorage as cache
-  const histIds = new Set(getHistoricalData().map(i=>i.id));
-  const userIssues = issues.filter(i=>!histIds.has(i.id));
-  const cleanIssuesForCache = userIssues.map(i=>({
-    ...i,
-    attachments: cloneAttachments(i.attachments).map(a=>{
-      if(a.url) return {...a, data:''};
-      const {data, ...rest} = a;
-      return rest;
-    })
-  }));
-  
-  // Strip base64 (signed PDF + order photos with a Storage URL) from localStorage cache
-  const cleanWorkOrders = workOrders.map(_cleanOrderForStorage);
-  
-  try {
-    localStorage.setItem('autopistasia_data',JSON.stringify({issues:cleanIssuesForCache,workOrders:cleanWorkOrders,payments,settings}));
-  } catch(e) {
-    console.warn('[SAVE] localStorage failed (quota?), trying without base64:', e);
-    // Last resort: strip ALL signedPdfData
-    const minimalWorkOrders = workOrders.map(w=>{
-      if(w.signedPdfData){
-        const clone = {...w};
-        delete clone.signedPdfData;
-        return clone;
-      }
-      return w;
-    });
-    try {
-      localStorage.setItem('autopistasia_data',JSON.stringify({issues:cleanIssuesForCache,workOrders:minimalWorkOrders,payments,settings}));
-    } catch(e2) {
-      console.error('[SAVE] localStorage save completely failed:', e2);
-    }
-  }
+  // Το localStorage δεν είναι πλέον κύρια βάση. Κρατάμε μόνο ελαφριά προσωρινή cache χωρίς βαριά base64.
+  try{
+    const lightIssues = (issues||[]).map(i=>_safeCloneForDb(i));
+    const lightOrders = (workOrders||[]).map(w=>_safeCloneForDb(w));
+    const lightPayments = (payments||[]).map(p=>_safeCloneForDb(p));
+    localStorage.setItem('rodios_v9_light_cache', JSON.stringify({
+      issues: lightIssues, workOrders: lightOrders, payments: lightPayments, settings
+    }));
+  }catch(e){ console.warn('[SAVE v9] localStorage light cache failed:', e); }
 
-  // Debounced save to Supabase
   if(!isSupabaseConfigured()) return;
   clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(()=>_saveToSupabase(), 800);
+  _saveTimer = setTimeout(()=>_saveToSupabase(), 900);
 }
 
 async function _saveToSupabase(){
   const sb = getSupabase();
   if(!sb) return;
-  if(_savingInProgress){ _savePendingAgain = true; return; } // avoid overlapping saves
+  if(_savingInProgress){ _savePendingAgain = true; return; }
   _savingInProgress = true;
   _showSyncDot('amber');
+
   try{
-    // ── MERGE-ON-SAVE (data-loss protection) ──────────────────────
-    // Before overwriting the cloud, fetch the current cloud state and merge
-    // by record id, so we don't blindly erase records another user added
-    // while we had a stale copy open.
-    let cloud = {};
-    try{
-      const {data} = await sb.from('app_data').select('key,value');
-      (data||[]).forEach(r=>{ cloud[r.key]=r.value; });
-    }catch(e){ /* offline or fetch failed — proceed with local only */ }
+    const issueRows = (issues||[]).filter(Boolean).map(i=>{
+      const c = _ensureId(_safeCloneForDb(i), 'issue');
+      return {id:String(c.id), data:c, deleted_at:null};
+    });
+    const orderRows = (workOrders||[]).filter(Boolean).map(w=>{
+      const c = _ensureId(_safeCloneForDb(w), 'wo');
+      return {id:String(c.id), issue_id:c.issueId||c.issue_id||null, data:c, deleted_at:null};
+    });
+    const paymentRows = (payments||[]).filter(Boolean).map(p=>{
+      const c = _ensureId(_safeCloneForDb(p), 'pay');
+      return {id:String(c.id), work_order_id:c.workOrderId||c.orderId||c.woId||c.work_order_id||null, data:c, deleted_at:null};
+    });
+    const settingsRows = [{key:'main', value:_safeCloneForDb(settings||{})}];
+    const userRows = (getEffectiveUsers()||[]).filter(Boolean).map(u=>{
+      const c = _ensureId(_safeCloneForDb(u), 'user');
+      return {id:String(c.id), data:c, deleted_at:null};
+    });
+    const staffRows = (SERVICE_STAFF||[]).filter(Boolean).map((s,idx)=>{
+      const c = _safeCloneForDb(s);
+      const id = String(c.id || c.name || ('staff_'+idx)).replace(/[^\w.\-:/]/g,'_');
+      c.id = id;
+      return {id, data:c, deleted_at:null};
+    });
 
-    const histIds = new Set(getHistoricalData().map(i=>i.id));
-    const localIssues = issues.filter(i=>!histIds.has(i.id)).map(i=>({
-      ...i,
-      attachments: cloneAttachments(i.attachments).map(a=>{
-        if(a.url) return {...a, data:''};
-        const {data, ...rest} = a;
-        return rest;
-      })
-    }));
-    const effUsers = getEffectiveUsers();
+    await _v9UpsertChunks('rodios_issues', issueRows, 'id', 100);
+    await _v9UpsertChunks('rodios_work_orders', orderRows, 'id', 100);
+    await _v9UpsertChunks('rodios_payments', paymentRows, 'id', 100);
+    await _v9UpsertChunks('rodios_settings', settingsRows, 'key', 50);
+    await _v9UpsertChunks('rodios_app_users', userRows, 'id', 100);
+    await _v9UpsertChunks('rodios_service_staff', staffRows, 'id', 100);
 
-    // Strip huge base64 (signed PDF + order photos with a Storage URL) before saving
-    const cleanWorkOrders = workOrders.map(_cleanOrderForStorage);
-
-    // Merge helper: union by id. Local record wins for items present locally
-    // (those reflect the user's latest edits); remote-only records are kept
-    // (they were added by another user and must not be erased).
-    const mergeById = (localArr, remoteArr)=>{
-      if(!Array.isArray(remoteArr) || !remoteArr.length) return localArr;
-      const localIds = new Set(localArr.map(x=>x && x.id).filter(Boolean));
-      const remoteOnly = remoteArr.filter(r=> r && r.id && !localIds.has(r.id) && !_locallyDeleted.has(r.id));
-      return [...localArr, ...remoteOnly];
-    };
-
-    const mergedIssues  = mergeById(localIssues, cloud.issues);
-    const mergedOrders  = mergeById(cleanWorkOrders, cloud.workOrders);
-    const mergedPays    = mergeById(payments, cloud.payments);
-
-    // Reflect the merge back into local state so the UI shows everyone's data
-    workOrders = workOrders.concat(
-      (cloud.workOrders||[]).filter(r=> r && r.id && !new Set(workOrders.map(w=>w.id)).has(r.id) && !_locallyDeleted.has(r.id))
-    );
-    payments = mergedPays;
-    {
-      const hist = getHistoricalData();
-      const hIds = new Set(hist.map(i=>i.id));
-      issues = [...hist, ...mergedIssues.filter(i=>!hIds.has(i.id))];
-    }
-
-    const rows = [
-      {key:'issues',     value:mergedIssues},
-      {key:'workOrders', value:mergedOrders},
-      {key:'payments',   value:mergedPays},
-      {key:'settings',   value:settings},
-      {key:'users',      value:effUsers},
-    ];
-
-    const {error} = await sb.from('app_data').upsert(rows, {onConflict:'key'});
-    if(error) throw error;
     _lastSyncTime = Date.now();
     _showSyncDot('green');
+    _v9SetSnapshotCache(_v9MakeSnapshot()).catch(e=>console.warn('v9 snapshot cache save failed:', e));
   }catch(err){
-    console.warn('Supabase save failed:', err);
+    console.warn('Supabase v9 save failed:', err);
     _showSyncDot('red');
   }finally{
     _savingInProgress = false;
-    if(_savePendingAgain){ _savePendingAgain = false; setTimeout(()=>_saveToSupabase(), 300); }
+    if(_savePendingAgain){ _savePendingAgain=false; setTimeout(()=>_saveToSupabase(), 300); }
   }
 }
 
-// ── DATA SIZE DIAGNOSTIC ──────────────────────────────────────────
-function _b64len(x){ return (x && typeof x==='string') ? x.length : 0; }
-function _mediaB64Bytes(arr){
-  return (Array.isArray(arr)?arr:[]).reduce((s,m)=> s + ((m && m.data && !m.url) ? _b64len(m.data) : 0), 0);
-}
-function diagnoseDataSize(){
-  const totalBlob = JSON.stringify({issues, workOrders, payments, settings}).length;
-  let mediaBytes=0, pdfBytes=0, attBytes=0, mediaCount=0, ordersWithB64=0;
-  workOrders.forEach(w=>{
-    const mb=_mediaB64Bytes(w.mediaBefore), ma=_mediaB64Bytes(w.mediaAfter);
-    if(mb+ma>0) ordersWithB64++;
-    mediaBytes += mb+ma;
-    mediaCount += (w.mediaBefore||[]).filter(m=>m&&m.data&&!m.url).length + (w.mediaAfter||[]).filter(m=>m&&m.data&&!m.url).length;
-    if(w.signedPdfData && !w.signedPdfUrl) pdfBytes += _b64len(w.signedPdfData);
-  });
-  issues.forEach(i=>{ (i.attachments||[]).forEach(a=>{ if(a&&a.data&&!a.url) attBytes += _b64len(a.data); }); });
-  const mb = b=>(b/1048576).toFixed(2);
-  alert(
-    '📊 ΔΙΑΓΝΩΣΗ ΜΕΓΕΘΟΥΣ\n\n'+
-    'Αιτήματα: '+issues.length+'  |  Εντολές: '+workOrders.length+'  |  Πληρωμές: '+payments.length+'\n'+
-    'Συνολικό μπλοκ δεδομένων: '+mb(totalBlob)+' MB\n\n'+
-    '— Πού κρύβονται τα MB (base64 χωρίς link) —\n'+
-    '📷 Φωτογραφίες εντολών: '+mb(mediaBytes)+' MB  ('+mediaCount+' φωτό σε '+ordersWithB64+' εντολές)\n'+
-    '📄 Υπογεγραμμένα PDF: '+mb(pdfBytes)+' MB\n'+
-    '📎 Συνημμένα αιτημάτων: '+mb(attBytes)+' MB\n\n'+
-    (mediaBytes>500000
-      ? '➡️ Πάτησε «🔄 Μεταφορά φωτογραφιών στο Storage».'
-      : '✅ Δεν υπάρχει σημαντικό base64 βάρος.')
-  );
-}
-
-// ── ROBUST ONE-TIME MIGRATION: base64 order photos → Supabase Storage ──
-async function migrateMediaToStorage(){
+// ── REALTIME SYNC v9 ──────────────────────────────────────────────
+function initRealtimeSync(){
   const sb = getSupabase();
-  if(!sb || !isSupabaseConfigured()){ alert('⚠️ Το Supabase δεν είναι ρυθμισμένο.'); return; }
+  if(!sb) return;
+  try{ sb.removeAllChannels && sb.removeAllChannels(); }catch(_){ }
 
-  // Measure
-  let mediaCount=0, totalBytes=0, ordersAffected=0;
-  workOrders.forEach(w=>{
-    let n=0;
-    ['mediaBefore','mediaAfter'].forEach(slot=>{ (w[slot]||[]).forEach(m=>{ if(m&&m.data&&!m.url){ n++; totalBytes+=_b64len(m.data); } }); });
-    if(n>0){ ordersAffected++; mediaCount+=n; }
-  });
-  if(mediaCount===0){ alert('✅ Δεν βρέθηκαν base64 φωτογραφίες προς μεταφορά.\nΌλες είναι ήδη στο Storage.'); return; }
+  const scheduleRefresh = ()=>{
+    clearTimeout(_v9RealtimeDebounce);
+    _v9RealtimeDebounce = setTimeout(()=>forceRefreshFromSupabase(true), 600);
+  };
 
-  if(!confirm(
-    '🔄 ΜΕΤΑΦΟΡΑ ΦΩΤΟΓΡΑΦΙΩΝ ΣΤΟ STORAGE\n\n'+
-    'Βρέθηκαν '+mediaCount+' φωτογραφίες ('+(totalBytes/1048576).toFixed(2)+' MB) σε '+ordersAffected+' εντολές.\n\n'+
-    '⚠️ ΚΛΕΙΣΕ πρώτα την εφαρμογή σε κινητό/άλλες καρτέλες (για να μην επαναφέρει τα παλιά δεδομένα).\n'+
-    '⚠️ Συνιστάται «Εξαγωγή JSON» πριν, ως αντίγραφο.\n\n'+
-    'Στο τέλος η σελίδα θα ανανεωθεί αυτόματα. Συνέχεια;'
-  )) return;
-
-  // CRITICAL: freeze realtime + autosave so they can't undo the migration
-  window._migrating = true;
-  clearTimeout(_saveTimer);
-
-  const ov=document.createElement('div');
-  ov.style.cssText='position:fixed;inset:0;background:rgba(26,39,68,.92);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;color:#fff;font-size:15px;text-align:center;padding:20px;';
-  ov.innerHTML='<div style="width:46px;height:46px;border:4px solid rgba(255,255,255,.3);border-top-color:#3ecf8e;border-radius:50%;animation:spin 1s linear infinite;"></div><div id="migMsg">Προετοιμασία…</div>';
-  document.body.appendChild(ov);
-  const msg=ov.querySelector('#migMsg');
-  if(!document.querySelector('#spinStyle')){ const s=document.createElement('style'); s.id='spinStyle'; s.textContent='@keyframes spin{to{transform:rotate(360deg)}}'; document.head.appendChild(s); }
-
-  let done=0, failed=0;
-  for(const w of workOrders){
-    for(const slot of ['mediaBefore','mediaAfter']){
-      const arr = w[slot]; if(!Array.isArray(arr)) continue;
-      for(let i=0;i<arr.length;i++){
-        const m=arr[i];
-        if(!m || !m.data || m.url) continue;
-        msg.textContent='Ανέβασμα '+(done+failed+1)+' / '+mediaCount+' …';
-        try{
-          const blob = await (await fetch(m.data)).blob();
-          const safe = (m.name||'photo').replace(/[^a-zA-Z0-9._-]/g,'_');
-          const path = 'orders/'+(w.id||'x')+'/'+Date.now()+'_'+i+'_'+safe;
-          const {error} = await sb.storage.from('attachments').upload(path, blob, {cacheControl:'3600', upsert:false, contentType:m.type||blob.type||'image/jpeg'});
-          if(error) throw error;
-          const {data:{publicUrl}} = sb.storage.from('attachments').getPublicUrl(path);
-          arr[i] = {name:m.name||safe, type:m.type||blob.type||'', url:publicUrl, path:path, stored:'supabase'};
-          done++;
-        }catch(err){ console.warn('Migration failed for one media:', err); failed++; }
-      }
-    }
-  }
-
-  // DIRECT, targeted save of ONLY the workOrders key (clean ~0.9MB) — bypasses the heavy merge/fetch (no 57014 timeout)
-  msg.textContent='Αποθήκευση στο cloud…';
-  const cleanOrders = workOrders.map(_cleanOrderForStorage);
-  let saveErr=null;
-  try{
-    const {error} = await sb.from('app_data').upsert([{key:'workOrders', value:cleanOrders}], {onConflict:'key'});
-    if(error) saveErr=error;
-  }catch(e){ saveErr=e; }
-
-  // VERIFY persistence by re-reading from the cloud
-  let remaining=-1;
-  if(!saveErr){
-    try{
-      const {data} = await sb.from('app_data').select('value').eq('key','workOrders').maybeSingle();
-      const persisted = (data && data.value) || [];
-      remaining=0;
-      persisted.forEach(w=>['mediaBefore','mediaAfter'].forEach(s=>(w[s]||[]).forEach(m=>{ if(m&&m.data&&!m.url) remaining++; })));
-    }catch(e){ remaining=-1; }
-  }
-
-  ov.remove();
-  window._migrating = false;
-
-  if(saveErr){
-    alert('⚠️ Οι φωτογραφίες ανέβηκαν ('+done+') ΑΛΛΑ η αποθήκευση στο cloud απέτυχε:\n'+(saveErr.message||saveErr)+'\n\nΞαναπροσπάθησε τη Μεταφορά.');
-    return;
-  }
-
-  alert(
-    '✅ ΟΛΟΚΛΗΡΩΘΗΚΕ\n\n'+
-    '✓ Ανέβηκαν: '+done+' φωτογραφίες'+(failed?('\n✗ Απέτυχαν: '+failed):'')+'\n'+
-    'Υπολειπόμενα base64 στο cloud: '+(remaining<0?'(δεν επιβεβαιώθηκε)':remaining)+'\n\n'+
-    'Η σελίδα θα ανανεωθεί τώρα — θα φορτώσει την καθαρή, γρήγορη έκδοση.'
-  );
-  location.reload();
+  sb.channel('rodios_v9_changes')
+    .on('postgres_changes', {event:'*', schema:'public', table:'rodios_issues'}, scheduleRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'rodios_work_orders'}, scheduleRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'rodios_payments'}, scheduleRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'rodios_settings'}, scheduleRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'rodios_app_users'}, scheduleRefresh)
+    .on('postgres_changes', {event:'*', schema:'public', table:'rodios_service_staff'}, scheduleRefresh)
+    .subscribe();
 }
+
+// Refetch everything from v9 Supabase tables.
+async function forceRefreshFromSupabase(silent){
+  const sb = getSupabase();
+  if(!sb) return;
+  if(_savingInProgress || _saveTimer) return;
+  try{
+    const [issueRows, orderRows, paymentRows, settingRows, userRows, staffRows] = await Promise.all([
+      _v9FetchPaged('rodios_issues', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_work_orders', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_payments', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_settings', '*', {orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_app_users', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+      _v9FetchPaged('rodios_service_staff', '*', {notDeleted:true, orderBy:'updated_at', ascending:false}),
+    ]);
+    issues = (issueRows||[]).map(r=>({...(r.data||{}), id:r.id}));
+    workOrders = (orderRows||[]).map(r=>({...(r.data||{}), id:r.id, issueId:(r.data&&r.data.issueId)||r.issue_id||null}));
+    payments = (paymentRows||[]).map(r=>({...(r.data||{}), id:r.id, orderId:(r.data&&r.data.orderId)||r.work_order_id||null}));
+    const mainSettings = (settingRows||[]).find(r=>r.key==='main');
+    if(mainSettings && mainSettings.value) settings = {...settings, ...mainSettings.value};
+    if(userRows && userRows.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(userRows.map(r=>({...(r.data||{}), id:r.id}))));
+    if(staffRows && staffRows.length){ SERVICE_STAFF = staffRows.map(r=>({...(r.data||{}), id:r.id})); localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
+    _lastSyncTime = Date.now();
+    renderAll();
+    _v9SetSnapshotCache(_v9MakeSnapshot()).catch(e=>console.warn('v9 snapshot cache save failed:', e));
+    if(!silent) _showSyncDot('green');
+  }catch(e){
+    console.warn('forceRefreshFromSupabase v9 failed:', e);
+    if(!silent) _showSyncDot('red');
+  }
+}
+
+// ── #5: Keep data fresh when the app regains attention/connectivity ──
+(function registerFreshnessListeners(){
+  let _refreshDebounce = null;
+  const safeRefresh = ()=>{
+    if(!currentUser) return;
+    if(isCitizenMode && isCitizenMode()) return;
+    clearTimeout(_refreshDebounce);
+    _refreshDebounce = setTimeout(()=>forceRefreshFromSupabase(true), 400);
+  };
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) safeRefresh(); });
+  window.addEventListener('focus', safeRefresh);
+  window.addEventListener('online', ()=>{ _showSyncDot('amber'); safeRefresh(); });
+  setInterval(()=>{ if(!document.hidden) safeRefresh(); }, 60000);
+})();
 
 function closeSbBanner(){const b=document.getElementById("setupBanner");if(b)b.remove();}
 
@@ -1544,105 +1582,9 @@ function _showSyncDot(color){
   dot._timer = setTimeout(()=>{ if(dot) dot.style.background='transparent'; }, 3000);
 }
 
-// ── REALTIME SYNC ─────────────────────────────────────────────────
-function initRealtimeSync(){
-  const sb = getSupabase();
-  if(!sb) return;
-  sb.channel('app_data_changes')
-    .on('postgres_changes', {event:'*', schema:'public', table:'app_data'}, (payload)=>{
-      if(window._migrating) return; // don't let realtime clobber an in-progress migration
-      // Another user saved — reload affected key (INSERT, UPDATE, or DELETE)
-      const key = payload.new?.key || payload.old?.key;
-      const val = payload.new?.value;
-      if(payload.eventType==='DELETE' || !val){
-        // A key was deleted/cleared — safest is a full refetch
-        if(payload.eventType==='DELETE'){ forceRefreshFromSupabase(true); }
-        return;
-      }
-      if(key==='issues'){
-        const hist = getHistoricalData();
-        const histIds = new Set(hist.map(i=>i.id));
-        const remote = (val||[]).filter(i=>!histIds.has(i.id));
-        issues = [...hist, ...remote];
-      } else if(key==='workOrders') workOrders = val||[];
-      else if(key==='payments')    payments   = val||[];
-      else if(key==='settings')    settings   = {...settings,...(val||{})};
-      else if(key==='users'){      localStorage.setItem('rhodesAppUsers',JSON.stringify(val||[])); }
-      else if(key==='serviceStaff'){ // Fix #6: sync service staff across devices
-        if(Array.isArray(val) && val.length){ SERVICE_STAFF = val; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
-      }
-      renderAll();
-      _showSyncDot('green');
-    })
-    .subscribe();
-}
-
-// Refetch everything from Supabase (used on focus/online/delete events)
-async function forceRefreshFromSupabase(silent){
-  const sb = getSupabase();
-  if(!sb) return;
-  // SAFETY: never refresh while a save is pending/in-flight — that could
-  // overwrite local unsaved edits. Let the save finish first.
-  if(_savingInProgress || _saveTimer || window._migrating){
-    return;
-  }
-  try{
-    const {data, error} = await sb.from('app_data').select('key,value');
-    if(error) throw error;
-    const rows = {};
-    (data||[]).forEach(r=>{ rows[r.key]=r.value; });
-    const hist = getHistoricalData();
-    const histIds = new Set(hist.map(i=>i.id));
-    // Merge remote with any local-only records (don't drop unsaved local adds)
-    if(rows.workOrders){
-      const remoteIds = new Set(rows.workOrders.map(w=>w&&w.id).filter(Boolean));
-      const localOnly = workOrders.filter(w=> w && w.id && !remoteIds.has(w.id));
-      workOrders = [...rows.workOrders, ...localOnly];
-    }
-    if(rows.payments){
-      const remoteIds = new Set(rows.payments.map(p=>p&&p.id).filter(Boolean));
-      const localOnly = payments.filter(p=> p && p.id && !remoteIds.has(p.id));
-      payments = [...rows.payments, ...localOnly];
-    }
-    if(rows.settings)   settings = {...settings,...rows.settings};
-    if(rows.issues){
-      const remote = rows.issues.filter(i=>!histIds.has(i.id));
-      const remoteIds = new Set(remote.map(i=>i&&i.id).filter(Boolean));
-      const localOnly = issues.filter(i=> i && i.id && !histIds.has(i.id) && !remoteIds.has(i.id));
-      issues = [...hist, ...remote, ...localOnly];
-    }
-    if(rows.serviceStaff && Array.isArray(rows.serviceStaff) && rows.serviceStaff.length){
-      SERVICE_STAFF = rows.serviceStaff; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
-    }
-    if(rows.users && rows.users.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(rows.users));
-    _lastSyncTime = Date.now();
-    renderAll();
-    if(!silent) _showSyncDot('green');
-  }catch(e){
-    console.warn('forceRefreshFromSupabase failed:', e);
-    if(!silent) _showSyncDot('red');
-  }
-}
-
-// ── #5: Keep data fresh when the app regains attention/connectivity ──
-(function registerFreshnessListeners(){
-  let _refreshDebounce = null;
-  const safeRefresh = ()=>{
-    if(!currentUser) return;          // only when logged in
-    if(isCitizenMode && isCitizenMode()) return; // citizens have their own view
-    clearTimeout(_refreshDebounce);
-    _refreshDebounce = setTimeout(()=>forceRefreshFromSupabase(true), 400);
-  };
-  // Returning to the tab
-  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) safeRefresh(); });
-  // Window regains focus
-  window.addEventListener('focus', safeRefresh);
-  // Network came back online
-  window.addEventListener('online', ()=>{ _showSyncDot('amber'); safeRefresh(); });
-  // Periodic background check every 60s (light — only if logged in & tab visible)
-  setInterval(()=>{ if(!document.hidden) safeRefresh(); }, 60000);
-})();
-
+// ── OLD app_data REALTIME REMOVED IN v9.2 ──────────────────────────────
+// Η παλιά ροή app_data αφαιρέθηκε εδώ, γιατί επικάλυπτε τις v9 συναρτήσεις
+// forceRefreshFromSupabase/initRealtimeSync και προκαλούσε λάθος φόρτωση 50/146 εγγραφών.
 
 function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,5);}
 
@@ -1815,7 +1757,6 @@ function addMedia(slot, input){
   files.forEach(file=>{
     const reader = new FileReader();
     reader.onload = ev=>{
-      // Instant preview via base64; mark uploading so save() won't persist base64 yet
       const item = {name:file.name, type:file.type, data:ev.target.result, uploading:true};
       arr.push(item);
       renderThumbs(slot);
@@ -1830,9 +1771,9 @@ function addMedia(slot, input){
             delete item.data; delete item.uploading;
             renderThumbs(slot);
           })
-          .catch(err=>{ console.warn('Media upload failed, keeping base64:', err); delete item.uploading; });
+          .catch(err=>{ console.warn('Media upload failed, keeping base64:', err); delete item.uploading; renderThumbs(slot); });
       } else {
-        delete item.uploading; // offline: keep base64
+        delete item.uploading;
       }
     };
     reader.readAsDataURL(file);
@@ -2718,8 +2659,8 @@ function loginSuccess(u){
     }
     // Reconcile any acknowledgments that were missed
     try { await syncAcknowledgmentsFromSupabase(); } catch(e) { console.warn('Ack sync on load failed:', e); }
+    toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
   });
-  toast('👋 Καλωσήρθατε, '+u.name.split(' ')[1]+'! ('+issues.length+' αιτήματα)');
   setTimeout(munPingPresence,1000);
 }
 
@@ -2843,10 +2784,13 @@ function getEffectiveUsers(){
 }
 function saveUsers(users){
   localStorage.setItem('rhodesAppUsers',JSON.stringify(users));
-  // Also sync users to Supabase
+  // v9: sync users as individual rows
   if(isSupabaseConfigured()){
     const sb=getSupabase();
-    if(sb) sb.from('app_data').upsert({key:'users',value:users},{onConflict:'key'}).then(()=>{});
+    if(sb){
+      const rows=(users||[]).map(u=>{ const c=_safeCloneForDb(u); if(!c.id)c.id='user_'+genId(); return {id:String(c.id), data:c, deleted_at:null}; });
+      _v9UpsertChunks('rodios_app_users', rows, 'id', 100).catch(e=>console.warn('saveUsers v9 failed:', e));
+    }
   }
 }
 
@@ -2874,7 +2818,7 @@ function renderUsersList(){
       +'<div style="width:38px;height:38px;border-radius:50%;background:'+u.color+';display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px;flex-shrink:0;">'+esc(u.initials)+'</div>'
       +'<div style="flex:1;">'
         +'<div style="font-size:12px;font-weight:700;">'+esc(u.name)+'</div>'
-        +'<div style="font-size:10px;color:var(--muted);margin-bottom:4px;">'+esc(u.role)+' &nbsp;|&nbsp; PIN: '+'•'.repeat((u.pin||'').length)+'</div>'
+        +'<div style="font-size:10px;color:var(--muted);margin-bottom:4px;">'+esc(u.role)+(u.email?(' &nbsp;|&nbsp; '+esc(u.email)):'')+'</div>'
         +'<div style="display:flex;gap:3px;flex-wrap:wrap;">'+badges.join('')+'</div>'
       +'</div>'
       +'<div style="display:flex;gap:5px;flex-shrink:0;">'
@@ -2891,6 +2835,7 @@ function openAddUser(){
   document.getElementById('u_id').value='';
   document.getElementById('u_name').value='';
   document.getElementById('u_role').value='';
+  if(document.getElementById('u_email')) document.getElementById('u_email').value='';
   document.getElementById('u_username').value='';
   document.getElementById('u_pin').value='';
   document.getElementById('u_color').value='#2d4a8a';
@@ -2910,7 +2855,8 @@ function editUser(idx){
   document.getElementById('u_id').value=idx;
   document.getElementById('u_name').value=u.name;
   document.getElementById('u_role').value=u.role;
-  document.getElementById('u_pin').value=u.password||u.pin||'';
+  if(document.getElementById('u_email')) document.getElementById('u_email').value=u.email||'';
+  document.getElementById('u_pin').value='';
   if(document.getElementById('u_username')) document.getElementById('u_username').value=u.username||'';
   document.getElementById('u_color').value=u.color||'#2d4a8a';
   document.getElementById('u_initials').value=u.initials||'';
@@ -2921,47 +2867,108 @@ function editUser(idx){
   document.getElementById('userModal').style.display='flex';
 }
 
-function saveUser(){
-  const idx=document.getElementById('u_id').value;
-  const name=document.getElementById('u_name').value.trim();
-  const role=document.getElementById('u_role').value.trim();
-  const pin=document.getElementById('u_pin').value.trim();
-  const color=document.getElementById('u_color').value;
-  const initials=document.getElementById('u_initials').value.trim()||name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-  if(!name||!role||!pin||pin.length<4){
-    alert('Συμπληρώστε Όνομα, Ρόλο και PIN (τουλάχιστον 4 ψηφία).');return;
+// ── Real user management via secure Edge Function (manage-app-user) ──
+async function manageAppUser(action, profile, password, oldEmail){
+  const sb = getSupabase();
+  if(!sb || !sb.auth) throw new Error('Δεν υπάρχει ενεργή σύνδεση με Supabase.');
+  const sessionRes = await sb.auth.getSession();
+  const session = sessionRes && sessionRes.data && sessionRes.data.session;
+  const accessToken = session && session.access_token;
+  if(!accessToken) throw new Error('Δεν υπάρχει ενεργό Supabase login. Συνδεθείτε ως admin και ξαναπροσπαθήστε.');
+  const sbUrl = String(window._sb_url_override || localStorage.getItem('sb_url') || SUPABASE_URL || '').replace(/\/+$/,'');
+  const anonKey = String(window._sb_key_override || localStorage.getItem('sb_key') || SUPABASE_KEY || '').trim();
+  if(!sbUrl || !anonKey) throw new Error('Λείπουν SUPABASE_URL ή SUPABASE_KEY από την εφαρμογή.');
+  const fnUrl = sbUrl + '/functions/v1/manage-app-user';
+  let response, rawText='', res=null;
+  try{
+    response = await fetch(fnUrl, {
+      method:'POST', mode:'cors',
+      headers:{'Content-Type':'application/json','apikey':anonKey,'Authorization':'Bearer '+accessToken,'x-client-info':'rodios-web'},
+      body: JSON.stringify({action, profile, password: password||'', oldEmail: oldEmail||''})
+    });
+  }catch(e){ throw new Error('Δεν κατέστη δυνατή η κλήση της Edge Function manage-app-user.\n\n'+((e&&e.message)?e.message:String(e))); }
+  try{ rawText = await response.text(); }catch(_){ rawText=''; }
+  try{ res = rawText?JSON.parse(rawText):null; }catch(_){ res={raw:rawText}; }
+  if(!response.ok || !res || res.ok===false){
+    const msg = (res && (res.error||res.message||res.raw)) ? String(res.error||res.message||res.raw) : rawText;
+    throw new Error('HTTP '+response.status+'\n'+msg);
   }
-  const users=[...getEffectiveUsers()];
-  const newUser={
-    id: idx===''? 'user_'+genId() : users[parseInt(idx)].id,
-    name,role,
-    username:document.getElementById('u_username')?.value.trim()||name.split(' ').pop().toLowerCase(),
-    password:pin, pin,color,initials,
-    email:'',
-    canEdit:document.getElementById('u_canEdit').checked,
-    canOrders:document.getElementById('u_canOrders').checked,
-    canDelete:document.getElementById('u_canDelete').checked,
-    canPenalty:document.getElementById('u_canPenalty').checked
-  };
-  if(idx===''){
-    users.push(newUser);
-  } else {
-    users[parseInt(idx)]={...users[parseInt(idx)],...newUser};
-  }
-  saveUsers(users);
-  closeM('userModal');
-  renderUsersList();
-  toast('✅ Χρήστης '+(idx===''?'δημιουργήθηκε':'ενημερώθηκε'));
+  return res;
 }
 
-function delUser(idx){
-  if(!confirm('Διαγραφή χρήστη;'))return;
+async function reloadUsersFromV9(){
+  try{
+    const rows = await _v9FetchPaged('rodios_app_users', '*', {notDeleted:true, orderBy:'updated_at', ascending:false});
+    if(rows){
+      const u = rows.map(r=>({...(r.data||{}), id:r.id}));
+      localStorage.setItem('rhodesAppUsers', JSON.stringify(u));
+    }
+  }catch(e){ console.warn('reloadUsersFromV9 failed:', e); }
+}
+
+async function saveUser(){
+  const idx = document.getElementById('u_id').value;
+  const name = document.getElementById('u_name').value.trim();
+  const role = document.getElementById('u_role').value.trim();
+  const email = (document.getElementById('u_email')?.value||'').trim().toLowerCase();
+  const password = document.getElementById('u_pin').value.trim();
+  const color = document.getElementById('u_color').value;
+  const username = (document.getElementById('u_username')?.value.trim()) || (email.split('@')[0]) || name.split(' ').pop().toLowerCase();
+  const initials = document.getElementById('u_initials').value.trim() || name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const isNew = (idx==='');
+
+  if(!name || !role || !email || !email.includes('@')){
+    alert('Συμπληρώστε Ονοματεπώνυμο, Ρόλο και έγκυρο Email σύνδεσης.'); return;
+  }
+  if(isNew && (!password || password.length<6)){
+    alert('Για νέο χρήστη ο κωδικός σύνδεσης πρέπει να είναι τουλάχιστον 6 χαρακτήρες.'); return;
+  }
+  if(!isNew && password && password.length<6){
+    alert('Ο νέος κωδικός πρέπει να είναι τουλάχιστον 6 χαρακτήρες (ή αφήστε το πεδίο κενό για να μην αλλάξει).'); return;
+  }
+
+  const users = [...getEffectiveUsers()];
+  const existing = isNew ? null : users[parseInt(idx)];
+  const profile = {
+    id: existing ? existing.id : ('user_'+genId()),
+    authUserId: existing ? (existing.authUserId||null) : null,
+    name, role, email, username, color, initials,
+    canEdit: document.getElementById('u_canEdit').checked,
+    canOrders: document.getElementById('u_canOrders').checked,
+    canDelete: document.getElementById('u_canDelete').checked,
+    canPenalty: document.getElementById('u_canPenalty').checked
+  };
+  const oldEmail = existing ? (existing.email||email) : email;
+
+  toast('⏳ '+(isNew?'Δημιουργία':'Ενημέρωση')+' χρήστη...');
+  try{
+    await manageAppUser(isNew?'create':'update', profile, password, oldEmail);
+    await reloadUsersFromV9();
+    closeM('userModal');
+    renderUsersList();
+    toast('✅ Χρήστης '+(isNew?'δημιουργήθηκε':'ενημερώθηκε')+' (πραγματικός λογαριασμός σύνδεσης).');
+  }catch(e){
+    console.error('manageAppUser failed:', e);
+    alert('❌ '+(isNew?'Η δημιουργία':'Η ενημέρωση')+' χρήστη απέτυχε.\n\n'+((e&&e.message)?e.message:String(e)));
+  }
+}
+
+async function delUser(idx){
   const users=[...getEffectiveUsers()];
-  if(users[idx]?.id==='admin'){alert('Δεν μπορεί να διαγραφεί ο Administrator.');return;}
-  users.splice(idx,1);
-  saveUsers(users);
-  renderUsersList();
-  toast('Χρήστης διαγράφηκε');
+  const u = users[idx];
+  if(!u) return;
+  if(u.id==='admin'){ alert('Δεν μπορεί να διαγραφεί ο Administrator.'); return; }
+  if(!confirm('Διαγραφή χρήστη «'+(u.name||'')+'»;\n\nΘα διαγραφεί και ο λογαριασμός σύνδεσης (Supabase Auth).')) return;
+  toast('⏳ Διαγραφή χρήστη...');
+  try{
+    await manageAppUser('delete', {id:u.id, authUserId:u.authUserId||null, email:u.email||'', name:u.name||'', role:u.role||''}, '', u.email||'');
+    await reloadUsersFromV9();
+    renderUsersList();
+    toast('✅ Ο χρήστης διαγράφηκε.');
+  }catch(e){
+    console.error('delUser failed:', e);
+    alert('❌ Η διαγραφή χρήστη απέτυχε.\n\n'+((e&&e.message)?e.message:String(e)));
+  }
 }
 
 // Override initLogin to use editable users
@@ -3785,6 +3792,51 @@ function renderDash(){
   }
 }
 
+
+// ── v9.4 pagination helpers ─────────────────────────────────────
+function _v94ClampPage(page,total,pageSize){
+  const max=Math.max(1,Math.ceil((total||0)/(pageSize||50)));
+  return Math.min(Math.max(1,parseInt(page||1,10)),max);
+}
+function _v94PageState(total,page,pageSize){
+  const ps=parseInt(pageSize||50,10)||50;
+  const p=_v94ClampPage(page,total,ps);
+  const start=(p-1)*ps;
+  const end=Math.min(start+ps,total||0);
+  return {page:p,pageSize:ps,max:Math.max(1,Math.ceil((total||0)/ps)),start,end};
+}
+function _v94PaginationHtml(kind,total,page,pageSize,label){
+  if(!total) return '';
+  const st=_v94PageState(total,page,pageSize);
+  const fnPage = kind==='issues'?'setIssuePage':kind==='orders'?'setOrderPage':'setPaymentPage';
+  const fnSize = kind==='issues'?'setIssuePageSize':kind==='orders'?'setOrderPageSize':'setPaymentPageSize';
+  const opts=[25,50,100,200].map(n=>'<option value="'+n+'" '+(n===st.pageSize?'selected':'')+'>'+n+'</option>').join('');
+  return '<div class="pgbar">'
+    +'<div class="pginfo">Εμφάνιση <strong>'+(st.start+1)+'</strong>–<strong>'+st.end+'</strong> από <strong>'+total+'</strong> '+label+'</div>'
+    +'<div class="pgbtns">'
+      +'<span>Ανά σελίδα</span><select onchange="'+fnSize+'(this.value)">'+opts+'</select>'
+      +'<button onclick="'+fnPage+'(1)" '+(st.page<=1?'disabled':'')+'>« Πρώτη</button>'
+      +'<button onclick="'+fnPage+'('+(st.page-1)+')" '+(st.page<=1?'disabled':'')+'>‹ Προηγ.</button>'
+      +'<span class="pgpage">Σελίδα '+st.page+' / '+st.max+'</span>'
+      +'<button onclick="'+fnPage+'('+(st.page+1)+')" '+(st.page>=st.max?'disabled':'')+'>Επόμ. ›</button>'
+      +'<button onclick="'+fnPage+'('+st.max+')" '+(st.page>=st.max?'disabled':'')+'>Τελευταία »</button>'
+    +'</div></div>';
+}
+function setIssuePage(p){ iPage=_v94ClampPage(p, issues.length, iPageSize); renderIssues(); }
+function setIssuePageSize(v){ iPageSize=parseInt(v,10)||50; iPage=1; renderIssues(); }
+function setOrderPage(p){ oPage=_v94ClampPage(p, workOrders.length, oPageSize); renderOrders(); }
+function setOrderPageSize(v){ oPageSize=parseInt(v,10)||50; oPage=1; renderOrders(); }
+function setPaymentPage(p){ pPage=_v94ClampPage(p, payments.length, pPageSize); renderFinance(); }
+function setPaymentPageSize(v){ pPageSize=parseInt(v,10)||50; pPage=1; renderFinance(); }
+function _issueSearchText(i){
+  return [i.issueNum,i.municipalNum,i.date,i.receiptMethod,i.citizenName,i.contactInfo,i.location,i.municipality,i.category,i.title,i.description,i.priority,i.status,i.actions,i.notes]
+    .filter(Boolean).join(' ').toLowerCase();
+}
+function _orderSearchText(w){
+  return [w.orderNum,w.date,w.location,w.priority,w.status,w.orderType,w.description,w.notes,w.contractorEmail,(w.items||[]).map(x=>[x.name,x.desc,x.code].filter(Boolean).join(' ')).join(' ')]
+    .filter(Boolean).join(' ').toLowerCase();
+}
+
 // ================================================================
 // ISSUES
 // ================================================================
@@ -3795,6 +3847,8 @@ function renderIssues(){
   const fc=document.getElementById('iCat')?.value||'';
   const dateFrom=document.getElementById('iDateFrom')?.value||'';
   const dateTo=document.getElementById('iDateTo')?.value||'';
+  const _filterKey=[search,fs,fp,fc,dateFrom,dateTo,iSortCol,iSortDir].join('|');
+  if(_filterKey!==_lastIssueFilterKey){ iPage=1; _lastIssueFilterKey=_filterKey; }
   // Citizen mode: show ONLY their own issues
   if(isCitizenMode()){
     var cPhone=(currentUser.citizenPhone||'').replace(/[\s\-\.]/g,'').replace('+30','');
@@ -3807,7 +3861,7 @@ function renderIssues(){
     if(fc&&i.category!==fc)return false;
     if(dateFrom&&i.date<dateFrom)return false;
     if(dateTo&&i.date>dateTo)return false;
-    if(search&&!JSON.stringify(i).toLowerCase().includes(search))return false;
+    if(search&&!_issueSearchText(i).includes(search))return false;
     return true;
   });
   const pm={'ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ':0,'ΚΑΤ. 2 - ΕΠΕΙΓΟΝ':1,'ΚΑΤ. 3 - ΥΨΗΛΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ':2,'ΚΑΤ. 4 - ΚΑΝΟΝΙΚΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ':3,'ΚΑΤ. 5 - ΠΡΟΓΡΑΜΜΑΤΙΣΜΕΝΗ ΣΥΝΤΗΡΗΣΗ':4};
@@ -3827,7 +3881,11 @@ function renderIssues(){
   });
   document.getElementById('iCount').textContent=list.length;
   if(!list.length){document.getElementById('issuesTbl').innerHTML='<div class="empty"><div class="ico">📭</div><h3>Κανένα αίτημα</h3></div>';return;}
-  document.getElementById('issuesTbl').innerHTML=`<div class="tbl-wrap"><table>
+  const _pg=_v94PageState(list.length,iPage,iPageSize);
+  iPage=_pg.page;
+  const pageList=list.slice(_pg.start,_pg.end);
+  const pagination=_v94PaginationHtml('issues',list.length,iPage,iPageSize,'αιτήματα');
+  document.getElementById('issuesTbl').innerHTML=`${pagination}<div class="tbl-wrap"><table>
     <thead><tr>
       <th>#</th>
       <th class="sortable ${iSortCol==='date'?(iSortDir==='asc'?'sort-asc':'sort-desc'):''}" onclick="sortIssues('date')">Ημ/νία</th>
@@ -3839,7 +3897,7 @@ function renderIssues(){
       <th class="sortable ${iSortCol==='days'?(iSortDir==='asc'?'sort-asc':'sort-desc'):''}" onclick="sortIssues('days')">Ημέρες</th>
       <th>Ενέργειες</th>
     </tr></thead>
-    <tbody>${list.map(i=>{
+    <tbody>${pageList.map(i=>{
       const wo=workOrders.find(w=>w.issueId===i.id);
       const days=daysOpen(i);
       const dangerTag=i.danger==='Ναι'?'<span class="danger-tag">⚠ ΚΙΝΔΥΝΟΣ</span>':'';
@@ -3869,17 +3927,19 @@ function renderIssues(){
         </div></td>
       </tr>`;
     }).join('')}</tbody>
-  </table></div>`;
+  </table></div>${pagination}`;
 }
 
 function sortOrders(col){
   if(oSortCol===col){oSortDir=oSortDir==='asc'?'desc':'asc';}
   else{oSortCol=col;oSortDir=col==='date'?'desc':'asc';}
+  oPage=1;
   renderOrders();
 }
 function sortIssues(col){
   if(iSortCol===col){iSortDir=iSortDir==='asc'?'desc':'asc';}
   else{iSortCol=col;iSortDir=col==='date'?'desc':'asc';}
+  iPage=1;
   renderIssues();
 }
 
@@ -4139,9 +4199,11 @@ function renderOrders(){
   checkAutopenalties();
   const search=(document.getElementById('woSearch')?.value||'').toLowerCase();
   const fs=document.getElementById('woStatus')?.value||'';
+  const _filterKey=[search,fs,oSortCol,oSortDir].join('|');
+  if(_filterKey!==_lastOrderFilterKey){ oPage=1; _lastOrderFilterKey=_filterKey; }
   let list=workOrders.filter(w=>{
     if(fs&&w.status!==fs)return false;
-    if(search&&!JSON.stringify(w).toLowerCase().includes(search))return false;
+    if(search&&!_orderSearchText(w).includes(search))return false;
     return true;
   }).sort((a,b)=>{
     const dir=oSortDir==='asc'?1:-1;
@@ -4154,8 +4216,12 @@ function renderOrders(){
   });
   document.getElementById('woCount').textContent=list.length;
   if(!list.length){document.getElementById('ordersTbl').innerHTML='<div class="empty"><div class="ico">📄</div><h3>Καμία εντολή</h3></div>';return;}
+  const _pg=_v94PageState(list.length,oPage,oPageSize);
+  oPage=_pg.page;
+  const pageList=list.slice(_pg.start,_pg.end);
+  const pagination=_v94PaginationHtml('orders',list.length,oPage,oPageSize,'εντολές');
   let rows='';
-  list.forEach(w=>{
+  pageList.forEach(w=>{
     const tot=woTotal(w);
     const pen=woPenaltiesTotal(w);
     const issue=w.issueId?issues.find(i=>i.id===w.issueId):null;
@@ -4281,10 +4347,10 @@ function renderOrders(){
       +'<td>'+btnHtml+'</td>'
       +'</tr>';
   });
-  document.getElementById('ordersTbl').innerHTML='<div class="tbl-wrap"><table>'
+  document.getElementById('ordersTbl').innerHTML=pagination+'<div class="tbl-wrap"><table>'
     +'<thead><tr><th style="width:30px"></th><th class="sortable" onclick="sortOrders(\"num\")">Αρ. Εντολής</th><th class="sortable" onclick="sortOrders(\"date\")">Ημ/νία</th><th class="sortable" onclick="sortOrders(\"location\")">Τοποθεσία</th><th class="sortable" onclick="sortOrders(\"prio\")">Προτ.</th><th>Εργασίες</th><th class="sortable" onclick="sortOrders(\"cost\")">Κόστος (χ.ΦΠΑ)</th><th class="sortable" onclick="sortOrders(\"status\")">Κατάσταση</th><th>Ενέργειες</th></tr></thead>'
     +'<tbody>'+rows+'</tbody>'
-    +'</table></div>';
+    +'</table></div>'+pagination;
 }
 
 
@@ -4453,10 +4519,15 @@ function renderFinance(){
   document.getElementById('payCount').textContent=payments.length;
   const payList=[...payments].sort((a,b)=>b.date.localeCompare(a.date));
   if(!payList.length){document.getElementById('payTbl').innerHTML='<div class="empty"><div class="ico">💰</div><h3>Καμία πληρωμή</h3></div>';return;}
-  let cumPaid=0;
-  document.getElementById('payTbl').innerHTML=`<div class="tbl-wrap"><table>
+  const payAsc=[...payments].sort((a,b)=>a.date.localeCompare(b.date));
+  const _pg=_v94PageState(payAsc.length,pPage,pPageSize);
+  pPage=_pg.page;
+  const pagePayList=payAsc.slice(_pg.start,_pg.end);
+  const pagination=_v94PaginationHtml('payments',payAsc.length,pPage,pPageSize,'πληρωμές');
+  let cumPaid=payAsc.slice(0,_pg.start).reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
+  document.getElementById('payTbl').innerHTML=`${pagination}<div class="tbl-wrap"><table>
     <thead><tr><th>Ημ/νία</th><th>Μήνας</th><th>Αρ. Τιμ/γίου</th><th>Εντολή</th><th>Ποσό €</th><th>Αθροιστικό €</th><th>Παρατηρήσεις</th><th></th></tr></thead>
-    <tbody>${[...payments].sort((a,b)=>a.date.localeCompare(b.date)).map(p=>{
+    <tbody>${pagePayList.map(p=>{
       cumPaid+=(parseFloat(p.amount)||0);
       const wo=p.orderId?workOrders.find(w=>w.id===p.orderId):null;
       const isPen = p.isPenalty||false;
@@ -4480,7 +4551,7 @@ function renderFinance(){
       </tr>`;
     }).join('')}
     <tr style="background:var(--navy);color:#fff;font-weight:600;"><td colspan="4">ΣΥΝΟΛΟ ΠΛΗΡΩΜΩΝ</td><td>${fmt(paid)} €</td><td colspan="3"></td></tr>
-    </tbody></table></div>`;
+    </tbody></table></div>${pagination}`;
 }
 
 function delPayment(id){
@@ -5209,34 +5280,17 @@ function closeMunicipalImport(){
 // ── Presence (Supabase) ────────────────────────────────────────
 var _pUrl='https://nzrdcgmrsfdmocyhfrod.supabase.co/functions/v1/user-presence',_pAnon='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56cmRjZ21yc2ZkbW9jeWhmcm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MTg5MDMsImV4cCI6MjA4OTQ5NDkwM30.irU9tlBluAeTGcI0i3cc080OY7_nqR5js4ZPW8MC7b4';
 
-function munPingPresence(){
-  if(!currentUser)return;
-  fetch(_pUrl,{method:'POST',headers:{'Content-Type':'application/json','apikey':_pAnon},
-    body:JSON.stringify({action:'ping',userId:currentUser.id,userName:currentUser.name,userColor:currentUser.color||'#1a3a5c'})}).catch(function(){});
-}
+function munPingPresence(){ /* v9.3: user-presence disabled to keep console clean and avoid failed network calls. */ return; }
 
 function munUpdateOnline(){
-  var el=document.getElementById('onlineUsersList');if(!el)return;
-  fetch(_pUrl,{method:'POST',headers:{'Content-Type':'application/json','apikey':_pAnon},
-    body:JSON.stringify({action:'list'})})
-  .then(function(r){return r.json();})
-  .then(function(d){
-    if(!d.users||!d.users.length){el.innerHTML='<p style="font-size:11px;color:var(--muted);">Κανένας online</p>';return;}
-    el.innerHTML=d.users.map(function(u){
-      var mins=Math.round((Date.now()-new Date(u.last_seen).getTime())/60000);
-      var ago=mins===0?'τώρα':mins+' λεπ. πριν';
-      var isMe=currentUser&&u.user_id===currentUser.id;
-      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);">'
-        +'<div style="width:8px;height:8px;border-radius:50%;background:#2d7a4f;flex-shrink:0;"></div>'
-        +'<div style="width:28px;height:28px;border-radius:50%;background:'+(u.user_color||'#1a3a5c')+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700;">'
-        +u.user_name.split(' ').map(function(w){return w[0];}).join('').slice(0,2).toUpperCase()+'</div>'
-        +'<span style="font-size:12px;font-weight:600;">'+u.user_name+(isMe?' (εσύ)':'')+'</span>'
-        +'<span style="font-size:11px;color:var(--muted);margin-left:auto;">'+ago+'</span></div>';
-    }).join('');
-  }).catch(function(e){el.innerHTML='<p style="color:var(--amber);font-size:11px;">⚠ Σφάλμα</p>';});
+  var card=document.getElementById('onlineUsersCard');
+  if(card) card.style.display='none';
+  var el=document.getElementById('onlineUsersList');
+  if(el) el.innerHTML='';
 }
 
-setInterval(function(){munPingPresence();if(currentTab==='settings'&&currentUser&&currentUser.id==='admin')munUpdateOnline();},90000);
+// v9.3: user-presence interval intentionally removed.
+
 
 
 
@@ -5684,7 +5738,13 @@ function loadServiceStaff(){
 }
 function saveServiceStaff(){
   localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
-  if(isSupabaseConfigured()){ const sb=getSupabase(); if(sb) sb.from('app_data').upsert({key:'serviceStaff',value:SERVICE_STAFF},{onConflict:'key'}).then(()=>{}); }
+  if(isSupabaseConfigured()){
+    const sb=getSupabase();
+    if(sb){
+      const rows=(SERVICE_STAFF||[]).map((s,idx)=>{ const c=_safeCloneForDb(s); const id=String(c.id||c.name||('staff_'+idx)).replace(/[^\w.\-:/]/g,'_'); c.id=id; return {id, data:c, deleted_at:null}; });
+      _v9UpsertChunks('rodios_service_staff', rows, 'id', 100).catch(e=>console.warn('saveServiceStaff v9 failed:', e));
+    }
+  }
 }
 loadServiceStaff();
 
@@ -6278,68 +6338,136 @@ function attachmentLinksBlock(wo){
   return txt;
 }
 
+async function sendEmailPayloadViaServer(payload){
+  const sb = getSupabase();
+  if(!sb || !sb.auth) throw new Error('Δεν υπάρχει ενεργή σύνδεση με Supabase.');
+
+  const sessionRes = await sb.auth.getSession();
+  const session = sessionRes && sessionRes.data && sessionRes.data.session;
+  const accessToken = session && session.access_token;
+  if(!accessToken) throw new Error('Δεν υπάρχει ενεργό Supabase login. Κάντε έξοδο και ξανά σύνδεση.');
+
+  const sbUrl = String(window._sb_url_override || localStorage.getItem('sb_url') || SUPABASE_URL || '').replace(/\/+$/,'');
+  const anonKey = String(window._sb_key_override || localStorage.getItem('sb_key') || SUPABASE_KEY || '').trim();
+  if(!sbUrl || !anonKey) throw new Error('Λείπουν SUPABASE_URL ή SUPABASE_KEY από την εφαρμογή.');
+
+  const fnUrl = sbUrl + '/functions/v1/send-order-email';
+  let response, rawText = '', res = null;
+
+  try{
+    response = await fetch(fnUrl, {
+      method: 'POST',
+      mode: 'cors',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': anonKey,
+        'Authorization': 'Bearer ' + accessToken,
+        'x-client-info': 'rodios-web'
+      },
+      body: JSON.stringify(payload)
+    });
+  }catch(e){
+    throw new Error('Δεν κατέστη δυνατή η κλήση της Edge Function send-order-email.\n\n' + ((e && e.message) ? e.message : String(e)));
+  }
+
+  try { rawText = await response.text(); } catch(_) { rawText = ''; }
+  try { res = rawText ? JSON.parse(rawText) : null; } catch(_) { res = { raw: rawText }; }
+
+  if(!response.ok || !res || res.ok === false){
+    const serverMsg = (res && (res.error || res.message || res.raw || res.details)) ? String(res.error || res.message || res.raw || res.details) : rawText;
+    throw new Error('Αποτυχία αυτόματης αποστολής email.\n\nHTTP '+response.status+'\n'+serverMsg);
+  }
+  return res;
+}
+
+async function ensureSignedProtocolAttachmentUrl(wo, fname){
+  if(!wo) throw new Error('Δεν βρέθηκε η εντολή.');
+  if(wo.signedPdfUrl){
+    return {name: wo.signedPdfName || fname, url: wo.signedPdfUrl, type: 'application/pdf'};
+  }
+  if(!wo.signedPdfData){
+    throw new Error('Δεν υπάρχει υπογεγραμμένο πρωτόκολλο. Ανεβάστε πρώτα το υπογεγραμμένο PDF.');
+  }
+
+  const sb = getSupabase();
+  if(!sb || !isSupabaseConfigured()){
+    throw new Error('Το πρωτόκολλο υπάρχει μόνο τοπικά/base64 και δεν μπορεί να σταλεί αυτόματα. Απαιτείται Supabase Storage URL.');
+  }
+
+  const res = await fetch(wo.signedPdfData);
+  if(!res.ok) throw new Error('Δεν μπόρεσα να διαβάσω το τοπικό PDF του πρωτοκόλλου.');
+  const blob = await res.blob();
+
+  const cleanOrder = String(wo.orderNum || wo.id || 'order').replace(/[^a-zA-Z0-9_-]/g,'_');
+  const path = wo.signedPdfPath || ('protocols/' + cleanOrder + '_' + Date.now() + '.pdf');
+
+  const { error } = await sb.storage.from('attachments').upload(path, blob, {
+    contentType: 'application/pdf',
+    cacheControl: '3600',
+    upsert: true
+  });
+  if(error) throw error;
+
+  const { data } = sb.storage.from('attachments').getPublicUrl(path);
+  if(!data || !data.publicUrl) throw new Error('Δεν δημιουργήθηκε public URL για το υπογεγραμμένο πρωτόκολλο.');
+
+  wo.signedPdfUrl = data.publicUrl;
+  wo.signedPdfPath = path;
+  wo.signedPdfName = wo.signedPdfName || fname;
+  save();
+  try{ await _saveToSupabase(); }catch(e){ console.warn('protocol URL save failed:', e); }
+
+  return {name: wo.signedPdfName || fname, url: wo.signedPdfUrl, type: 'application/pdf'};
+}
+
 async function emailProtocol(id){
   const wo = workOrders.find(w=>w.id===id);
-  if(!wo) return;
-  if(!wo.signedPdfData){
-    alert('Δεν υπάρχει υπογεγραμμένο πρωτόκολλο. Ανεβάστε πρώτα το PDF.');return;
-  }
-  const email = settings.contractorEmail||'';
-  if(!email){alert('Δεν έχει οριστεί email αναδόχου στις Ρυθμίσεις.');return;}
+  if(!wo){ toast('Δεν βρέθηκε εντολή'); return; }
 
-  const fname = wo.signedPdfName || ('ΠρωτοκολλοΤμηματικηςΠαραλαβης_'+wo.orderNum+'.pdf');
+  const email = (settings.contractorEmail||'').trim();
+  if(!email){ alert('Δεν έχει οριστεί email αναδόχου στις Ρυθμίσεις.'); return; }
+
+  const fname = wo.signedPdfName || ('Πρωτοκολλο_Προσωρινης_Οριστικης_Παραλαβης_'+(wo.orderNum||wo.id)+'.pdf');
   const netAmt = Math.max(0, woTotal(wo)-(wo.penaltyAmount||0));
   const vatRate = settings.vatRate||24;
   const grossAmt = netAmt*(1+vatRate/100);
-  const subject = 'Πρωτόκολλο Τμηματικής Παραλαβής – Εντολή ' + wo.orderNum;
+  const subject = 'Πρωτόκολλο Προσωρινής/Οριστικής Παραλαβής – Εντολή ' + (wo.orderNum||'');
+
   const bodyText = 'Αγαπητέ/ή Ανάδοχε,'
-    + '\n\nΣας διαβιβάζουμε το Πρωτόκολλο Τμηματικής Παραλαβής για την Εντολή Εργασίας ' + wo.orderNum + '.'
+    + '\n\nΣας διαβιβάζουμε συνημμένα το Πρωτόκολλο Προσωρινής/Οριστικής Παραλαβής για την Εντολή Εργασίας ' + (wo.orderNum||'') + '.'
     + '\n\nΣτοιχεία:'
-    + '\n  Αρ. Εντολής: ' + wo.orderNum
-    + '\n  Τοποθεσία: ' + wo.location
+    + '\n  Αρ. Εντολής: ' + (wo.orderNum||'')
+    + '\n  Τοποθεσία: ' + (wo.location||'')
     + '\n  Ημ. Παραλαβής: ' + fmtDate(wo.completionDate||wo.date)
     + '\n  Καθαρό Πληρωτέο (χ.ΦΠΑ): ' + fmt(netAmt) + ' €'
-    + (wo.penaltyAmount>0 ? '\n  Ποινική Ρήτρα: -'+fmt(wo.penaltyAmount)+' €' : '')
+    + ((wo.penaltyAmount||0)>0 ? '\n  Ποινική Ρήτρα: -'+fmt(wo.penaltyAmount)+' €' : '')
     + '\n  Σύνολο (με ΦΠΑ '+vatRate+'%): ' + fmt(grossAmt) + ' €'
     + '\n\nΣυνημμένο: ' + fname
     + '\n\nΜε εκτίμηση,'
     + '\nΔιακολιός Βασίλειος'
     + '\nΡΟΔΙΟΣ';
 
-  // ── Convert base64 dataURL to File object ──────────────────
-  function dataURLtoFile(dataUrl, filename){
-    const arr = dataUrl.split(',');
-    const mime = arr[0].match(/:(.*?);/)[1];
-    const bstr = atob(arr[1]);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while(n--) u8arr[n] = bstr.charCodeAt(n);
-    return new File([u8arr], filename, {type: mime});
-  }
+  try{
+    toast('⏳ Αποστολή πρωτοκόλλου στον ανάδοχο...');
+    const attachment = await ensureSignedProtocolAttachmentUrl(wo, fname);
+    const payload = {
+      to: email,
+      subject,
+      body: bodyText,
+      attachments: [attachment]
+    };
 
-  // ── Try Web Share API (works on mobile + Chrome/Edge desktop) ──
-  if(navigator.canShare){
-    try{
-      const file = dataURLtoFile(wo.signedPdfData, fname);
-      if(navigator.canShare({files:[file]})){
-        await navigator.share({
-          files: [file],
-          title: subject,
-          text: bodyText,
-        });
-        toast('✅ Κοινοποίηση πρωτοκόλλου με συνημμένο PDF');
-        return;
-      }
-    }catch(e){
-      if(e.name==='AbortError') return; // user cancelled
-      // fall through to next method
-    }
+    const result = await sendEmailPayloadViaServer(payload);
+    wo.protocolSentAt = new Date().toISOString();
+    wo.protocolSentTo = email;
+    save();
+    try{ await _saveToSupabase(); }catch(e){ console.warn('protocolSentAt save failed:', e); }
+    toast('✅ Το πρωτόκολλο παραλαβής στάλθηκε αυτόματα στον ανάδοχο');
+    return result;
+  }catch(e){
+    console.error('emailProtocol failed:', e);
+    alert('Δεν στάλθηκε αυτόματα το πρωτόκολλο.\n\n'+((e && e.message) ? e.message : String(e)));
   }
-
-  // ── Fallback: open send-protocol modal ──────────────────────
-  _protocolSendId = id;
-  renderProtocolSendModal(wo, fname, subject, bodyText, email);
-  document.getElementById('protocolSendWrap').style.display='flex';
 }
 
 let _protocolSendId = null;
@@ -6390,7 +6518,7 @@ function emailOrder(id){
   if(!wo){toast('Δεν βρέθηκε εντολή');return;}
   if(wo.orderType==='service'){notifySvcOrderTeam(id);return;}
   // If already accepted with signed PDF, use protocol email
-  if(wo.status==='Παραλήφθηκε' && wo.signedPdfData){emailProtocol(id);return;}
+  if(wo.status==='Παραλήφθηκε' && (wo.signedPdfData || wo.signedPdfUrl)){emailProtocol(id);return;}
   _emailOrderId=id;
   const email=settings.contractorEmail||'(δεν έχει οριστεί)';
   const contractor=settings.contractor||'(δεν έχει οριστεί)';
@@ -6818,11 +6946,12 @@ async function testSupabaseConnection(){
   const btn = event.target;
   btn.disabled=true; btn.textContent='⏳ Δοκιμή...';
   try{
-    const {data,error} = await sb.from('app_data').select('key').limit(1);
+    const {data,error} = await sb.from('rodios_v9_counts').select('*');
     if(error) throw error;
     btn.textContent='🔌 Δοκιμή Σύνδεσης';
     btn.disabled=false;
-    alert('✅ Σύνδεση επιτυχής! Βρέθηκαν '+data.length+' εγγραφές. Supabase λειτουργεί κανονικά.');
+    const issuesCount = (data||[]).find(r=>r.table_name==='issues')?.total || 0;
+    alert('✅ Σύνδεση επιτυχής! v9 ενεργό. Αιτήματα στη βάση: '+issuesCount);
     updateSupabaseStatus();
   }catch(err){
     btn.textContent='🔌 Δοκιμή Σύνδεσης';
@@ -6833,14 +6962,14 @@ async function testSupabaseConnection(){
 
 async function forceSyncToSupabase(){
   if(!isSupabaseConfigured()){alert('Ρύθμισε πρώτα το Supabase.');return;}
-  if(!confirm('Ανέβασμα τοπικών δεδομένων στο Supabase;\nΘα αντικαταστήσουν τα υπάρχοντα online.'))return;
+  if(!confirm('Συγχρονισμός τοπικών δεδομένων στους πίνακες v9;\nΔεν διαγράφει τα υπάρχοντα, κάνει upsert ανά εγγραφή.'))return;
   await _saveToSupabase();
   toast('✅ Δεδομένα ανέβηκαν στο Supabase');
 }
 
 async function forceLoadFromSupabase(){
   if(!isSupabaseConfigured()){alert('Ρύθμισε πρώτα το Supabase.');return;}
-  if(!confirm('Κατέβασμα δεδομένων από Supabase;\nΘα αντικαταστήσουν τα τοπικά.'))return;
+  if(!confirm('Κατέβασμα δεδομένων από τους πίνακες v9;\nΘα αντικαταστήσουν την τρέχουσα μνήμη της εφαρμογής.'))return;
   _supabase = null; // force re-init
   await load();
   toast('✅ Δεδομένα κατέβηκαν από Supabase');
@@ -7582,8 +7711,9 @@ function printBulkProtocol(){
       <div class="fgrid">
         <div class="fg full"><label>Ονοματεπώνυμο <span class="req-star">*</span></label><input type="text" id="u_name" placeholder="π.χ. Παπαδόπουλος Γιώργης"></div>
         <div class="fg full"><label>Ρόλος / Θέση <span class="req-star">*</span></label><input type="text" id="u_role" placeholder="π.χ. Υπάλληλος Τμήματος"></div>
+        <div class="fg full"><label>Email σύνδεσης <span class="req-star">*</span></label><input type="email" id="u_email" placeholder="π.χ. onoma@rhodes.gr"></div>
         <div class="fg"><label>Username <span class="req-star">*</span></label><input type="text" id="u_username" placeholder="π.χ. papadopoulos"></div>
-        <div class="fg"><label>Κωδικός Πρόσβασης <span class="req-star">*</span></label><input type="text" id="u_pin" maxlength="30" placeholder="Κωδικός"></div>
+        <div class="fg"><label>Κωδικός σύνδεσης (min 6)</label><input type="text" id="u_pin" maxlength="60" placeholder="κενό = δεν αλλάζει"></div>
         <div class="fg"><label>Αρχικά</label><input type="text" id="u_initials" maxlength="2" placeholder="ΠΓ"></div>
         <div class="fg"><label>Χρώμα</label><input type="color" id="u_color" value="#2d4a8a" style="height:36px;padding:2px;"></div>
         <div class="fg full" style="margin-top:6px;">
@@ -7897,21 +8027,77 @@ function printBulkProtocol(){
 </div>
 
 <script>
-// v7: combined fixes for login + request attachments + single build marker.
-// Keep service worker disabled while the app is being actively debugged, to avoid cached mixed builds.
+// v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v8-media-storage-robust-2026-05-30';
+  window.RODIOS_BUILD = 'v9.6-combined-photos-users-fixed-2026-05-31';
+  window.RODIOS_DISABLE_PRESENCE = true;
+
+  function deleteDb(name){
+    try{
+      if(!('indexedDB' in window)) return;
+      var req = indexedDB.deleteDatabase(name);
+      req.onerror = function(){};
+      req.onsuccess = function(){};
+    }catch(_){}
+  }
+
+  function cleanOldCachesOnce(){
+    try{
+      var markerKey = 'rodios_cache_schema_version';
+      var marker = localStorage.getItem(markerKey);
+      if(marker !== window.RODIOS_BUILD){
+        // Remove old/pre-v9 and experimental cache keys that caused 146/50/old-data confusion.
+        [
+          'autopistasia_data',
+          'rodios_v9_last_counts',
+          'rodios_v9_cache',
+          'rodios_v9_snapshot',
+          'rodios_v9_cache_marker'
+        ].forEach(function(k){ try{ localStorage.removeItem(k); }catch(_){} });
+
+        deleteDb('rodios_v9_cache_db');
+        deleteDb('rodios_v9_cache_db_v2');
+        deleteDb('rodios_cache_db');
+
+        localStorage.setItem(markerKey, window.RODIOS_BUILD);
+      }
+    }catch(e){ console.warn('old cache cleanup failed', e); }
+  }
+
   window.addEventListener('load', function(){
+    cleanOldCachesOnce();
+
     try{
       document.querySelectorAll('.rodios-build-tag').forEach(function(el){ el.remove(); });
       var tag=document.createElement('div');
       tag.className='rodios-build-tag';
       tag.textContent='Build: '+window.RODIOS_BUILD;
-      tag.style.cssText='position:fixed;left:8px;bottom:6px;z-index:999999;background:#fffbe6;border:1px solid #f59e0b;color:#7c2d12;border-radius:4px;padding:3px 7px;font:10px system-ui;opacity:.85';
+      tag.style.cssText='position:fixed;left:8px;bottom:6px;z-index:999999;background:#eefaf1;border:1px solid #2d7a4f;color:#14532d;border-radius:4px;padding:3px 7px;font:10px system-ui;opacity:.90';
       document.body.appendChild(tag);
+
       var loginBtn=document.getElementById('loginBtn');
-      if(loginBtn){ loginBtn.disabled=false; loginBtn.onclick=function(e){ e.preventDefault(); if(typeof doLogin==='function') doLogin(); }; }
-    }catch(_){ }
+      if(loginBtn){
+        loginBtn.disabled=false;
+        loginBtn.onclick=function(e){ e.preventDefault(); if(typeof doLogin==='function') doLogin(); };
+      }
+
+      var online=document.getElementById('onlineUsersCard');
+      if(online) online.style.display='none';
+
+      var userMgmt=document.getElementById('userMgmtCard');
+      if(userMgmt) userMgmt.style.display='none';
+
+      // Disable local-only user-management UI. Real accounts are Supabase Auth users.
+      window.renderUsersList = function(){
+        var card=document.getElementById('userMgmtCard');
+        if(card) card.style.display='none';
+      };
+      window.openAddUser = function(){
+        alert('Η δημιουργία πραγματικού χρήστη γίνεται από Supabase Auth ή από ασφαλή Edge Function με service role. Το παλιό τοπικό πάνελ αφαιρέθηκε γιατί δεν δημιουργούσε πραγματικό login.');
+      };
+    }catch(_){}
+
+    // Keep service worker/browser caches off while the app is under active development.
     if('serviceWorker' in navigator){
       navigator.serviceWorker.getRegistrations().then(function(regs){
         return Promise.all(regs.map(function(r){ return r.unregister(); }));
@@ -7923,6 +8109,10 @@ function printBulkProtocol(){
       }).catch(function(e){ console.warn('Cache delete failed', e); });
     }
   });
+
+  // Hard no-op for user presence, in case old code calls these names.
+  window.munPingPresence = function(){ return; };
+  window.munUpdateOnline = function(){ return; };
 })();
 </script>
 </body>
