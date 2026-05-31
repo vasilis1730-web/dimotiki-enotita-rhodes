@@ -8067,7 +8067,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.7-users-panel-fixed-2026-05-31';
+  window.RODIOS_BUILD = 'v9.8-users-panel-visible-2026-05-31';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
@@ -8122,17 +8122,14 @@ function printBulkProtocol(){
       var online=document.getElementById('onlineUsersCard');
       if(online) online.style.display='none';
 
-      var userMgmt=document.getElementById('userMgmtCard');
-      if(userMgmt) userMgmt.style.display='none';
-
-      // Disable local-only user-management UI. Real accounts are Supabase Auth users.
-      window.renderUsersList = function(){
-        var card=document.getElementById('userMgmtCard');
-        if(card) card.style.display='none';
-      };
-      window.openAddUser = function(){
-        alert('Η δημιουργία πραγματικού χρήστη γίνεται από Supabase Auth ή από ασφαλή Edge Function με service role. Το παλιό τοπικό πάνελ αφαιρέθηκε γιατί δεν δημιουργούσε πραγματικό login.');
-      };
+      // v9.8: Do NOT override renderUsersList/openAddUser here.
+      // The real admin user panel uses the secure Edge Function manage-app-user.
+      // If settings is already open after load/login, render it once after the app has currentUser.
+      setTimeout(function(){
+        try{
+          if(typeof renderUsersList==='function') renderUsersList();
+        }catch(e){ console.warn('renderUsersList deferred failed', e); }
+      }, 800);
     }catch(_){}
 
     // Keep service worker/browser caches off while the app is under active development.
@@ -8146,6 +8143,28 @@ function printBulkProtocol(){
         return Promise.all(keys.map(function(k){ return caches.delete(k); }));
       }).catch(function(e){ console.warn('Cache delete failed', e); });
     }
+  });
+
+
+
+  // v9.8 guard: when admin opens Settings, keep the real user-management panel visible.
+  window.addEventListener('load', function(){
+    setInterval(function(){
+      try{
+        var card=document.getElementById('userMgmtCard');
+        if(!card || typeof currentUser==='undefined' || !currentUser) return;
+        var email=String(currentUser.email||'').toLowerCase();
+        var canManage=(currentUser.id==='admin' || currentUser.canDelete===true || email==='diakolios@rhodes.gr');
+        var settingsTab=document.getElementById('tab-settings');
+        var settingsVisible=settingsTab && settingsTab.style.display!=='none';
+        if(canManage && settingsVisible){
+          if(card.style.display==='none'){
+            card.style.setProperty('display','block');
+            if(typeof renderUsersList==='function') renderUsersList();
+          }
+        }
+      }catch(_){ }
+    }, 1200);
   });
 
   // Hard no-op for user presence, in case old code calls these names.
