@@ -2909,53 +2909,27 @@ function editUser(idx){
 async function manageAppUser(action, profile, password, oldEmail){
   const sb = getSupabase();
   if(!sb || !sb.auth) throw new Error('Δεν υπάρχει ενεργή σύνδεση με Supabase.');
-
-  // v9.9: Πριν καλέσουμε την Edge Function, ανανεώνουμε ρητά το session.
-  // Το προηγούμενο v9.8 μπορούσε να στείλει ληγμένο/παλιό access token και η function
-  // απαντούσε HTTP 401 / Invalid caller token.
-  let session = null;
-  try{
-    const refreshed = await sb.auth.refreshSession();
-    session = refreshed && refreshed.data && refreshed.data.session;
-  }catch(_){
-    session = null;
-  }
-  if(!session){
-    const sessionRes = await sb.auth.getSession();
-    session = sessionRes && sessionRes.data && sessionRes.data.session;
-  }
-
+  const sessionRes = await sb.auth.getSession();
+  const session = sessionRes && sessionRes.data && sessionRes.data.session;
   const accessToken = session && session.access_token;
-  if(!accessToken) throw new Error('Δεν υπάρχει ενεργό Supabase login. Κάντε έξοδο και ξανά σύνδεση ως admin.');
-
-  // Για τη διαχείριση χρηστών χρησιμοποιούμε πάντα το project της εφαρμογής.
-  // Δεν εμπιστευόμαστε τυχόν παλιά sb_url/sb_key overrides από τις Ρυθμίσεις/localStorage.
-  const sbUrl = String(SUPABASE_URL || '').replace(/\/+$/,'');
-  const anonKey = String(SUPABASE_KEY || '').trim();
+  if(!accessToken) throw new Error('Δεν υπάρχει ενεργό Supabase login. Συνδεθείτε ως admin και ξαναπροσπαθήστε.');
+  const sbUrl = String(window._sb_url_override || localStorage.getItem('sb_url') || SUPABASE_URL || '').replace(/\/+$/,'');
+  const anonKey = String(window._sb_key_override || localStorage.getItem('sb_key') || SUPABASE_KEY || '').trim();
   if(!sbUrl || !anonKey) throw new Error('Λείπουν SUPABASE_URL ή SUPABASE_KEY από την εφαρμογή.');
-
   const fnUrl = sbUrl + '/functions/v1/manage-app-user';
   let response, rawText='', res=null;
   try{
     response = await fetch(fnUrl, {
       method:'POST', mode:'cors',
-      headers:{
-        'Content-Type':'application/json',
-        'apikey':anonKey,
-        'Authorization':'Bearer '+accessToken,
-        'x-client-info':'rodios-web-v9.9-users-token-refresh'
-      },
+      headers:{'Content-Type':'application/json','apikey':anonKey,'Authorization':'Bearer '+accessToken,'x-client-info':'rodios-web'},
       body: JSON.stringify({action, profile, password: password||'', oldEmail: oldEmail||''})
     });
-  }catch(e){ throw new Error('Δεν κατέστη δυνατή η κλήση της Edge Function manage-app-user.
-
-'+((e&&e.message)?e.message:String(e))); }
+  }catch(e){ throw new Error('Δεν κατέστη δυνατή η κλήση της Edge Function manage-app-user.\n\n'+((e&&e.message)?e.message:String(e))); }
   try{ rawText = await response.text(); }catch(_){ rawText=''; }
   try{ res = rawText?JSON.parse(rawText):null; }catch(_){ res={raw:rawText}; }
   if(!response.ok || !res || res.ok===false){
     const msg = (res && (res.error||res.message||res.raw)) ? String(res.error||res.message||res.raw) : rawText;
-    throw new Error('HTTP '+response.status+'
-'+msg);
+    throw new Error('HTTP '+response.status+'\n'+msg);
   }
   return res;
 }
@@ -7007,15 +6981,10 @@ function saveSupabaseConfig(){
 }
 
 function getSupabase(){
-  // v9.10: Η εφαρμογή χρησιμοποιεί ΠΑΝΤΑ το επίσημο Supabase project της.
-  // Δεν επιτρέπουμε πλέον παλιά sb_url/sb_key overrides από localStorage, γιατί μπορούν
-  // να δημιουργήσουν session από άλλο project και να προκαλέσουν Invalid caller token.
-  const url = SUPABASE_URL;
-  const key = SUPABASE_KEY;
+  const url = window._sb_url_override || localStorage.getItem('sb_url') || SUPABASE_URL;
+  const key = window._sb_key_override || localStorage.getItem('sb_key') || SUPABASE_KEY;
   if(!_supabase && url && key && url.startsWith('http')){
-    _supabase = supabase.createClient(url, key, {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
-    });
+    _supabase = supabase.createClient(url, key);
     if(typeof setupAckSubscription === 'function') {
       try { setupAckSubscription(); } catch(e) { console.error('Ack subscription setup failed:', e); }
     }
@@ -7024,21 +6993,24 @@ function getSupabase(){
 }
 
 function isSupabaseConfigured(){
-  return !!(SUPABASE_URL && SUPABASE_KEY && SUPABASE_URL.startsWith('http'));
+  const url = window._sb_url_override || localStorage.getItem('sb_url') || SUPABASE_URL;
+  const key = window._sb_key_override || localStorage.getItem('sb_key') || SUPABASE_KEY;
+  return !!(url && key && url.startsWith('http'));
 }
 
 function updateSupabaseStatus(){
   const el = document.getElementById('supabaseStatus');
   if(!el) return;
-  el.innerHTML = '<span style="color:#1a7a4a;font-weight:700;">✅ Supabase ενεργό — σταθερό project εφαρμογής</span>';
-  if(document.getElementById('sSupabaseUrl')) {
-    document.getElementById('sSupabaseUrl').value = SUPABASE_URL || '';
-    document.getElementById('sSupabaseUrl').readOnly = true;
+  if(isSupabaseConfigured()){
+    el.innerHTML = '<span style="color:#1a7a4a;font-weight:700;">✅ Supabase ενεργό — Δεδομένα κοινόχρηστα σε όλες τις συσκευές</span>';
+  } else {
+    el.innerHTML = '<span style="color:#856404;font-weight:600;">⚠ Δεν έχει ρυθμιστεί — Τα δεδομένα είναι μόνο τοπικά</span>';
   }
-  if(document.getElementById('sSupabaseKey')) {
-    document.getElementById('sSupabaseKey').value = SUPABASE_KEY || '';
-    document.getElementById('sSupabaseKey').readOnly = true;
-  }
+  // Populate fields from localStorage
+  const url = localStorage.getItem('sb_url')||SUPABASE_URL||'';
+  const key = localStorage.getItem('sb_key')||SUPABASE_KEY||'';
+  if(document.getElementById('sSupabaseUrl')) document.getElementById('sSupabaseUrl').value=url;
+  if(document.getElementById('sSupabaseKey')) document.getElementById('sSupabaseKey').value=key;
 }
 
 async function testSupabaseConnection(){
@@ -8130,7 +8102,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.10-users-fixed-project-token-refresh-2026-06-01';
+  window.RODIOS_BUILD = 'v9.9-users-token-refresh-2026-06-01';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
