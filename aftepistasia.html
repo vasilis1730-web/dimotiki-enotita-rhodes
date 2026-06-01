@@ -2909,27 +2909,51 @@ function editUser(idx){
 async function manageAppUser(action, profile, password, oldEmail){
   const sb = getSupabase();
   if(!sb || !sb.auth) throw new Error('Δεν υπάρχει ενεργή σύνδεση με Supabase.');
+
+  // ΠΑΝΤΑ refresh πριν την Edge Function, ώστε να μη στέλνουμε παλιό access_token.
+  try { await sb.auth.refreshSession(); } catch(_) {}
+
   const sessionRes = await sb.auth.getSession();
   const session = sessionRes && sessionRes.data && sessionRes.data.session;
   const accessToken = session && session.access_token;
   if(!accessToken) throw new Error('Δεν υπάρχει ενεργό Supabase login. Συνδεθείτε ως admin και ξαναπροσπαθήστε.');
-  const sbUrl = String(window._sb_url_override || localStorage.getItem('sb_url') || SUPABASE_URL || '').replace(/\/+$/,'');
-  const anonKey = String(window._sb_key_override || localStorage.getItem('sb_key') || SUPABASE_KEY || '').trim();
-  if(!sbUrl || !anonKey) throw new Error('Λείπουν SUPABASE_URL ή SUPABASE_KEY από την εφαρμογή.');
+
+  // ΚΡΙΣΙΜΟ v9.11:
+  // Για τη διαχείριση χρηστών δεν χρησιμοποιούμε ΠΟΤΕ sb_url/sb_key από localStorage/Ρυθμίσεις.
+  // Έτσι αποφεύγεται το ByteString error όταν κατά λάθος αποθηκευτεί service key/κείμενο/ελληνικοί χαρακτήρες στο sb_key.
+  const sbUrl = String(SUPABASE_URL || '').replace(/\/+$/,'');
+  const anonKey = String(SUPABASE_KEY || '').trim();
+  if(!sbUrl || !anonKey) throw new Error('Λείπουν τα σταθερά SUPABASE_URL ή SUPABASE_KEY από την εφαρμογή.');
+
+  const looksJwt = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(anonKey);
+  if(!looksJwt){
+    throw new Error('Το SUPABASE_KEY της εφαρμογής δεν μοιάζει με anon JWT key. Δεν καλώ την Edge Function για λόγους ασφαλείας.');
+  }
+
   const fnUrl = sbUrl + '/functions/v1/manage-app-user';
   let response, rawText='', res=null;
   try{
     response = await fetch(fnUrl, {
-      method:'POST', mode:'cors',
-      headers:{'Content-Type':'application/json','apikey':anonKey,'Authorization':'Bearer '+accessToken,'x-client-info':'rodios-web'},
+      method:'POST',
+      mode:'cors',
+      headers:{
+        'Content-Type':'application/json',
+        'apikey': anonKey,
+        'Authorization':'Bearer ' + accessToken,
+        'x-client-info':'rodios-web-v9.11'
+      },
       body: JSON.stringify({action, profile, password: password||'', oldEmail: oldEmail||''})
     });
-  }catch(e){ throw new Error('Δεν κατέστη δυνατή η κλήση της Edge Function manage-app-user.\n\n'+((e&&e.message)?e.message:String(e))); }
+  }catch(e){
+    throw new Error('Δεν κατέστη δυνατή η κλήση της Edge Function manage-app-user.\n\n'+((e&&e.message)?e.message:String(e)));
+  }
+
   try{ rawText = await response.text(); }catch(_){ rawText=''; }
   try{ res = rawText?JSON.parse(rawText):null; }catch(_){ res={raw:rawText}; }
   if(!response.ok || !res || res.ok===false){
     const msg = (res && (res.error||res.message||res.raw)) ? String(res.error||res.message||res.raw) : rawText;
-    throw new Error('HTTP '+response.status+'\n'+msg);
+    const details = res && res.details ? ('\n\nDetails: ' + JSON.stringify(res.details)) : '';
+    throw new Error('HTTP '+response.status+'\n'+msg+details);
   }
   return res;
 }
@@ -8102,7 +8126,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.9-users-token-refresh-2026-06-01';
+  window.RODIOS_BUILD = 'v9.11-users-edge-v4-byte-fix-2026-06-01';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
