@@ -1231,6 +1231,34 @@ async function _v9UpsertChunks(table, rows, onConflict='id', chunkSize=100){
   }
 }
 
+
+async function _v9DeleteRows(table, ids){
+  const sb = getSupabase && getSupabase();
+  const list = (Array.isArray(ids) ? ids : [ids]).filter(x => x !== undefined && x !== null && String(x).trim() !== '').map(String);
+  if(!sb || !list.length) return {ok:true, skipped:true};
+
+  // Delete σε μικρά chunks για να μη σκάει σε πολλές εγγραφές.
+  for(let i=0; i<list.length; i+=100){
+    const part = list.slice(i, i+100);
+    const { error } = await sb.from(table).delete().in('id', part);
+    if(error){
+      console.error('[v9 delete failed]', table, part, error);
+      throw error;
+    }
+  }
+  return {ok:true};
+}
+
+function _v9ClearLightCachesAfterDelete(){
+  try{ localStorage.removeItem('rodios_v9_light_cache'); }catch(_){ }
+  try{ localStorage.removeItem('rodios_v9_last_counts'); }catch(_){ }
+  try{ indexedDB.deleteDatabase('rodios_v9_cache_db'); }catch(_){ }
+  try{ indexedDB.deleteDatabase('rodios_v9_cache_db_v2'); }catch(_){ }
+  try{ indexedDB.deleteDatabase('rodios_v9_cache_db_v3'); }catch(_){ }
+  try{ indexedDB.deleteDatabase('rodios_v9_cache_db_v4'); }catch(_){ }
+  try{ indexedDB.deleteDatabase('rodios_v9_cache_db_v5'); }catch(_){ }
+}
+
 function _v9ShowLoading(text){
   if(document.getElementById('loadingOverlay')) return;
   document.body.insertAdjacentHTML('beforeend',
@@ -4035,16 +4063,25 @@ function chStatus(id,st){
   if(st==='Ολοκληρωμένο')i.completionDate=todayStr();
   save();renderAll();toast('Κατάσταση: '+st);
 }
-function delIssue(id){
+async function delIssue(id){
   const linked = workOrders.find(w=>w.issueId===id);
   if(linked){
     toast('⛔ Δεν επιτρέπεται διαγραφή — το αίτημα έχει συνδεθεί με εντολή εργασίας '+linked.orderNum+'.');
     return;
   }
-  if(!confirm('Διαγραφή αιτήματος;'))return;
-  _locallyDeleted.add(id); // remember so merge-on-save doesn't resurrect it
-  issues=issues.filter(i=>i.id!==id);
-  save();renderAll();toast('Αίτημα διαγράφηκε');
+  if(!confirm('Διαγραφή αιτήματος;')) return;
+
+  try{
+    // Πρώτα διαγράφουμε από τη βάση. Αλλιώς με νέο login θα ξαναφορτωθεί.
+    await _v9DeleteRows('rodios_issues', [id]);
+    _locallyDeleted.add(id);
+    issues = issues.filter(i=>i.id!==id);
+    _v9ClearLightCachesAfterDelete();
+    renderAll();
+    toast('🗑 Το αίτημα διαγράφηκε οριστικά από τη v9 βάση');
+  }catch(err){
+    alert('Δεν διαγράφηκε το αίτημα από τη βάση.\n\n'+(err.message || JSON.stringify(err)));
+  }
 }
 
 // ================================================================
@@ -4479,7 +4516,7 @@ function adminDelOrder(btn){
   delOrder(id);
 }
 
-function delOrder(id){
+async function delOrder(id){
   const wo = workOrders.find(w=>w.id===id);
   if(!wo) return;
   const isAdmin = currentUser?.id==='admin';
@@ -4490,35 +4527,47 @@ function delOrder(id){
     return;
   }
 
-  // Build confirmation message
-  const relatedPayments = payments.filter(p=>p.orderId===id);
+  const relatedPayments = payments.filter(p=>p.orderId===id || p.workOrderId===id || p.woId===id || p.work_order_id===id);
   const hasPayment = relatedPayments.length > 0;
-  const hasSigned = !!wo.signedPdfData;
+  const hasSigned = !!(wo.signedPdfData || wo.signedPdfUrl || wo.signedPdfPath);
 
-  let msg = 'Διαγραφή εντολής ' + wo.orderNum + ';';
+  let msg = 'Οριστική διαγραφή εντολής ' + (wo.orderNum || id) + ' από τη v9 βάση;';
   if(hasSigned) msg += '\n\n⚠️ ΠΡΟΣΟΧΗ: Υπάρχει ψηφιακά υπογεγραμμένο Πρωτόκολλο Παραλαβής!';
   if(hasPayment){
     const totalPmts = relatedPayments.reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
     msg += '\n\n💰 Θα διαγραφούν επίσης ' + relatedPayments.length + ' πληρωμή/ές συνολικού ποσού ' + fmt(totalPmts) + ' € — το ισοζύγιο θα ενημερωθεί αυτόματα.';
   }
-  if(hasSigned) msg += '\n\nΕίσαι σίγουρος ότι θέλεις να προχωρήσεις;';
+  msg += '\n\nΗ διαγραφή θα γίνει και στη Supabase, ώστε να μη γυρίζει μετά από logout/login.';
 
   if(!confirm(msg)) return;
 
-  // Delete the order
-  _locallyDeleted.add(id); // remember so merge-on-save doesn't resurrect it
-  workOrders = workOrders.filter(w=>w.id!==id);
+  try{
+    const payIds = relatedPayments.map(p=>p && p.id).filter(Boolean);
 
-  // Delete ALL related payments (keeps balance correct)
-  if(hasPayment){
-    relatedPayments.forEach(p=>{ if(p && p.id) _locallyDeleted.add(p.id); });
-    payments = payments.filter(p=>p.orderId!==id);
-    toast('🗑 Εντολή ' + wo.orderNum + ' και ' + relatedPayments.length + ' σχετικές πληρωμές διαγράφηκαν — ισοζύγιο ενημερώθηκε');
-  } else {
-    toast('🗑 Εντολή ' + wo.orderNum + ' διαγράφηκε');
+    // Πρώτα διαγράφουμε από τη βάση. Αν αποτύχει, δεν πειράζουμε την οθόνη.
+    if(payIds.length) await _v9DeleteRows('rodios_payments', payIds);
+    await _v9DeleteRows('rodios_work_orders', [id]);
+
+    _locallyDeleted.add(id);
+    payIds.forEach(pid=>_locallyDeleted.add(pid));
+
+    workOrders = workOrders.filter(w=>w.id!==id);
+    if(payIds.length){
+      const ps = new Set(payIds.map(String));
+      payments = payments.filter(p=>!ps.has(String(p.id)));
+    }
+
+    _v9ClearLightCachesAfterDelete();
+    renderAll();
+
+    if(hasPayment){
+      toast('🗑 Εντολή ' + (wo.orderNum || id) + ' και ' + relatedPayments.length + ' σχετικές πληρωμές διαγράφηκαν οριστικά');
+    } else {
+      toast('🗑 Η εντολή ' + (wo.orderNum || id) + ' διαγράφηκε οριστικά');
+    }
+  }catch(err){
+    alert('Δεν διαγράφηκε η εντολή από τη βάση.\n\n'+(err.message || JSON.stringify(err)));
   }
-
-  save(); renderAll();
 }
 
 // ================================================================
@@ -8126,7 +8175,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.11-users-edge-v4-byte-fix-2026-06-01';
+  window.RODIOS_BUILD = 'v9.12-delete-persist-fix-2026-06-01';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
