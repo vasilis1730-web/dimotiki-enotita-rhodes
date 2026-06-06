@@ -3919,7 +3919,11 @@ function setOrderPageSize(v){ oPageSize=parseInt(v,10)||50; oPage=1; renderOrder
 function setPaymentPage(p){ pPage=_v94ClampPage(p, payments.length, pPageSize); renderFinance(); }
 function setPaymentPageSize(v){ pPageSize=parseInt(v,10)||50; pPage=1; renderFinance(); }
 function _issueSearchText(i){
-  return [i.issueNum,i.municipalNum,i.date,i.receiptMethod,i.citizenName,i.contactInfo,i.location,i.municipality,i.category,i.title,i.description,i.priority,i.status,i.actions,i.notes]
+  // Alternate date formats: DD/MM/YYYY and DD.MM.YYYY so "01/04/2026" or "01.04.2026" also match
+  const dp=(i.date||'').split('-');
+  const altDate=dp.length===3?`${dp[2]}/${dp[1]}/${dp[0]} ${dp[2]}.${dp[1]}.${dp[0]} ${dp[1]}/${dp[0]} ${dp[2]}/${dp[1]}`:'';
+  // i.id included so short hex codes like "182F" also match
+  return [i.id,i.issueNum,i.municipalNum,i.date,altDate,i.receiptMethod,i.citizenName,i.email,i.contactInfo,i.location,i.municipality,i.category,i.title,i.description,i.priority,i.danger,i.status,i.completionDate,i.actions,i.notes]
     .filter(Boolean).join(' ').toLowerCase();
 }
 function _orderSearchText(w){
