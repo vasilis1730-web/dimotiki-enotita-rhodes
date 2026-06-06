@@ -55,7 +55,7 @@
   .fg label{display:block;font-size:13px;font-weight:600;color:#475569;margin-bottom:6px;}
   .fg .req{color:#ea580c;font-weight:700;}
   /* Required fields: orange border */
-  #i_unit,#i_cat,#i_title,#i_location{border-color:#ea580c;}
+  #i_unit,#i_cat,#i_title,#i_location,#i_name,#i_desc{border-color:#ea580c;}
   input,select,textarea{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:9px;font-size:15px;font-family:inherit;background:#fff;color:#1e293b;}
   input:focus,select:focus,textarea:focus{outline:none;border-color:#16a34a;}
   textarea{resize:vertical;min-height:90px;}
@@ -162,7 +162,7 @@
     <div id="editBanner" class="edit-banner hidden"></div>
 
     <div class="fg">
-      <label>Ονοματεπώνυμο <span class="muted" style="font-weight:400;">(προαιρετικό)</span></label>
+      <label>Ονοματεπώνυμο <span class="req">*</span></label>
       <input id="i_name" type="text" placeholder="π.χ. Γεώργιος Παπαδόπουλος" autocomplete="name">
     </div>
 
@@ -239,8 +239,8 @@
       <input id="i_mapLat" type="hidden"><input id="i_mapLng" type="hidden">
     </div>
     <div class="fg">
-      <label>Περιγραφή</label>
-      <textarea id="i_desc" placeholder="Περιγράψτε το πρόβλημα (προαιρετικό)"></textarea>
+      <label>Περιγραφή αιτήματος <span class="req">*</span></label>
+      <textarea id="i_desc" placeholder="Περιγράψτε το πρόβλημα με όσο περισσότερες λεπτομέρειες μπορείτε..."></textarea>
     </div>
 
     <!-- ATTACHMENTS -->
@@ -726,7 +726,7 @@ function collectForm(){
 async function saveIssue(){
   if(pendingAttachments.some(a=>a.uploading)){ toast('⏳ Περιμένετε να ολοκληρωθεί η μεταφόρτωση.'); return; }
   const f=collectForm();
-  if(!f.unit||!f.cat||!f.title||!f.loc){ toast('Συμπληρώστε τα υποχρεωτικά πεδία (*)'); return; }
+  if(!f.name||!f.desc||!f.unit||!f.cat||!f.title||!f.loc){ toast('Συμπληρώστε τα υποχρεωτικά πεδία (*): Ονοματεπώνυμο, Κοινότητα, Κατηγορία, Τίτλος, Τοποθεσία, Περιγραφή'); return; }
   const btn=document.getElementById('saveBtn');
   btn.disabled=true; const oldTxt=btn.textContent; btn.textContent='⏳ Αποστολή...';
 
