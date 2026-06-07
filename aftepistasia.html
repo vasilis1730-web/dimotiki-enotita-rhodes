@@ -1741,6 +1741,13 @@ function initRealtimeSync(){
 async function forceRefreshFromSupabase(silent){
   const sb = getSupabase();
   if(!sb) return;
+  // v9.15: selecting/uploading a signed protocol temporarily moves focus away from the app.
+  // A focus-triggered refresh during this window can overwrite the in-memory work order
+  // with the older Supabase row before the signature result is saved. Defer it.
+  if(typeof _sigImportInProgress !== 'undefined' && _sigImportInProgress){
+    _sigDeferredRefreshAfterImport = true;
+    return;
+  }
   if(_savingInProgress || _saveTimer) return;
   try{
     const [issueRows, orderRows, paymentRows, settingRows, userRows, staffRows] = await Promise.all([
@@ -3410,6 +3417,10 @@ function setCurrentTime(){
 // ════════════════════════════════════════════════════════════════
 let _sigOrderId = null;
 let _bulkSelected = new Set();
+// v9.15: while importing/checking a signed PDF, block focus/realtime refreshes
+// that can reload the old work order state and make the green verification panel disappear.
+let _sigImportInProgress = false;
+let _sigDeferredRefreshAfterImport = false;
 
 function openSigModal(id){
   _sigOrderId = id;
@@ -3757,6 +3768,17 @@ async function importSignedPdf(input){
   const wo = workOrders.find(w=>w.id===_sigOrderId);
   if(!wo) return;
 
+  // v9.15: guard against focus/realtime refresh while the PDF is being read, uploaded and verified.
+  _sigImportInProgress = true;
+  _sigDeferredRefreshAfterImport = false;
+  // Safety valve: never leave the app permanently refresh-locked after an unexpected error.
+  setTimeout(()=>{
+    if(_sigImportInProgress){
+      console.warn('[SIG] Import lock auto-released after timeout.');
+      _sigImportInProgress = false;
+    }
+  }, 60000);
+
   toast('⏳ Ανέβασμα υπογεγραμμένου πρωτοκόλλου...');
 
   const sb = getSupabase();
@@ -3823,7 +3845,7 @@ async function importSignedPdf(input){
       wo._sigExtractedNames = _extractedNames;
     } else {
       const _anonKey = (window._sb_key_override||localStorage.getItem('sb_key')||SUPABASE_KEY||'').trim();
-      if(!_anonKey){ alert('Δεν βρέθηκε Supabase Anon Key. Ελέγξτε τις Ρυθμίσεις → Supabase.'); return; }
+      if(!_anonKey){ alert('Δεν βρέθηκε Supabase Anon Key. Ελέγξτε τις Ρυθμίσεις → Supabase.'); _sigImportInProgress=false; return; }
       toast('📡 Επικοινωνία με Edge Function...');
       const _resp = await fetch(_edgeUrl, {
         method: 'POST',
@@ -3915,6 +3937,15 @@ async function importSignedPdf(input){
     toast('✅ '+_sigs+'/'+_req+' ψηφιακές υπογραφές — ονόματα δεν εξήχθησαν');
   } else {
     toast('📎 PDF ανέβηκε ('+_sigs+'/'+_req+' υπογραφές)');
+  }
+
+  // v9.15: release the refresh lock only after the verification data has been saved
+  // and the modal has been rendered with the final green/yellow result.
+  _sigImportInProgress = false;
+  if(_sigDeferredRefreshAfterImport){
+    _sigDeferredRefreshAfterImport = false;
+    // Give Supabase a moment to apply the upsert before any deferred refresh.
+    setTimeout(()=>forceRefreshFromSupabase(true), 1600);
   }
 }
 

@@ -7,7 +7,7 @@
    This avoids stale HTML while still allowing the UI shell to open when the
    network is unavailable.
    ──────────────────────────────────────────────────────────────── */
-const CACHE_VERSION = 'rodios-v9-14';
+const CACHE_VERSION = 'rodios-v9-15';
 const STATIC_ASSETS = [
   './icon-192.png',
   './icon-512.png',
