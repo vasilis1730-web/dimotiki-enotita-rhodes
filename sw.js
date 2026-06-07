@@ -1,44 +1,92 @@
 /* ────────────────────────────────────────────────────────────────
-   sw.js — KILL SWITCH (self-destructing service worker)
+   sw.js — RODIOS v9.12 cache/versioning
    ----------------------------------------------------------------
-   This REPLACES the previous service worker of the full app.
-   When a device that still has the old service worker next checks
-   for an update, the browser fetches THIS file (byte-different),
-   installs it, and on activation it:
-     1. deletes every cache,
-     2. unregisters itself,
-     3. reloads all open pages so they fetch fresh from the network.
-   After this runs, the device has NO service worker and shows the
-   current content at the URL (the citizen app). The citizen app does
-   not register any service worker, so nothing comes back.
+   - HTML/navigation requests: Network-First, fallback to last cached copy.
+   - Static assets: Cache-First.
+   - API calls and non-GET requests: never cached.
+   This avoids stale HTML while still allowing the UI shell to open when the
+   network is unavailable.
    ──────────────────────────────────────────────────────────────── */
-self.addEventListener('install', function (event) {
-  // Activate immediately, don't wait for old SW to be released
+const CACHE_VERSION = 'rodios-v9-13';
+const STATIC_ASSETS = [
+  './icon-192.png',
+  './icon-512.png',
+  './manifest.json'
+];
+
+self.addEventListener('install', (event) => {
   self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_VERSION).then((cache) => cache.addAll(STATIC_ASSETS).catch(() => undefined))
+  );
 });
 
-self.addEventListener('activate', function (event) {
-  event.waitUntil((async function () {
-    try {
-      // 1) delete all caches
-      const keys = await caches.keys();
-      await Promise.all(keys.map(function (k) { return caches.delete(k); }));
-    } catch (e) {}
-    try {
-      // 2) unregister this service worker
-      await self.registration.unregister();
-    } catch (e) {}
-    // NOTE: we intentionally do NOT force-reload clients here. The full app
-    // (aftepistasia.html) re-registers sw.js on every load, so a forced reload
-    // would cause an endless reload loop. Without a reload, caches are cleared
-    // and the SW is unregistered; the very next time the app is opened it loads
-    // fresh from the network (the citizen app), which self-heals cleanly.
+self.addEventListener('activate', (event) => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((key) => key !== CACHE_VERSION ? caches.delete(key) : undefined));
+    await self.clients.claim();
   })());
 });
 
-// While alive, never serve from cache — always pass through to the network
-self.addEventListener('fetch', function (event) {
-  event.respondWith(fetch(event.request).catch(function () {
-    return new Response('', { status: 504, statusText: 'Gateway Timeout' });
-  }));
+self.addEventListener('fetch', (event) => {
+  // Αγνοούμε τα non-GET requests (π.χ. RPC calls, POST/PUT/DELETE προς API).
+  if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+
+  // Εξαιρούμε εντελώς API calls και third-party endpoints από το cache.
+  if (
+    url.hostname.includes('supabase.co') ||
+    url.hostname.includes('firebase') ||
+    url.hostname.includes('googleapis.com') ||
+    url.hostname.includes('gstatic.com') ||
+    url.hostname.includes('jsdelivr.net') ||
+    url.hostname.includes('geoapify.com')
+  ) {
+    return;
+  }
+
+  // Ασφαλής ανάγνωση του accept header.
+  const accept = event.request.headers.get('accept') || '';
+
+  // Για HTML/navigation: NETWORK-FIRST για να μην μένουν παλιές εκδόσεις σε συσκευές.
+  if (event.request.mode === 'navigate' || accept.includes('text/html')) {
+    event.respondWith((async () => {
+      const cache = await caches.open(CACHE_VERSION);
+      try {
+        const networkResponse = await fetch(event.request, { cache: 'no-store' });
+        if (networkResponse && networkResponse.ok) {
+          await cache.put(event.request, networkResponse.clone());
+        }
+        return networkResponse;
+      } catch (err) {
+        const cachedResponse = await cache.match(event.request);
+        if (cachedResponse) return cachedResponse;
+        return new Response('Η εφαρμογή δεν είναι διαθέσιμη χωρίς σύνδεση και δεν υπάρχει αποθηκευμένη έκδοση.', {
+          status: 503,
+          statusText: 'Offline',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+        });
+      }
+    })());
+    return;
+  }
+
+  // Για στατικά assets: CACHE-FIRST με background update.
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_VERSION);
+    const cachedResponse = await cache.match(event.request);
+    if (cachedResponse) {
+      fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.ok) cache.put(event.request, networkResponse.clone());
+      }).catch(() => undefined);
+      return cachedResponse;
+    }
+    const networkResponse = await fetch(event.request);
+    if (networkResponse && networkResponse.ok) {
+      await cache.put(event.request, networkResponse.clone());
+    }
+    return networkResponse;
+  })());
 });

@@ -355,7 +355,26 @@ tr:hover td{background:#faf9f7;}
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
     import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+    import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js';
+
     const _fbApp = initializeApp({apiKey:"AIzaSyATvkHqSyyVxVD8UujQQnj_wdR2Kc306wA",authDomain:"dimosrodou-otp.firebaseapp.com",projectId:"dimosrodou-otp",appId:"1:315292350668:web:8288883847d24ac33e2a69"});
+
+    // Firebase App Check: βάλε εδώ πραγματικό reCAPTCHA v3/Enterprise site key.
+    // Μέχρι τότε μένει ανενεργό ώστε να μη δημιουργεί ψευδή αίσθηση προστασίας.
+    const RODIOS_RECAPTCHA_SITE_KEY = '';
+    if (RODIOS_RECAPTCHA_SITE_KEY && !RODIOS_RECAPTCHA_SITE_KEY.includes('ΒΑΛΕ_')) {
+      try {
+        window._appCheck = initializeAppCheck(_fbApp, {
+          provider: new ReCaptchaV3Provider(RODIOS_RECAPTCHA_SITE_KEY),
+          isTokenAutoRefreshEnabled: true
+        });
+      } catch(e) {
+        console.warn('App Check initialization failed:', e);
+      }
+    } else {
+      console.info('Firebase App Check not enabled: missing reCAPTCHA site key.');
+    }
+
     const _fbAuthInst = getAuth(_fbApp); _fbAuthInst.languageCode='el';
     window._fbAuth=_fbAuthInst; window._RecaptchaVerifier=RecaptchaVerifier;
     window._signInWithPhoneNumber=signInWithPhoneNumber; window._fbReady=true;
@@ -387,6 +406,30 @@ tr:hover td{background:#faf9f7;}
   window.addEventListener('load',function(){setup();if(typeof openAddIssue==='function'){var orig=openAddIssue;window.openAddIssue=function(){orig.apply(this,arguments);setTimeout(function(){var i=document.getElementById('i_location');if(i){i._go=0;setup();}},150);};}});
   document.addEventListener('click',function(e){if(drop&&e.target.id!=='i_location')rm();});
 })();
+</script>
+<script>
+  // GLOBAL ERROR HANDLER — κεντρική ειδοποίηση για απρόβλεπτα runtime/promise errors.
+  (function(){
+    function handleGlobalError(message) {
+      try {
+        if (typeof window.toast === 'function') {
+          window.toast('⚠️ ' + message);
+        } else {
+          console.warn('RODIOS:', message);
+        }
+      } catch (_) {
+        console.warn('RODIOS:', message);
+      }
+    }
+    window.addEventListener('unhandledrejection', function(event) {
+      console.error('Unhandled Promise Rejection:', event.reason);
+      handleGlobalError('Παρουσιάστηκε σφάλμα επικοινωνίας. Ελέγξτε τη σύνδεσή σας.');
+    });
+    window.addEventListener('error', function(event) {
+      console.error('Global Error:', event.error || event.message);
+      handleGlobalError('Απροσδόκητο σφάλμα εφαρμογής.');
+    });
+  })();
 </script>
 </head>
 <body>
@@ -1182,6 +1225,12 @@ let _savePendingAgain = false;   // queues a follow-up save if one was requested
 let _lastSyncTime = 0;           // timestamp of last successful cloud sync
 const _locallyDeleted = new Set(); // ids the user deleted, so merge doesn't resurrect them
 
+// v9.11: baseline snapshot for data-loss protection.
+// We save only changed/deleted rows and block stale overwrites when another client has updated a row meanwhile.
+const _v9Baseline = {issues:new Map(), workOrders:new Map(), payments:new Map(), users:new Map(), serviceStaff:new Map(), settings:new Map()};
+const _v9RowVersions = {issues:new Map(), workOrders:new Map(), payments:new Map(), users:new Map(), serviceStaff:new Map(), settings:new Map()};
+let _v9ConflictAlertShown = false;
+
 // getSupabase and isSupabaseConfigured defined in settings section below
 
 // ── RODIOS v9 DATA LAYER ─────────────────────────────────────────
@@ -1247,6 +1296,109 @@ async function _v9DeleteRows(table, ids){
     }
   }
   return {ok:true};
+}
+
+
+function _v9NormalizeStaffId(s, idx){
+  const c = _safeCloneForDb(s||{});
+  const id = String(c.id || c.name || ('staff_'+idx)).replace(/[^\w.\-:/]/g,'_');
+  c.id = id;
+  return {id, data:c, deleted_at:null};
+}
+
+function _v9Sig(obj){
+  return JSON.stringify(_safeCloneForDb(obj||{}));
+}
+
+function _v9SetMapFromItems(kind, items, rowVersions){
+  _v9Baseline[kind] = new Map();
+  _v9RowVersions[kind] = new Map();
+  (items||[]).forEach((item, idx)=>{
+    if(!item) return;
+    let id = item.id;
+    let value = item;
+    if(kind === 'serviceStaff'){
+      const row = _v9NormalizeStaffId(item, idx);
+      id = row.id;
+      value = row.data;
+    }
+    if(!id) return;
+    const sid = String(id);
+    _v9Baseline[kind].set(sid, _v9Sig(value));
+    if(rowVersions && rowVersions[sid]) _v9RowVersions[kind].set(sid, rowVersions[sid]);
+  });
+}
+
+function _v9RememberBaselineFromRows(issueRows, orderRows, paymentRows, settingRows, userRows, staffRows){
+  const versions = rows => Object.fromEntries((rows||[]).map(r=>[String(r.id ?? r.key), r.updated_at || '']));
+  _v9SetMapFromItems('issues', issues, versions(issueRows));
+  _v9SetMapFromItems('workOrders', workOrders, versions(orderRows));
+  _v9SetMapFromItems('payments', payments, versions(paymentRows));
+  _v9SetMapFromItems('users', (typeof getEffectiveUsers==='function' ? (getEffectiveUsers()||[]) : []), versions(userRows));
+  _v9SetMapFromItems('serviceStaff', SERVICE_STAFF||[], versions(staffRows));
+  const main = (settingRows||[]).find(r=>r.key==='main');
+  _v9Baseline.settings = new Map([['main', _v9Sig(settings||{})]]);
+  _v9RowVersions.settings = new Map([['main', main && main.updated_at ? main.updated_at : '']]);
+}
+
+function _v9RememberBaselineFromCurrent(versionIso){
+  _v9SetMapFromItems('issues', issues, null);
+  _v9SetMapFromItems('workOrders', workOrders, null);
+  _v9SetMapFromItems('payments', payments, null);
+  _v9SetMapFromItems('users', (typeof getEffectiveUsers==='function' ? (getEffectiveUsers()||[]) : []), null);
+  _v9SetMapFromItems('serviceStaff', SERVICE_STAFF||[], null);
+  _v9Baseline.settings = new Map([['main', _v9Sig(settings||{})]]);
+  const v = versionIso || new Date().toISOString();
+  ['issues','workOrders','payments','users','serviceStaff'].forEach(kind=>{
+    _v9RowVersions[kind] = new Map(Array.from(_v9Baseline[kind].keys()).map(id=>[id, v]));
+  });
+  _v9RowVersions.settings = new Map([['main', v]]);
+}
+
+function _v9BuildUpsertDiff(kind, rows){
+  const base = _v9Baseline[kind] || new Map();
+  return (rows||[]).filter(r=>{
+    const id = String(r.id ?? r.key);
+    return !base.has(id) || base.get(id) !== _v9Sig(r.data ?? r.value ?? r);
+  });
+}
+
+function _v9BuildDeleteDiff(kind, currentIds){
+  const base = _v9Baseline[kind] || new Map();
+  const cur = new Set((currentIds||[]).filter(Boolean).map(String));
+  return Array.from(base.keys()).filter(id=>!cur.has(id));
+}
+
+async function _v9AssertNoConflicts(table, kind, ids){
+  const sb = getSupabase && getSupabase();
+  const list = (ids||[]).filter(Boolean).map(String).filter(id=>_v9RowVersions[kind] && _v9RowVersions[kind].get(id));
+  if(!sb || !list.length) return;
+  const idCol = table === 'rodios_settings' ? 'key' : 'id';
+  for(let i=0;i<list.length;i+=100){
+    const part = list.slice(i, i+100);
+    const {data, error} = await sb.from(table).select(idCol+',updated_at').in(idCol, part);
+    if(error) throw error;
+    const conflicts = [];
+    (data||[]).forEach(r=>{
+      const id=String(r[idCol]);
+      const baseTs = _v9RowVersions[kind].get(id);
+      const remoteTs = r.updated_at;
+      if(baseTs && remoteTs && (new Date(remoteTs).getTime() > new Date(baseTs).getTime() + 1000)) conflicts.push(id);
+    });
+    if(conflicts.length){
+      const err = new Error('Σύγκρουση συγχρονισμού: κάποιες εγγραφές έχουν αλλάξει από άλλον χρήστη. Κάντε ανανέωση από Supabase πριν ξανααποθηκεύσετε.');
+      err.conflictIds = conflicts;
+      err.table = table;
+      throw err;
+    }
+  }
+}
+
+async function saveNow(){
+  // Update the light local cache first, then flush immediately to Supabase.
+  save();
+  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; }
+  await _saveToSupabase();
 }
 
 function _v9ClearLightCachesAfterDelete(){
@@ -1417,6 +1569,7 @@ async function load(){
       }));
     }catch(_){ }
 
+    _v9RememberBaselineFromRows(issueRows, orderRows, paymentRows, settingRows, userRows, staffRows);
     _lastSyncTime = Date.now();
     _showSyncDot('green');
     renderAll();
@@ -1447,6 +1600,8 @@ function _loadFromLocalStorage(hist){
     workOrders = saved.workOrders||[];
     payments   = saved.payments||[];
     settings   = {...settings,...(saved.settings||{})};
+    if(Array.isArray(saved.serviceStaff)){ SERVICE_STAFF = saved.serviceStaff; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
+    if(Array.isArray(saved.users) && saved.users.length){ localStorage.setItem('rhodesAppUsers', JSON.stringify(saved.users)); }
     issues = [...(hist||[]), ...(saved.issues||[])];
   } else {
     issues = hist||[];
@@ -1461,16 +1616,22 @@ function save(){
     const lightOrders = (workOrders||[]).map(w=>_safeCloneForDb(w));
     const lightPayments = (payments||[]).map(p=>_safeCloneForDb(p));
     localStorage.setItem('rodios_v9_light_cache', JSON.stringify({
-      issues: lightIssues, workOrders: lightOrders, payments: lightPayments, settings
+      issues: lightIssues,
+      workOrders: lightOrders,
+      payments: lightPayments,
+      settings,
+      serviceStaff: (SERVICE_STAFF||[]).map(s=>_safeCloneForDb(s)),
+      users: (typeof getEffectiveUsers==='function' ? (getEffectiveUsers()||[]) : []).map(u=>_safeCloneForDb(u))
     }));
   }catch(e){ console.warn('[SAVE v9] localStorage light cache failed:', e); }
 
   if(!isSupabaseConfigured()) return;
   clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(()=>_saveToSupabase(), 900);
+  _saveTimer = setTimeout(()=>{ _saveTimer = null; _saveToSupabase(); }, 900);
 }
 
 async function _saveToSupabase(){
+  if(_saveTimer){ clearTimeout(_saveTimer); _saveTimer = null; }
   const sb = getSupabase();
   if(!sb) return;
   if(_savingInProgress){ _savePendingAgain = true; return; }
@@ -1495,29 +1656,59 @@ async function _saveToSupabase(){
       const c = _ensureId(_safeCloneForDb(u), 'user');
       return {id:String(c.id), data:c, deleted_at:null};
     });
-    const staffRows = (SERVICE_STAFF||[]).filter(Boolean).map((s,idx)=>{
-      const c = _safeCloneForDb(s);
-      const id = String(c.id || c.name || ('staff_'+idx)).replace(/[^\w.\-:/]/g,'_');
-      c.id = id;
-      return {id, data:c, deleted_at:null};
-    });
+    const staffRows = (SERVICE_STAFF||[]).filter(Boolean).map((s,idx)=>_v9NormalizeStaffId(s, idx));
 
-    await _v9UpsertChunks('rodios_issues', issueRows, 'id', 100);
-    await _v9UpsertChunks('rodios_work_orders', orderRows, 'id', 100);
-    await _v9UpsertChunks('rodios_payments', paymentRows, 'id', 100);
-    await _v9UpsertChunks('rodios_settings', settingsRows, 'key', 50);
-    await _v9UpsertChunks('rodios_app_users', userRows, 'id', 100);
-    await _v9UpsertChunks('rodios_service_staff', staffRows, 'id', 100);
+    // v9.11: upsert/delete only changed rows. This prevents an old browser from re-uploading
+    // the whole stale in-memory dataset and overwriting newer changes by another user.
+    const issueUpserts = _v9BuildUpsertDiff('issues', issueRows);
+    const orderUpserts = _v9BuildUpsertDiff('workOrders', orderRows);
+    const paymentUpserts = _v9BuildUpsertDiff('payments', paymentRows);
+    const userUpserts = _v9BuildUpsertDiff('users', userRows);
+    const staffUpserts = _v9BuildUpsertDiff('serviceStaff', staffRows);
+    const settingsUpserts = _v9BuildUpsertDiff('settings', settingsRows);
+
+    const issueDeletes = _v9BuildDeleteDiff('issues', issueRows.map(r=>r.id));
+    const orderDeletes = _v9BuildDeleteDiff('workOrders', orderRows.map(r=>r.id));
+    const paymentDeletes = _v9BuildDeleteDiff('payments', paymentRows.map(r=>r.id));
+    const userDeletes = _v9BuildDeleteDiff('users', userRows.map(r=>r.id));
+    const staffDeletes = _v9BuildDeleteDiff('serviceStaff', staffRows.map(r=>r.id));
+
+    await _v9AssertNoConflicts('rodios_issues', 'issues', [...issueUpserts.map(r=>r.id), ...issueDeletes]);
+    await _v9AssertNoConflicts('rodios_work_orders', 'workOrders', [...orderUpserts.map(r=>r.id), ...orderDeletes]);
+    await _v9AssertNoConflicts('rodios_payments', 'payments', [...paymentUpserts.map(r=>r.id), ...paymentDeletes]);
+    await _v9AssertNoConflicts('rodios_app_users', 'users', [...userUpserts.map(r=>r.id), ...userDeletes]);
+    await _v9AssertNoConflicts('rodios_service_staff', 'serviceStaff', [...staffUpserts.map(r=>r.id), ...staffDeletes]);
+    await _v9AssertNoConflicts('rodios_settings', 'settings', settingsUpserts.map(r=>r.key));
+
+    if(paymentDeletes.length) await _v9DeleteRows('rodios_payments', paymentDeletes);
+    if(orderDeletes.length) await _v9DeleteRows('rodios_work_orders', orderDeletes);
+    if(issueDeletes.length) await _v9DeleteRows('rodios_issues', issueDeletes);
+    if(userDeletes.length) await _v9DeleteRows('rodios_app_users', userDeletes);
+    if(staffDeletes.length) await _v9DeleteRows('rodios_service_staff', staffDeletes);
+
+    await _v9UpsertChunks('rodios_issues', issueUpserts, 'id', 100);
+    await _v9UpsertChunks('rodios_work_orders', orderUpserts, 'id', 100);
+    await _v9UpsertChunks('rodios_payments', paymentUpserts, 'id', 100);
+    await _v9UpsertChunks('rodios_settings', settingsUpserts, 'key', 50);
+    await _v9UpsertChunks('rodios_app_users', userUpserts, 'id', 100);
+    await _v9UpsertChunks('rodios_service_staff', staffUpserts, 'id', 100);
 
     _lastSyncTime = Date.now();
+    _v9ConflictAlertShown = false;
+    _v9RememberBaselineFromCurrent(new Date().toISOString());
     _showSyncDot('green');
     _v9SetSnapshotCache(_v9MakeSnapshot()).catch(e=>console.warn('v9 snapshot cache save failed:', e));
   }catch(err){
     console.warn('Supabase v9 save failed:', err);
     _showSyncDot('red');
+    if(err && err.conflictIds && !_v9ConflictAlertShown){
+      _v9ConflictAlertShown = true;
+      alert('⚠ Αποτροπή πιθανής απώλειας δεδομένων.\n\nΚάποια εγγραφή έχει ενημερωθεί από άλλον χρήστη πριν προλάβει να αποθηκευτεί η δική σας αλλαγή.\n\nΠατήστε «Κατέβασμα από Supabase» ή κάντε ανανέωση και ξαναπεράστε την αλλαγή.');
+    }
+    throw err;
   }finally{
     _savingInProgress = false;
-    if(_savePendingAgain){ _savePendingAgain=false; setTimeout(()=>_saveToSupabase(), 300); }
+    if(_savePendingAgain){ _savePendingAgain=false; setTimeout(()=>{ _saveTimer=null; _saveToSupabase(); }, 300); }
   }
 }
 
@@ -1525,14 +1716,15 @@ async function _saveToSupabase(){
 function initRealtimeSync(){
   const sb = getSupabase();
   if(!sb) return;
-  try{ sb.removeAllChannels && sb.removeAllChannels(); }catch(_){ }
+  // Do NOT remove all channels; that also kills ack-changes. Remove only the previous v9 channel.
+  try{ if(window._rodiosV9Channel && sb.removeChannel) sb.removeChannel(window._rodiosV9Channel); }catch(_){ }
 
   const scheduleRefresh = ()=>{
     clearTimeout(_v9RealtimeDebounce);
     _v9RealtimeDebounce = setTimeout(()=>forceRefreshFromSupabase(true), 600);
   };
 
-  sb.channel('rodios_v9_changes')
+  window._rodiosV9Channel = sb.channel('rodios_v9_changes')
     .on('postgres_changes', {event:'*', schema:'public', table:'rodios_issues'}, scheduleRefresh)
     .on('postgres_changes', {event:'*', schema:'public', table:'rodios_work_orders'}, scheduleRefresh)
     .on('postgres_changes', {event:'*', schema:'public', table:'rodios_payments'}, scheduleRefresh)
@@ -1540,6 +1732,9 @@ function initRealtimeSync(){
     .on('postgres_changes', {event:'*', schema:'public', table:'rodios_app_users'}, scheduleRefresh)
     .on('postgres_changes', {event:'*', schema:'public', table:'rodios_service_staff'}, scheduleRefresh)
     .subscribe();
+  if(typeof setupAckSubscription === 'function') {
+    try { setupAckSubscription(); } catch(e) { console.error('Ack subscription setup failed:', e); }
+  }
 }
 
 // Refetch everything from v9 Supabase tables.
@@ -1563,6 +1758,7 @@ async function forceRefreshFromSupabase(silent){
     if(mainSettings && mainSettings.value) settings = {...settings, ...mainSettings.value};
     if(userRows && userRows.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(userRows.map(r=>({...(r.data||{}), id:r.id}))));
     if(staffRows && staffRows.length){ SERVICE_STAFF = staffRows.map(r=>({...(r.data||{}), id:r.id})); localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
+    _v9RememberBaselineFromRows(issueRows, orderRows, paymentRows, settingRows, userRows, staffRows);
     _lastSyncTime = Date.now();
     renderAll();
     _v9SetSnapshotCache(_v9MakeSnapshot()).catch(e=>console.warn('v9 snapshot cache save failed:', e));
@@ -1586,6 +1782,13 @@ async function forceRefreshFromSupabase(silent){
   window.addEventListener('focus', safeRefresh);
   window.addEventListener('online', ()=>{ _showSyncDot('amber'); safeRefresh(); });
   setInterval(()=>{ if(!document.hidden) safeRefresh(); }, 60000);
+  window.addEventListener('beforeunload', (e)=>{
+    if(_saveTimer || _savingInProgress){
+      e.preventDefault();
+      e.returnValue = 'Υπάρχουν αλλαγές που δεν έχουν συγχρονιστεί ακόμη.';
+      return e.returnValue;
+    }
+  });
 })();
 
 function closeSbBanner(){const b=document.getElementById("setupBanner");if(b)b.remove();}
@@ -1640,6 +1843,34 @@ function commitOrderNum(){
   const n=(settings.orderSeq||1);
   settings.orderSeq=n+1;
   return `ΕΕ-${new Date().getFullYear()}-${String(n).padStart(3,'0')}`;
+}
+
+// v9.11: Prefer atomic numbering from Supabase RPC to avoid duplicate issue/order numbers
+// when two users create records at the same time. If the RPC has not been installed yet,
+// the app falls back to the previous local sequence.
+async function _nextSequenceFromDb(kind){
+  try{
+    const sb = getSupabase && getSupabase();
+    if(!sb || !isSupabaseConfigured()) return null;
+    const year = new Date().getFullYear();
+    const {data, error} = await sb.rpc('rodios_next_sequence', {p_kind: kind, p_year: year});
+    if(error) throw error;
+    const n = Array.isArray(data) ? data[0] : data;
+    return Number(n)||null;
+  }catch(e){
+    console.warn('Atomic sequence RPC unavailable; falling back to local sequence:', e);
+    return null;
+  }
+}
+async function nextIssueNumAsync(){
+  const n = await _nextSequenceFromDb('issue');
+  if(n) return 'ΑΙΤ-'+new Date().getFullYear()+'-'+String(n).padStart(3,'0');
+  return nextIssueNum();
+}
+async function commitOrderNumAsync(){
+  const n = await _nextSequenceFromDb('order');
+  if(n) return `ΕΕ-${new Date().getFullYear()}-${String(n).padStart(3,'0')}`;
+  return commitOrderNum();
 }
 
 function fmt(n){return new Intl.NumberFormat('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);}
@@ -3735,7 +3966,7 @@ function finalizeAcceptance(){
     });
     toast('✅ Παραλαβή ψηφιακά υπογεγραμμένη — Χρέωση '+fmt(netAmt)+' € δημιουργήθηκε αυτόματα');
   }
-  save(); renderAll();
+  saveNow().catch(e=>console.warn('Immediate acceptance save failed:', e)); renderAll();
 }
 
 function renderESignUsersSettings(){
@@ -4061,7 +4292,7 @@ function chStatus(id,st){
   if(!i)return;
   i.status=st;
   if(st==='Ολοκληρωμένο')i.completionDate=todayStr();
-  save();renderAll();toast('Κατάσταση: '+st);
+  saveNow().catch(e=>console.warn('Immediate status save failed:', e));renderAll();toast('Κατάσταση: '+st);
 }
 async function delIssue(id){
   const linked = workOrders.find(w=>w.issueId===id);
@@ -4077,6 +4308,7 @@ async function delIssue(id){
     _locallyDeleted.add(id);
     issues = issues.filter(i=>i.id!==id);
     _v9ClearLightCachesAfterDelete();
+    _v9RememberBaselineFromCurrent(new Date().toISOString());
     renderAll();
     toast('🗑 Το αίτημα διαγράφηκε οριστικά από τη v9 βάση');
   }catch(err){
@@ -4216,7 +4448,8 @@ function setupAckSubscription() {
   const sb = (typeof getSupabase === 'function') ? getSupabase() : null;
   if(!sb) return;
   try {
-    sb.channel('ack-changes').on('postgres_changes', {
+    if(window._ackChannel && sb.removeChannel) { try { sb.removeChannel(window._ackChannel); } catch(_){} }
+    window._ackChannel = sb.channel('ack-changes').on('postgres_changes', {
       event: 'UPDATE',
       schema: 'public',
       table: 'work_order_acknowledgments'
@@ -4507,7 +4740,7 @@ function completeSvcOrder(id, status){
     wo.serviceDuration = diffDays > 0 ? diffDays+'η '+(diffHrs%24)+'ω' : diffHrs+'ω';
     wo.serviceCompletedAt = new Date().toISOString();
   }
-  save(); renderAll();
+  saveNow().catch(e=>console.warn('Immediate service completion save failed:', e)); renderAll();
   toast('✅ Εντολή Υπηρεσίας ολοκληρώθηκε'+(wo.serviceDuration?' σε '+wo.serviceDuration:''));
 }
 
@@ -4521,15 +4754,15 @@ async function delOrder(id){
   if(!wo) return;
   const isAdmin = currentUser?.id==='admin';
 
-  // Block non-admin from deleting signed orders
-  if(wo.signedPdfData && !isAdmin){
+  const hasSigned = !!(wo.signedPdfData || wo.signedPdfUrl || wo.signedPdfPath);
+  // Block non-admin from deleting signed orders, regardless of whether the PDF is stored as base64, URL or Storage path.
+  if(hasSigned && !isAdmin){
     toast('🔒 Δεν επιτρέπεται διαγραφή — υπάρχει ψηφιακά υπογεγραμμένο πρωτόκολλο.');
     return;
   }
 
   const relatedPayments = payments.filter(p=>p.orderId===id || p.workOrderId===id || p.woId===id || p.work_order_id===id);
   const hasPayment = relatedPayments.length > 0;
-  const hasSigned = !!(wo.signedPdfData || wo.signedPdfUrl || wo.signedPdfPath);
 
   let msg = 'Οριστική διαγραφή εντολής ' + (wo.orderNum || id) + ' από τη v9 βάση;';
   if(hasSigned) msg += '\n\n⚠️ ΠΡΟΣΟΧΗ: Υπάρχει ψηφιακά υπογεγραμμένο Πρωτόκολλο Παραλαβής!';
@@ -4654,7 +4887,7 @@ function renderFinance(){
         <td style="font-size:11px;color:var(--muted)">${esc(p.notes||'')}</td>
         <td>${(()=>{
           const _wo = p.orderId ? workOrders.find(w=>w.id===p.orderId) : null;
-          const _locked = _wo && _wo.signedPdfData;
+          const _locked = _wo && (_wo.signedPdfData || _wo.signedPdfUrl || _wo.signedPdfPath);
           return _locked
             ? '<button class="ab-del" disabled title="Κλειδωμένο — υπάρχει ψηφιακά υπογεγραμμένο πρωτόκολλο" style="opacity:.35;cursor:not-allowed;">🗑</button>'
             : '<button class=\"ab-del\" onclick=\"delPayment(\''+p.id+'\')\">🗑</button>';
@@ -4665,18 +4898,27 @@ function renderFinance(){
     </tbody></table></div>${pagination}`;
 }
 
-function delPayment(id){
+async function delPayment(id){
   const p = payments.find(x=>x.id===id);
   if(p && p.orderId){
     const wo = workOrders.find(w=>w.id===p.orderId);
-    if(wo && wo.signedPdfData){
+    if(wo && (wo.signedPdfData || wo.signedPdfUrl || wo.signedPdfPath)){
       toast('🔒 Δεν επιτρέπεται διαγραφή — υπάρχει ψηφιακά υπογεγραμμένο Πρωτόκολλο Παραλαβής για αυτή την εντολή.');
       return;
     }
   }
   if(!confirm('Διαγραφή πληρωμής;'))return;
-  payments=payments.filter(p=>p.id!==id);
-  save();renderAll();toast('Πληρωμή διαγράφηκε');
+  try{
+    if(isSupabaseConfigured()) await _v9DeleteRows('rodios_payments', [id]);
+    _locallyDeleted.add(String(id));
+    payments=payments.filter(p=>String(p.id)!==String(id));
+    _v9ClearLightCachesAfterDelete();
+    _v9RememberBaselineFromCurrent(new Date().toISOString());
+    renderAll();toast('Πληρωμή διαγράφηκε οριστικά');
+  }catch(err){
+    console.error('delPayment failed:', err);
+    toast('❌ Αποτυχία διαγραφής πληρωμής από τη βάση');
+  }
 }
 
 // ================================================================
@@ -5775,7 +6017,7 @@ function editIssue(id){
   document.getElementById('issueModal').style.display='flex';
 }
 
-function saveIssue(){
+async function saveIssue(){
   const id=document.getElementById('i_id').value;
   // Fix #8: Validate required fields FIRST, before burning a new issue number
   const _date=document.getElementById('i_date').value;
@@ -5784,11 +6026,13 @@ function saveIssue(){
   const _loc=document.getElementById('i_location').value;
   if(!_date||!_cat||!_title||!_loc){alert('Συμπληρώστε τα υποχρεωτικά πεδία (*).');return;}
 
+  const _existingIssue = id ? issues.find(x=>x.id===id) : null;
+  const _issueNum = id ? (_existingIssue?.issueNum || await nextIssueNumAsync()) : await nextIssueNumAsync();
   const data={
     id:id||genId(),
-    issueNum: id ? (issues.find(x=>x.id===id)?.issueNum || nextIssueNum()) : nextIssueNum(),
-    createdAt: id ? (issues.find(x=>x.id===id)?.createdAt || new Date().toISOString()) : new Date().toISOString(),
-    source: isCitizenMode() ? 'citizen' : (id ? (issues.find(x=>x.id===id)?.source||'staff') : 'staff'),
+    issueNum: _issueNum,
+    createdAt: id ? (_existingIssue?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+    source: isCitizenMode() ? 'citizen' : (id ? (_existingIssue?.source||'staff') : 'staff'),
     date:_date,
     time:document.getElementById('i_time')?.value||'',
     receiptMethod:document.getElementById('i_receipt').value,
@@ -5826,7 +6070,7 @@ function saveIssue(){
   };
   if(id){const idx=issues.findIndex(x=>x.id===id);if(idx>=0){data.completionDate=issues[idx].completionDate||'';issues[idx]=data;}}
   else issues.push(data);
-  save();closeM('issueModal');renderAll();if(isCitizenMode())applyCitizenMode();toast(id?'Αίτημα ενημερώθηκε':'Νέο αίτημα προστέθηκε');
+  saveNow().catch(e=>console.warn('Immediate issue save failed:', e));closeM('issueModal');renderAll();if(isCitizenMode())applyCitizenMode();toast(id?'Αίτημα ενημερώθηκε':'Νέο αίτημα προστέθηκε');
 }
 
 // ================================================================
@@ -5849,13 +6093,9 @@ function loadServiceStaff(){
 }
 function saveServiceStaff(){
   localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
-  if(isSupabaseConfigured()){
-    const sb=getSupabase();
-    if(sb){
-      const rows=(SERVICE_STAFF||[]).map((s,idx)=>{ const c=_safeCloneForDb(s); const id=String(c.id||c.name||('staff_'+idx)).replace(/[^\w.\-:/]/g,'_'); c.id=id; return {id, data:c, deleted_at:null}; });
-      _v9UpsertChunks('rodios_service_staff', rows, 'id', 100).catch(e=>console.warn('saveServiceStaff v9 failed:', e));
-    }
-  }
+  // v9.11: do not upsert the whole staff list directly. Let save() diff staff rows
+  // and delete removed employees from Supabase as well.
+  save();
 }
 loadServiceStaff();
 
@@ -6096,7 +6336,7 @@ function collectItems(){
   return items;
 }
 
-function saveOrder(andPrint){
+async function saveOrder(andPrint){
   if(currentUser && currentUser.canOrders===false){toast('⛔ Δεν έχετε δικαίωμα επεξεργασίας εντολών εργασίας.');return;}
   const id=document.getElementById('wo_id').value;
   const _existingWo = id ? workOrders.find(w=>w.id===id) : null;
@@ -6197,7 +6437,7 @@ function saveOrder(andPrint){
     if(idx>=0)workOrders[idx]=data;
   } else {
     // Fix #8: assign (commit) the order number ONLY now that validation passed
-    data.orderNum = commitOrderNum();
+    data.orderNum = await commitOrderNumAsync();
     // For new contractor orders: keep as issued until the server email is really sent.
     // It becomes «Εστάλη» only after send-order-email returns ok:true.
     if(!isService){
@@ -6226,7 +6466,7 @@ function saveOrder(andPrint){
   // ── PAYMENT is created ONLY via finalizeAcceptance (signed PDF upload) ──
   // No auto-payment here — requires signed protocol first
 
-  save();closeM('orderModal');renderAll();
+  saveNow().catch(e=>console.warn('Immediate order save failed:', e));closeM('orderModal');renderAll();
   if(id){
     toast('Εντολή ενημερώθηκε');
   } else {
@@ -6853,8 +7093,8 @@ function doSendViber(){
   const url='viber://chat?number='+encodeURIComponent(phone)+'&text='+encodeURIComponent(msg);
   window.open(url,'_blank');
   closeEconf();
-  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderAll();}
-  else if(!wo.sentAt){wo.sentAt=new Date().toISOString();save();renderAll();}
+  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();saveNow().catch(e=>console.warn('Immediate sent status save failed:', e));renderAll();}
+  else if(!wo.sentAt){wo.sentAt=new Date().toISOString();saveNow().catch(e=>console.warn('Immediate sentAt save failed:', e));renderAll();}
   toast('📱 Viber άνοιξε για αποστολή στο: '+phone);
 }
 
@@ -6871,8 +7111,8 @@ function doSendWhatsApp(){
   const url='https://wa.me/'+phoneNum+'?text='+encodeURIComponent(msg);
   window.open(url,'_blank');
   closeEconf();
-  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();save();renderAll();}
-  else if(!wo.sentAt){wo.sentAt=new Date().toISOString();save();renderAll();}
+  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();saveNow().catch(e=>console.warn('Immediate sent status save failed:', e));renderAll();}
+  else if(!wo.sentAt){wo.sentAt=new Date().toISOString();saveNow().catch(e=>console.warn('Immediate sentAt save failed:', e));renderAll();}
   toast('💬 WhatsApp άνοιξε για αποστολή στο: '+phone);
 }
 
@@ -7033,7 +7273,7 @@ function savePayment(){
   if(!data.date||!data.amount){alert('Συμπληρώστε ημερομηνία και ποσό.');return;}
   if(id){const idx=payments.findIndex(p=>p.id===id);if(idx>=0)payments[idx]=data;}
   else payments.push(data);
-  save();closeM('payModal');renderAll();toast('Πληρωμή καταχωρήθηκε');
+  saveNow().catch(e=>console.warn('Immediate payment save failed:', e));closeM('payModal');renderAll();toast('Πληρωμή καταχωρήθηκε');
 }
 
 // ================================================================
@@ -7195,8 +7435,11 @@ function saveStaffMember(){
   if(!mobile){ alert('Συμπληρώστε κινητό τηλέφωνο.'); return; }
   const member = {name, role, mobile, phone};
   if(idx===''){
+    member.id = String(name || ('staff_'+genId())).replace(/[^\w.\-:/]/g,'_');
     SERVICE_STAFF.push(member);
   } else {
+    const old = SERVICE_STAFF[parseInt(idx)] || {};
+    member.id = old.id || String(name || ('staff_'+idx)).replace(/[^\w.\-:/]/g,'_');
     SERVICE_STAFF[parseInt(idx)] = member;
   }
   saveServiceStaff();
@@ -7205,12 +7448,24 @@ function saveStaffMember(){
   toast(idx===''?'✅ Υπάλληλος προστέθηκε':'✅ Υπάλληλος ενημερώθηκε');
 }
 
-function delStaff(idx){
-  if(!confirm('Διαγραφή υπαλλήλου '+SERVICE_STAFF[idx]?.name+'?')) return;
-  SERVICE_STAFF.splice(idx,1);
-  saveServiceStaff();
-  renderStaffList();
-  toast('Υπάλληλος διαγράφηκε');
+async function delStaff(idx){
+  const staff = SERVICE_STAFF[idx];
+  if(!staff) return;
+  if(!confirm('Διαγραφή υπαλλήλου '+staff?.name+'?')) return;
+  const row = _v9NormalizeStaffId(staff, idx);
+  try{
+    if(isSupabaseConfigured()) await _v9DeleteRows('rodios_service_staff', [row.id]);
+    _locallyDeleted.add(String(row.id));
+    SERVICE_STAFF.splice(idx,1);
+    localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF));
+    _v9ClearLightCachesAfterDelete();
+    _v9RememberBaselineFromCurrent(new Date().toISOString());
+    renderStaffList();
+    toast('Υπάλληλος διαγράφηκε οριστικά');
+  }catch(err){
+    console.error('delStaff failed:', err);
+    toast('❌ Αποτυχία διαγραφής υπαλλήλου από τη βάση');
+  }
 }
 
 // SETTINGS
@@ -7274,23 +7529,34 @@ function exportCSV(){
   const blob=new Blob(['\uFEFF'+hdr.join(',')+'\n'+rows.join('\n')],{type:'text/csv;charset=utf-8;'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='aitimata_'+todayStr()+'.csv';a.click();
 }
-function clearAll(){
-  // Fix #10: be explicit about what this does. Historical (built-in) data CANNOT
-  // be deleted this way — it is re-seeded on every load. Only user-added data clears.
+async function clearAll(){
   const msg = '⚠ ΚΑΘΑΡΙΣΜΟΣ ΔΕΔΟΜΕΝΩΝ\n\n'
-    + 'Αυτό θα διαγράψει ΟΛΑ τα αιτήματα, τις εντολές και τις πληρωμές που έχουν '
-    + 'προστεθεί στην εφαρμογή.\n\n'
+    + 'Αυτό θα διαγράψει ΟΛΑ τα τρέχοντα αιτήματα, τις εντολές και τις πληρωμές από την οθόνη ΚΑΙ από τη Supabase βάση.\n\n'
     + 'ΠΡΟΣΟΧΗ:\n'
     + '• Η ενέργεια είναι ΜΗ ΑΝΑΣΤΡΕΨΙΜΗ.\n'
-    + '• Τα προ-φορτωμένα ιστορικά αιτήματα θα ΕΠΑΝΕΜΦΑΝΙΣΤΟΥΝ μετά την επόμενη '
-    + 'φόρτωση (είναι ενσωματωμένα στην εφαρμογή).\n'
     + '• Συνιστάται να κάνετε πρώτα «Εξαγωγή JSON» ως αντίγραφο ασφαλείας.\n\n'
     + 'Θέλετε σίγουρα να συνεχίσετε;';
   if(!confirm(msg)) return;
-  // Second confirmation for such a destructive action
-  if(!confirm('Τελευταία επιβεβαίωση: διαγραφή όλων των προστεθέντων δεδομένων;')) return;
-  issues=[];workOrders=[];payments=[];settings.orderSeq=1;settings.issueSeq=1;save();renderAll();
-  toast('✓ Καθαρίστηκαν τα προστεθέντα δεδομένα (τα ιστορικά παραμένουν ενσωματωμένα)');
+  if(!confirm('Τελευταία επιβεβαίωση: οριστική διαγραφή από τη βάση;')) return;
+  try{
+    const issueIds=(issues||[]).map(i=>i.id).filter(Boolean);
+    const orderIds=(workOrders||[]).map(w=>w.id).filter(Boolean);
+    const paymentIds=(payments||[]).map(p=>p.id).filter(Boolean);
+    if(isSupabaseConfigured()){
+      if(paymentIds.length) await _v9DeleteRows('rodios_payments', paymentIds);
+      if(orderIds.length) await _v9DeleteRows('rodios_work_orders', orderIds);
+      if(issueIds.length) await _v9DeleteRows('rodios_issues', issueIds);
+    }
+    [...issueIds,...orderIds,...paymentIds].forEach(id=>_locallyDeleted.add(String(id)));
+    issues=[];workOrders=[];payments=[];settings.orderSeq=1;settings.issueSeq=1;
+    _v9ClearLightCachesAfterDelete();
+    _v9RememberBaselineFromCurrent(new Date().toISOString());
+    save();renderAll();
+    toast('✓ Καθαρίστηκαν οριστικά τα δεδομένα');
+  }catch(err){
+    console.error('clearAll failed:', err);
+    toast('❌ Αποτυχία καθαρισμού από τη βάση');
+  }
 }
 
 // ================================================================
@@ -7528,7 +7794,7 @@ function renderCitizenIssues(){
     }).join('')+'</div>';
 }
 
-function citizenDeleteIssue(id){
+async function citizenDeleteIssue(id){
   const iss = issues.find(i=>i.id===id);
   if(!iss) return;
   // Check if created within last 5 minutes
@@ -7537,9 +7803,18 @@ function citizenDeleteIssue(id){
   const isNew = ageMin < 5;
   if(isNew){
     if(!confirm('Διαγραφή αιτήματος;\nΕπειδή δημιουργήθηκε πριν από λιγότερο από 5 λεπτά, θα αφαιρεθεί ΠΛΗΡΩΣ και από το μητρώο του Δήμου.'))return;
-    issues = issues.filter(i=>i.id!==id);
-    save(); renderCitizenIssues();
-    toast('🗑 Αίτημα διαγράφηκε από τη λίστα σας και το μητρώο.');
+    try{
+      if(isSupabaseConfigured()) await _v9DeleteRows('rodios_issues', [id]);
+      _locallyDeleted.add(String(id));
+      issues = issues.filter(i=>String(i.id)!==String(id));
+      _v9ClearLightCachesAfterDelete();
+      _v9RememberBaselineFromCurrent(new Date().toISOString());
+      renderCitizenIssues();
+      toast('🗑 Αίτημα διαγράφηκε από τη λίστα σας και το μητρώο.');
+    }catch(err){
+      console.error('citizenDeleteIssue failed:', err);
+      toast('❌ Αποτυχία διαγραφής αιτήματος από τη βάση');
+    }
   } else {
     if(!confirm('Διαγραφή αιτήματος;\nΤο αίτημα θα αφαιρεθεί από τη λίστα σας αλλά ΘΑ ΠΑΡΑΜΕΙΝΕΙ στο κεντρικό μητρώο του Δήμου Ρόδου.'))return;
     // Mark as hidden for citizen, keep in registry
@@ -7805,7 +8080,7 @@ async function finalizeBulkAcceptance(){
     }
   });
   _bulkSelected.clear(); window._bulkWo=null;
-  closeSigModal(); save(); renderAll(); updateBulkBar();
+  closeSigModal(); saveNow().catch(e=>console.warn('Immediate bulk acceptance save failed:', e)); renderAll(); updateBulkBar();
   toast('✅ Μαζική παραλαβή '+orders.length+' εντολών ολοκληρώθηκε!');
 }
 function printBulkProtocol(){
@@ -8175,7 +8450,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.12-delete-persist-fix-2026-06-01';
+  window.RODIOS_BUILD = 'v9.13-hardening-2026-06-07';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
@@ -8234,16 +8509,12 @@ function printBulkProtocol(){
       // Πλέον χρησιμοποιείται η κανονική renderUsersList/openAddUser (με την Edge Function manage-app-user).
     }catch(_){}
 
-    // Keep service worker/browser caches off while the app is under active development.
+    // Register the versioned service worker. HTML is Network-First, so cached
+    // pages do not trap users on old releases while the UI can still open offline.
     if('serviceWorker' in navigator){
-      navigator.serviceWorker.getRegistrations().then(function(regs){
-        return Promise.all(regs.map(function(r){ return r.unregister(); }));
-      }).catch(function(e){ console.warn('SW unregister failed', e); });
-    }
-    if(window.caches && caches.keys){
-      caches.keys().then(function(keys){
-        return Promise.all(keys.map(function(k){ return caches.delete(k); }));
-      }).catch(function(e){ console.warn('Cache delete failed', e); });
+      navigator.serviceWorker.register('./sw.js')
+        .then(function(reg){ console.info('RODIOS service worker registered:', reg.scope); })
+        .catch(function(e){ console.warn('SW registration failed', e); });
     }
   });
 

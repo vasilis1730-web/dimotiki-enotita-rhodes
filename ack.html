@@ -24,35 +24,61 @@ const SUPABASE_URL = 'https://nzrdcgmrsfdmocyhfrod.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56cmRjZ21yc2ZkbW9jeWhmcm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MTg5MDMsImV4cCI6MjA4OTQ5NDkwM30.irU9tlBluAeTGcI0i3cc080OY7_nqR5js4ZPW8MC7b4';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const token = new URLSearchParams(location.search).get('token');
-const msg = document.getElementById('msg');
+const msgContainer = document.getElementById('msg');
 const btn = document.getElementById('btn');
 
-if(!token){
-  msg.innerHTML = '<span class="err">Μη έγκυρος σύνδεσμος.</span><br>Δεν βρέθηκε κωδικός επιβεβαίωσης.';
+// Helper function για ασφαλή εισαγωγή μηνυμάτων (XSS Protection).
+// Δεν εισάγουμε ποτέ άγνωστα δεδομένα στο DOM με innerHTML.
+function setMessage(type, mainText, detailText = '') {
+  msgContainer.textContent = '';
+  const span = document.createElement('span');
+  span.className = type === 'error' ? 'err' : (type === 'ok' ? 'ok' : '');
+  span.textContent = mainText || '';
+  msgContainer.appendChild(span);
+
+  if (detailText) {
+    msgContainer.appendChild(document.createElement('br'));
+    msgContainer.appendChild(document.createTextNode(String(detailText)));
+  }
+}
+
+if (!token) {
+  setMessage('error', 'Μη έγκυρος σύνδεσμος.', 'Δεν βρέθηκε κωδικός επιβεβαίωσης.');
 } else {
-  msg.textContent = 'Πατήστε επιβεβαίωση μόνο εφόσον η εργασία της εντολής έχει ολοκληρωθεί.';
+  msgContainer.textContent = 'Πατήστε επιβεβαίωση μόνο εφόσον η εργασία της εντολής έχει ολοκληρωθεί.';
   btn.style.display = 'inline-block';
 }
 
 btn.addEventListener('click', async () => {
   btn.disabled = true;
   btn.textContent = 'Καταχώριση...';
-  const {data, error} = await sb.rpc('complete_work_order_ack', {p_token: token});
-  if(error){
-    msg.innerHTML = '<span class="err">Δεν έγινε η καταχώριση.</span><br>' + error.message;
+
+  try {
+    const {data, error} = await sb.rpc('complete_work_order_ack', {p_token: token});
+
+    if (error) {
+      setMessage('error', 'Δεν έγινε η καταχώριση.', error.message || 'Άγνωστο σφάλμα.');
+      btn.disabled = false;
+      btn.textContent = 'Προσπαθήστε ξανά';
+      return;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row || !row.success) {
+      setMessage('error', 'Ο σύνδεσμος δεν αντιστοιχεί σε ενεργή εντολή.');
+      btn.style.display = 'none';
+      return;
+    }
+
+    const dt = row.acknowledged_at ? new Date(row.acknowledged_at).toLocaleString('el-GR') : '—';
+    setMessage('ok', 'Η δήλωση ολοκλήρωσης καταχωρήθηκε επιτυχώς.', `Εντολή: ${row.order_num || '—'} | Χρόνος: ${dt}`);
+    btn.style.display = 'none';
+  } catch (err) {
+    console.error('ACK network/runtime error:', err);
+    setMessage('error', 'Σφάλμα δικτύου.', 'Ελέγξτε τη σύνδεσή σας και δοκιμάστε ξανά.');
     btn.disabled = false;
     btn.textContent = 'Προσπαθήστε ξανά';
-    return;
   }
-  const row = Array.isArray(data) ? data[0] : data;
-  if(!row || !row.success){
-    msg.innerHTML = '<span class="err">Ο σύνδεσμος δεν αντιστοιχεί σε ενεργή εντολή.</span>';
-    btn.style.display = 'none';
-    return;
-  }
-  const dt = new Date(row.acknowledged_at).toLocaleString('el-GR');
-  msg.innerHTML = '<span class="ok">Η δήλωση ολοκλήρωσης καταχωρήθηκε επιτυχώς.</span><br>Εντολή: <strong>' + (row.order_num || '—') + '</strong><br>Χρόνος: ' + dt;
-  btn.style.display = 'none';
 });
 </script>
 </body>

@@ -8,7 +8,26 @@
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
   import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+  import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js';
+
   const _fbApp = initializeApp({apiKey:"AIzaSyATvkHqSyyVxVD8UujQQnj_wdR2Kc306wA",authDomain:"dimosrodou-otp.firebaseapp.com",projectId:"dimosrodou-otp",appId:"1:315292350668:web:8288883847d24ac33e2a69"});
+
+  // Firebase App Check: βάλε εδώ πραγματικό reCAPTCHA v3/Enterprise site key.
+  // Μέχρι τότε μένει ανενεργό ώστε να μη δημιουργεί ψευδή αίσθηση προστασίας.
+  const RODIOS_RECAPTCHA_SITE_KEY = '';
+  if (RODIOS_RECAPTCHA_SITE_KEY && !RODIOS_RECAPTCHA_SITE_KEY.includes('ΒΑΛΕ_')) {
+    try {
+      window._appCheck = initializeAppCheck(_fbApp, {
+        provider: new ReCaptchaV3Provider(RODIOS_RECAPTCHA_SITE_KEY),
+        isTokenAutoRefreshEnabled: true
+      });
+    } catch(e) {
+      console.warn('App Check initialization failed:', e);
+    }
+  } else {
+    console.info('Firebase App Check not enabled: missing reCAPTCHA site key.');
+  }
+
   const _fbAuthInst = getAuth(_fbApp); _fbAuthInst.languageCode='el';
   window._fbAuth=_fbAuthInst; window._RecaptchaVerifier=RecaptchaVerifier;
   window._signInWithPhoneNumber=signInWithPhoneNumber;
@@ -19,18 +38,39 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <script>
-  /* CLEANUP: remove any old service worker + caches left by the previous (full)
-     app version, so this citizen app always loads fresh. The citizen app does
-     NOT register its own service worker. */
+  // Register the versioned service worker. It uses Network-First for HTML,
+  // so online devices get the newest code while offline devices can still open
+  // the last cached UI shell.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('./sw.js')
+        .then(function(reg){ console.info('RODIOS service worker registered:', reg.scope); })
+        .catch(function(err){ console.warn('RODIOS service worker registration failed:', err); });
+    });
+  }
+</script>
+<script>
+  // GLOBAL ERROR HANDLER — κεντρική ειδοποίηση για απρόβλεπτα runtime/promise errors.
   (function(){
-    try{
-      if('serviceWorker' in navigator){
-        navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ r.unregister(); }); }).catch(function(){});
+    function handleGlobalError(message) {
+      try {
+        if (typeof window.toast === 'function') {
+          window.toast('⚠️ ' + message);
+        } else {
+          console.warn('RODIOS:', message);
+        }
+      } catch (_) {
+        console.warn('RODIOS:', message);
       }
-      if(window.caches && caches.keys){
-        caches.keys().then(function(ks){ ks.forEach(function(k){ caches.delete(k); }); }).catch(function(){});
-      }
-    }catch(e){}
+    }
+    window.addEventListener('unhandledrejection', function(event) {
+      console.error('Unhandled Promise Rejection:', event.reason);
+      handleGlobalError('Παρουσιάστηκε σφάλμα επικοινωνίας. Ελέγξτε τη σύνδεσή σας.');
+    });
+    window.addEventListener('error', function(event) {
+      console.error('Global Error:', event.error || event.message);
+      handleGlobalError('Απροσδόκητο σφάλμα εφαρμογής.');
+    });
   })();
 </script>
 <style>
