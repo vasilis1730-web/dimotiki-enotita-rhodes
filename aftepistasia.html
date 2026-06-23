@@ -4420,7 +4420,7 @@ function getAckState(wo) {
   if(wo.contractorAck) {
     return { color: 'green', label: 'Δηλώθηκε ολοκλήρωση', tooltip: 'Ο ανάδοχος δήλωσε ότι ολοκλήρωσε την εργασία. Άμεση αυτοψία και παραλαβή. (Σημ: ο χρόνος συνεχίζει να τρέχει μέχρι το πρωτόκολλο παραλαβής)' };
   }
-  if(wo.sentAt && wo.status !== 'Εκδόθηκε') {
+  if(getOrderTimerStartMs(wo) && wo.status !== 'Εκδόθηκε') {
     return { color: 'red', label: 'Σε εξέλιξη', tooltip: 'Στάλθηκε email στον ανάδοχο. Τρέχει ο χρόνος απόκρισης. Αναμένεται δήλωση ολοκλήρωσης.' };
   }
   return { color: 'yellow', label: 'Νέα εντολή', tooltip: 'Η εντολή δημιουργήθηκε αλλά δεν έχει σταλεί ακόμα email στον ανάδοχο.' };
@@ -4557,57 +4557,122 @@ function setupAckSubscription() {
 }
 
 // ── COUNTDOWN TIMER ──────────────────────────────────────────────
-function buildCountdown(wo){
-  // Show countdown for active statuses (Εστάλη / Σε εξέλιξη)
-  // Stop when completed: Παραλήφθηκε, Ολοκληρώθηκε, Δεν ολοκληρώθηκε, Εκδόθηκε
-  const activeStatuses = ['Εστάλη', 'Ολοκληρώθηκε - Εκκρεμούν Υπογραφές'];
-  if(!activeStatuses.includes(wo.status)) return '';
-  if(!wo.sentAt) return '';
-  const pd=PRIO_DATA[wo.priority];
-  if(!pd||!pd.minResp) return '';
-  // Always use sentAt as countdown start
-  const startMs = new Date(wo.sentAt).getTime();
-  if(isNaN(startMs)) return '';
-  const deadlineMs = startMs + pd.minResp * 60 * 1000;
-  const nowMs = Date.now();
-  const diffMs = deadlineMs - nowMs;
-  const absDiff = Math.abs(diffMs);
-  const totalMins = Math.floor(absDiff / 60000);
-  const h = Math.floor(totalMins / 60);
-  const m = totalMins % 60;
-  const timeStr = h>0 ? `${h}ω ${m}λ` : `${m} λεπτά`;
-  if(diffMs > 0){
-    // Time remaining
-    let cls = 'deadline-ok';
-    if(diffMs < pd.minResp*60*1000*0.25) cls='deadline-warn'; // <25% remaining
-    return `<span class="${cls}">⏱ ${timeStr} απομένουν</span>`;
-  } else {
-    return `<span class="deadline-over">⚠ Υπέρβαση ${timeStr}</span>`;
+// The response/penalty clock starts only when the contractor order is actually sent.
+// Timer metadata is preserved across every later edit/status change. For older records
+// affected by the former overwrite bug, the start is recovered from lastEmailResult or
+// from the recorded issue date/time when the order is already in an active status.
+function _parseOrderIssuedMs(wo){
+  if(!wo) return NaN;
+  const direct=[wo.issuedAt, wo.createdAt];
+  for(const value of direct){
+    if(value){ const ms=new Date(value).getTime(); if(!isNaN(ms)) return ms; }
   }
+  if(wo.date){
+    const time = /^\d{2}:\d{2}/.test(String(wo.issuedTime||'')) ? String(wo.issuedTime).slice(0,5) : '00:00';
+    const ms = new Date(String(wo.date).slice(0,10)+'T'+time+':00').getTime();
+    if(!isNaN(ms)) return ms;
+  }
+  return NaN;
 }
 
-// Refresh countdowns every 60 seconds
+function getOrderTimerStartMs(wo){
+  if(!wo || wo.orderType==='service') return NaN;
+  const candidates=[
+    wo.sentAt,
+    wo.deadlineStartedAt,
+    wo.lastEmailResult && wo.lastEmailResult.sentAt
+  ];
+  for(const value of candidates){
+    if(value){ const ms=new Date(value).getTime(); if(!isNaN(ms)) return ms; }
+  }
+  // Recovery only for orders that are already recorded as sent/in progress.
+  // An «Εκδόθηκε» order has not yet been delivered, therefore its legal clock has not started.
+  const recoverable=['Εστάλη','Ολοκληρώθηκε - Εκκρεμούν Υπογραφές','Δεν ολοκληρώθηκε','Παραλήφθηκε'];
+  if(recoverable.includes(wo.status)) return _parseOrderIssuedMs(wo);
+  return NaN;
+}
+
+function getOrderTimerStartIso(wo){
+  const ms=getOrderTimerStartMs(wo);
+  return isNaN(ms) ? '' : new Date(ms).toISOString();
+}
+
+function getOrderDeadlineMs(wo){
+  if(!wo || wo.orderType==='service') return NaN;
+  if(wo.deadlineAt){
+    const saved=new Date(wo.deadlineAt).getTime();
+    if(!isNaN(saved)) return saved;
+  }
+  const pd=PRIO_DATA[wo.priority];
+  const start=getOrderTimerStartMs(wo);
+  if(!pd || !pd.minResp || isNaN(start)) return NaN;
+  return start + pd.minResp*60*1000;
+}
+
+function setOrderTimerStarted(wo, when){
+  if(!wo || wo.orderType==='service') return;
+  const iso = when instanceof Date ? when.toISOString() : new Date(when||Date.now()).toISOString();
+  wo.sentAt = iso;
+  wo.deadlineStartedAt = iso;
+  const pd=PRIO_DATA[wo.priority];
+  wo.deadlineAt = pd && pd.minResp
+    ? new Date(new Date(iso).getTime()+pd.minResp*60*1000).toISOString()
+    : '';
+}
+
+function buildCountdown(wo){
+  if(!wo || wo.orderType==='service') return '';
+
+  // Make the state explicit instead of silently showing no timer.
+  if(wo.status==='Εκδόθηκε'){
+    return '<span class="deadline-warn">⏸ Αναμονή αποστολής — το χρονόμετρο δεν ξεκίνησε</span>';
+  }
+
+  const activeStatuses=['Εστάλη','Ολοκληρώθηκε - Εκκρεμούν Υπογραφές'];
+  if(!activeStatuses.includes(wo.status)) return '';
+
+  const pd=PRIO_DATA[wo.priority];
+  if(!pd || !pd.minResp) return '<span class="deadline-warn">⚠ Δεν έχει οριστεί χρόνος απόκρισης</span>';
+
+  const startMs=getOrderTimerStartMs(wo);
+  const deadlineMs=getOrderDeadlineMs(wo);
+  if(isNaN(startMs) || isNaN(deadlineMs)){
+    return '<span class="deadline-over">⚠ Δεν βρέθηκε ώρα έναρξης χρονομέτρου</span>';
+  }
+
+  const diffMs=deadlineMs-Date.now();
+  const absDiff=Math.abs(diffMs);
+  const totalMins=Math.floor(absDiff/60000);
+  const days=Math.floor(totalMins/1440);
+  const h=Math.floor((totalMins%1440)/60);
+  const m=totalMins%60;
+  const parts=[];
+  if(days) parts.push(days+'ημ');
+  if(h || days) parts.push(h+'ω');
+  parts.push(m+'λ');
+  const timeStr=parts.join(' ');
+
+  if(diffMs>0){
+    let cls='deadline-ok';
+    if(diffMs < pd.minResp*60*1000*0.25) cls='deadline-warn';
+    return '<span class="'+cls+'">⏱ '+timeStr+' απομένουν</span>';
+  }
+  return '<span class="deadline-over">⚠ Υπέρβαση '+timeStr+'</span>';
+}
+
+// Refresh visible minute-based timers every 30 seconds.
 setInterval(()=>{
   if(document.getElementById('ordersTbl')) renderOrders();
-}, 60000);
+}, 30000);
 
 function checkAutopenalties(){
   if(!workOrders || !settings) return;
-  const pd_map = PRIO_DATA || {};
   workOrders.forEach(wo=>{
-    if(wo.orderType==='service') return; // only contractor
-    if(wo.status!=='Εστάλη') return;
+    if(wo.orderType==='service') return;
+    if(wo.status!=='Εστάλη') { wo._overdue=false; return; }
     if(wo.penaltyApplied) return;
-    if(!wo.sentAt) return;
-    const pd = pd_map[wo.priority];
-    if(!pd || !pd.minResp) return;
-    const deadlineMs = new Date(wo.sentAt).getTime() + pd.minResp * 60 * 1000;
-    if(Date.now() > deadlineMs){
-      // Overdue — highlight in renderOrders (actual penalty applied by user)
-      wo._overdue = true;
-    } else {
-      wo._overdue = false;
-    }
+    const deadlineMs=getOrderDeadlineMs(wo);
+    wo._overdue = !isNaN(deadlineMs) && Date.now()>deadlineMs;
   });
 }
 
@@ -4642,6 +4707,7 @@ function renderOrders(){
     const tot=woTotal(w);
     const pen=woPenaltiesTotal(w);
     const issue=w.issueId?issues.find(i=>i.id===w.issueId):null;
+    const timerStartIso=getOrderTimerStartIso(w);
     // Cost cell
     let costHtml = w.orderType==='service'
       ? '<span style="font-size:11px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:12px;font-weight:600;">'+(w.serviceMaterials||'—')+'</span>'
@@ -4761,7 +4827,7 @@ function renderOrders(){
         +'</td>'
       +'<td>'+costHtml+'</td>'
       +'<td>'+statusBadge+lockBadge
-      +(w.sentAt ? '<br><span style="font-size:10px;color:var(--amber);font-weight:600;">📧 '+fmtDateTime(w.sentAt)+'</span>' : '')
+      +(timerStartIso ? '<br><span style="font-size:10px;color:var(--amber);font-weight:600;">📧 Έναρξη: '+fmtDateTime(timerStartIso)+'</span>' : '')
       +'<br>'+buildCountdown(w)
       +'<br>'+buildAckIndicator(w)
       +'</td>'
@@ -6455,7 +6521,7 @@ async function saveOrder(andPrint){
   // This prevents stale attachments from a previous request/order being reused.
   const effectiveWoAttachments = selectedIssueId ? getIssueAttachments(selectedIssueId) : cloneAttachments(woAttachments);
   woAttachments = cloneAttachments(effectiveWoAttachments);
-  const data={
+  let data={
     id:id||genId(),
     orderNum:document.getElementById('wo_num').value,
     date:document.getElementById('wo_date').value,
@@ -6501,13 +6567,30 @@ async function saveOrder(andPrint){
   if(id){
     const existing=workOrders.find(w=>w.id===id);
     if(existing){
+      // CRITICAL: merge the edited form over the existing record. The former code rebuilt
+      // the object from scratch and silently deleted sentAt/deadlineAt/ack/signature fields,
+      // which made the countdown disappear after a status change.
+      data = {...existing, ...data, id:existing.id, orderNum:existing.orderNum||data.orderNum};
+
+      // Repair already affected records: if the order is known to have been sent but sentAt
+      // was lost by an older version, recover the start from the recorded issue date/time.
+      if(data.orderType!=='service' && data.status!=='Εκδόθηκε' && isNaN(getOrderTimerStartMs(data))){
+        const recoveredMs=_parseOrderIssuedMs(data);
+        if(!isNaN(recoveredMs)) setOrderTimerStarted(data, new Date(recoveredMs));
+      }
+      // Freeze the category-based deadline once the timer has started.
+      const existingTimerMs=getOrderTimerStartMs(data);
+      if(data.orderType!=='service' && !isNaN(existingTimerMs) && !data.deadlineAt){
+        setOrderTimerStarted(data, new Date(existingTimerMs));
+      }
+
       if(_adminReset){
         // Admin reset: clear penalty, locks, restart countdown
         data.penaltyApplied = false;
         data.penaltyAmount  = 0;
         data.penaltyNote    = '';
         data.penaltyDate    = '';
-        data.sentAt         = new Date().toISOString(); // restart countdown
+        setOrderTimerStarted(data, new Date()); // restart countdown and fixed deadline
         // Keep signed PDF files (don't clear signedPdfData/signedPdfUrl)
         data.signedPdfData  = existing.signedPdfData  || null;
         data._sigConfirmed  = [];
@@ -6527,6 +6610,8 @@ async function saveOrder(andPrint){
   } else {
     // Fix #8: assign (commit) the order number ONLY now that validation passed
     data.orderNum = await commitOrderNumAsync();
+    data.createdAt = data.createdAt || new Date().toISOString();
+    data.issuedAt = data.issuedAt || new Date().toISOString();
     // For new contractor orders: keep as issued until the server email is really sent.
     // It becomes «Εστάλη» only after send-order-email returns ok:true.
     if(!isService){
@@ -7102,7 +7187,7 @@ async function sendOrderEmailViaServer(wo){
   }
 
   wo.status = 'Εστάλη';
-  wo.sentAt = new Date().toISOString();
+  setOrderTimerStarted(wo, new Date());
   wo.lastEmailResult = {
     sentAt: wo.sentAt,
     to: payload.to,
@@ -7182,8 +7267,8 @@ function doSendViber(){
   const url='viber://chat?number='+encodeURIComponent(phone)+'&text='+encodeURIComponent(msg);
   window.open(url,'_blank');
   closeEconf();
-  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();saveNow().catch(e=>console.warn('Immediate sent status save failed:', e));renderAll();}
-  else if(!wo.sentAt){wo.sentAt=new Date().toISOString();saveNow().catch(e=>console.warn('Immediate sentAt save failed:', e));renderAll();}
+  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';setOrderTimerStarted(wo,new Date());saveNow().catch(e=>console.warn('Immediate sent status save failed:', e));renderAll();}
+  else if(isNaN(getOrderTimerStartMs(wo))){setOrderTimerStarted(wo,new Date());saveNow().catch(e=>console.warn('Immediate timer start save failed:', e));renderAll();}
   toast('📱 Viber άνοιξε για αποστολή στο: '+phone);
 }
 
@@ -7200,8 +7285,8 @@ function doSendWhatsApp(){
   const url='https://wa.me/'+phoneNum+'?text='+encodeURIComponent(msg);
   window.open(url,'_blank');
   closeEconf();
-  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';wo.sentAt=new Date().toISOString();saveNow().catch(e=>console.warn('Immediate sent status save failed:', e));renderAll();}
-  else if(!wo.sentAt){wo.sentAt=new Date().toISOString();saveNow().catch(e=>console.warn('Immediate sentAt save failed:', e));renderAll();}
+  if(wo.status==='Εκδόθηκε'){wo.status='Εστάλη';setOrderTimerStarted(wo,new Date());saveNow().catch(e=>console.warn('Immediate sent status save failed:', e));renderAll();}
+  else if(isNaN(getOrderTimerStartMs(wo))){setOrderTimerStarted(wo,new Date());saveNow().catch(e=>console.warn('Immediate timer start save failed:', e));renderAll();}
   toast('💬 WhatsApp άνοιξε για αποστολή στο: '+phone);
 }
 
@@ -8543,7 +8628,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.14-signature-fix-2026-06-07';
+  window.RODIOS_BUILD = 'v9.16-countdown-fix-2026-06-23';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
