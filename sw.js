@@ -8,7 +8,7 @@
    network is unavailable.
    ──────────────────────────────────────────────────────────────── */
 
-const CACHE_VERSION = 'rodios-v9-16';
+const CACHE_VERSION = 'rodios-v9-17';
 
 const STATIC_ASSETS = [
   './icon-192.png',
