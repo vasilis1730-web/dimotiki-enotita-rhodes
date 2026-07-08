@@ -255,23 +255,23 @@ tr:hover td{background:#faf9f7;}
 .ac-item small{color:var(--muted);font-size:10px;display:block;}
 
 
-.map-wrap{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;}
-.map-box{background:var(--card);border-radius:var(--r);width:100%;max-width:640px;box-shadow:0 8px 40px rgba(0,0,0,.2);}
-.map-box-hdr{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;background:var(--navy);color:#fff;border-radius:var(--r) var(--r) 0 0;}
+.map-wrap{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;display:flex;align-items:center;justify-content:center;padding:12px;overflow-y:auto;}
+.map-box{background:var(--card);border-radius:var(--r);width:100%;max-width:560px;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.2);}
+.map-box-hdr{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;background:var(--navy);color:#fff;border-radius:var(--r) var(--r) 0 0;flex-shrink:0;}
 .map-box-hdr h3{font-size:14px;font-weight:600;margin:0;}
 .map-box-hdr button{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1;padding:0 4px;}
-.map-box-body{padding:18px;}
-.map-step{background:var(--sec);border-radius:var(--r);padding:12px 14px;margin-bottom:12px;font-size:13px;line-height:1.6;}
+.map-box-body{padding:14px 16px;overflow-y:auto;flex:1 1 auto;min-height:0;-webkit-overflow-scrolling:touch;}
+.map-step{background:var(--sec);border-radius:var(--r);padding:9px 12px;margin-bottom:9px;font-size:12.5px;line-height:1.5;}
 .map-step strong{color:var(--navy);}
 .map-step code{background:var(--card);border:1px solid var(--border);border-radius:3px;padding:1px 5px;font-size:12px;}
-.map-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
+.map-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:9px;}
 .map-field label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);display:block;margin-bottom:4px;}
 .map-field input{width:100%;border:1px solid var(--borderS);border-radius:var(--rs);padding:8px 10px;font-size:13px;font-family:inherit;}
 .map-field input:focus{outline:none;border-color:var(--navy);}
-.map-preview{background:var(--gbg);border:1px solid #9fccb0;border-radius:var(--rs);padding:10px 12px;font-size:12px;margin-bottom:12px;display:none;}
+.map-preview{background:var(--gbg);border:1px solid #9fccb0;border-radius:var(--rs);padding:9px 12px;font-size:12px;margin-bottom:4px;display:none;}
 .map-preview a{color:var(--green);font-weight:600;text-decoration:none;}
 .map-preview a:hover{text-decoration:underline;}
-.map-box-footer{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border);}
+.map-box-footer{display:flex;gap:8px;justify-content:flex-end;padding:11px 16px;border-top:1px solid var(--border);flex-shrink:0;background:var(--card);border-radius:0 0 var(--r) var(--r);}
 
 .penalty-section{border:2px solid var(--red);border-radius:var(--r);padding:14px;background:var(--rbg);margin-top:14px;}
 .penalty-section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
@@ -8131,15 +8131,15 @@ function printBulkProtocol(){
   <div class="map-box">
     <div class="map-box-hdr"><h3>📍 Επιλογή Σημείου στον Χάρτη</h3><button type="button" onclick="closeMap()">✕</button></div>
     <div class="map-box-body">
-      <div id="mapCanvas" style="height:280px;border-radius:10px;margin-bottom:6px;display:none;border:1px solid #e2e8f0;"></div>
-      <div id="mapTapStatus" style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5;">⏳ Φόρτωση χάρτη…</div>
+      <div id="mapCanvas" style="height:clamp(170px,32vh,260px);border-radius:10px;margin-bottom:5px;display:none;border:1px solid #e2e8f0;"></div>
+      <div id="mapTapStatus" style="font-size:12px;color:var(--muted);margin-bottom:9px;line-height:1.45;">⏳ Φόρτωση χάρτη…</div>
       <div class="map-step"><strong>Εναλλακτικά:</strong> Ανοίξτε το Google Maps (δεξί κλικ → «Τι υπάρχει εδώ;» για συντεταγμένες) ή χρησιμοποιήστε το GPS της συσκευής — το στίγμα θα μπει στον χάρτη.<br><button type="button" class="btn btn-p btn-sm" style="margin-top:8px" onclick="window.open('https://www.google.com/maps/@36.4341,28.2176,14z','_blank')">🗺 Άνοιγμα Google Maps</button> <button type="button" class="btn btn-sm" style="margin-top:8px" onclick="mapLocateMe()">📡 Χρήση GPS</button></div>
       <div class="map-step"><strong>Ή επικολλήστε:</strong> συντεταγμένες <em>ή σύνδεσμο Google Maps</em> στο πεδίο παρακάτω<br><em style="font-size:11px;color:var(--muted)">(π.χ. 36.4341, 28.2176 — ή https://maps.app.goo.gl/…)</em></div>
       <div class="map-fields">
         <div class="map-field"><label>Γεωγρ. Πλάτος (Lat)</label><input type="number" id="mLat" step="0.000001" placeholder="36.4341" oninput="mapPreview()"></div>
         <div class="map-field"><label>Γεωγρ. Μήκος (Lng)</label><input type="number" id="mLng" step="0.000001" placeholder="28.2176" oninput="mapPreview()"></div>
       </div>
-      <div class="map-field" style="margin-bottom:12px"><label>Ή επικολλήστε συντεταγμένες / σύνδεσμο Google Maps</label><input type="text" id="mPaste" placeholder="36.4341, 28.2176  ή  https://maps.app.goo.gl/..." oninput="mapParsePaste(this.value)"><div id="mPasteStatus" style="font-size:11px;color:var(--muted);margin-top:4px;"></div></div>
+      <div class="map-field" style="margin-bottom:9px"><label>Ή επικολλήστε συντεταγμένες / σύνδεσμο Google Maps</label><input type="text" id="mPaste" placeholder="36.4341, 28.2176  ή  https://maps.app.goo.gl/..." oninput="mapParsePaste(this.value)"><div id="mPasteStatus" style="font-size:11px;color:var(--muted);margin-top:4px;"></div></div>
       <div class="map-preview" id="mapPreview">🔗 Προεπισκόπηση: <a id="mapPreviewLink" href="#" target="_blank">Άνοιγμα στο Google Maps</a><br><span id="mapPreviewCoords" style="font-size:11px;color:var(--muted)"></span></div>
     </div>
     <div class="map-box-footer"><button type="button" class="btn" onclick="closeMap()">Ακύρωση</button><button type="button" class="btn btn-p" id="mapSaveBtn" onclick="mapSave()" disabled>✓ Αποθήκευση τοποθεσίας</button></div>
@@ -8421,7 +8421,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.18-map-picker-2026-07-06';
+  window.RODIOS_BUILD = 'v9.18.1-map-picker-2026-07-08';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
