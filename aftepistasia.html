@@ -256,7 +256,7 @@ tr:hover td{background:#faf9f7;}
 
 
 .map-wrap{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px;}
-.map-box{background:var(--card);border-radius:var(--r);width:100%;max-width:520px;box-shadow:0 8px 40px rgba(0,0,0,.2);}
+.map-box{background:var(--card);border-radius:var(--r);width:100%;max-width:640px;box-shadow:0 8px 40px rgba(0,0,0,.2);}
 .map-box-hdr{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;background:var(--navy);color:#fff;border-radius:var(--r) var(--r) 0 0;}
 .map-box-hdr h3{font-size:14px;font-weight:600;margin:0;}
 .map-box-hdr button{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1;padding:0 4px;}
@@ -2312,25 +2312,180 @@ function totalPayable(){
 let woMapLat=null, woMapLng=null;
 
 function openMapPicker(){
+  _mapTarget='order'; // v9.18 fix: η ακύρωση από τον picker του αιτήματος άφηνε τον στόχο σε 'issue'
+  _mapPickedAddress=''; _lastResolvedLink='';
   document.getElementById('mapWrap').style.display='flex';
   document.getElementById('mLat').value = woMapLat||'';
   document.getElementById('mLng').value = woMapLng||'';
   document.getElementById('mPaste').value = (woMapLat&&woMapLng)?(woMapLat+', '+woMapLng):'';
+  var st=document.getElementById('mPasteStatus'); if(st) st.textContent='';
   mapPreview();
+  _initPickMap();
 }
 
 function closeMap(){
   document.getElementById('mapWrap').style.display='none';
 }
 
-function mapParsePaste(val){
-  // Try to parse "36.4341, 28.2176" or "36.4341 28.2176"
-  const m=val.match(/([-\d.]+)[,\s]+([-\d.]+)/);
-  if(m){
-    document.getElementById('mLat').value=m[1];
-    document.getElementById('mLng').value=m[2];
-    mapPreview();
+function _extractCoordsFromText(val){
+  try{ val=decodeURIComponent(val); }catch(_){ }
+  var pats=[
+    /@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/,                    // .../maps/@36.43,28.21,17z
+    /[?&]q=(?:loc:)?(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/, // ?q=36.43,28.21
+    /[?&]ll=(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/,
+    /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/,                 // ...!3d36.43!4d28.21
+    /^geo:(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/i,
+    /^\s*(-?\d{1,2}(?:\.\d+)?)[,;\s]+(-?\d{1,3}(?:\.\d+)?)\s*$/ // σκέτες συντεταγμένες
+  ];
+  for(var i=0;i<pats.length;i++){
+    var m=val.match(pats[i]);
+    if(m){
+      var la=parseFloat(m[1]), ln=parseFloat(m[2]);
+      if(!isNaN(la)&&!isNaN(ln)&&Math.abs(la)<=90&&Math.abs(ln)<=180) return {lat:la,lng:ln};
+    }
   }
+  return null;
+}
+
+let _lastResolvedLink='';
+function mapParsePaste(val){
+  val=(val||'').trim();
+  var st=document.getElementById('mPasteStatus');
+  if(!val){ if(st)st.textContent=''; return; }
+  var c=_extractCoordsFromText(val);
+  if(c){
+    document.getElementById('mLat').value=c.lat;
+    document.getElementById('mLng').value=c.lng;
+    mapPreview();
+    if(st)st.textContent='';
+    if(_lMap){ _lMap.setView([c.lat,c.lng],17); _setPickMarker(c.lat,c.lng); }
+    return;
+  }
+  // Σύντομος σύνδεσμος Google Maps (δεν περιέχει συντεταγμένες) → ανάλυση μέσω Edge Function
+  if(/^https?:\/\/(maps\.app\.goo\.gl|goo\.gl)\//i.test(val)){
+    if(val===_lastResolvedLink) return;
+    _lastResolvedLink=val;
+    if(st)st.textContent='⏳ Ανάλυση συνδέσμου…';
+    _resolveShortLink(val).then(function(fin){
+      if(document.getElementById('mPaste').value.trim()!==val) return; // άλλαξε εν τω μεταξύ
+      var c2=fin?_extractCoordsFromText(fin):null;
+      if(c2){
+        document.getElementById('mLat').value=c2.lat;
+        document.getElementById('mLng').value=c2.lng;
+        mapPreview();
+        if(st)st.textContent='✓ Ο σύνδεσμος αναλύθηκε.';
+        if(_lMap){ _lMap.setView([c2.lat,c2.lng],17); _setPickMarker(c2.lat,c2.lng); }
+      } else if(st){
+        st.textContent='⚠ Δεν βρέθηκαν συντεταγμένες — ανοίξτε τον σύνδεσμο και αντιγράψτε το πλήρες URL από τη γραμμή διευθύνσεων.';
+      }
+    });
+    return;
+  }
+  if(/^https?:\/\//i.test(val) && st) st.textContent='⚠ Δεν βρέθηκαν συντεταγμένες στο URL.';
+}
+
+async function _resolveShortLink(url){
+  try{
+    var k=window._sb_key_override||localStorage.getItem('sb_key')||SUPABASE_KEY;
+    var b=window._sb_url_override||localStorage.getItem('sb_url')||SUPABASE_URL;
+    var r=await fetch(b+'/functions/v1/resolve-maps-link',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+k,'apikey':k},
+      body:JSON.stringify({url:url})
+    });
+    var d=await r.json();
+    return d.finalUrl||'';
+  }catch(_){ return ''; }
+}
+
+// ── Ενσωματωμένος διαδραστικός χάρτης (Leaflet/OSM) — v9.18 ──
+let _lMap=null,_lMarker=null,_mapPickedAddress='',_leafletLoading=null,_pickSeq=0;
+
+function _ensureLeaflet(){
+  if(window.L&&window.L.map) return Promise.resolve();
+  if(_leafletLoading) return _leafletLoading;
+  _leafletLoading=new Promise(function(res,rej){
+    var css=document.createElement('link');css.rel='stylesheet';
+    css.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css';
+    document.head.appendChild(css);
+    var s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js';
+    s.onload=function(){res();};
+    s.onerror=function(){_leafletLoading=null;rej(new Error('leaflet load failed'));};
+    document.head.appendChild(s);
+  });
+  return _leafletLoading;
+}
+
+async function _initPickMap(){
+  var holder=document.getElementById('mapCanvas');
+  var status=document.getElementById('mapTapStatus');
+  if(!holder) return;
+  if(status) status.innerHTML='⏳ Φόρτωση χάρτη…';
+  try{ await _ensureLeaflet(); }
+  catch(_){
+    holder.style.display='none';
+    if(status) status.innerHTML='⚠ Ο χάρτης δεν φορτώθηκε — χρησιμοποιήστε τις παρακάτω επιλογές.';
+    return;
+  }
+  holder.style.display='block';
+  var latV=parseFloat(document.getElementById('mLat').value);
+  var lngV=parseFloat(document.getElementById('mLng').value);
+  var has=!isNaN(latV)&&!isNaN(lngV);
+  var lat0=has?latV:36.4341, lng0=has?lngV:28.2176;
+  if(!_lMap){
+    _lMap=L.map('mapCanvas').setView([lat0,lng0],has?17:14);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(_lMap);
+    _lMap.on('click',function(e){ _mapPicked(e.latlng.lat,e.latlng.lng,true); });
+  } else {
+    _lMap.setView([lat0,lng0],has?17:14);
+  }
+  if(has){ _setPickMarker(lat0,lng0); }
+  else if(_lMarker){ _lMap.removeLayer(_lMarker); _lMarker=null; }
+  if(status) status.innerHTML='💡 <strong>Πατήστε το σημείο πάνω στον χάρτη</strong> — θα αποθηκευτεί αυτόματα μαζί με τη διεύθυνση.';
+  setTimeout(function(){ if(_lMap) _lMap.invalidateSize(); },150);
+}
+
+function _setPickMarker(lat,lng){
+  if(!_lMap) return;
+  if(_lMarker){ _lMarker.setLatLng([lat,lng]); }
+  else{
+    _lMarker=L.marker([lat,lng],{draggable:true}).addTo(_lMap);
+    _lMarker.on('dragend',function(){ var p=_lMarker.getLatLng(); _mapPicked(p.lat,p.lng,false); });
+  }
+}
+
+function _fmtAddr(a){
+  if(!a) return '';
+  var road=[a.road||a.pedestrian||a.footway||'', a.house_number||''].join(' ').trim();
+  var area=a.suburb||a.neighbourhood||a.quarter||a.village||a.town||a.city_district||'';
+  return [road,area].filter(Boolean).join(', ');
+}
+
+async function _reverseAddr(lat,lng){
+  try{
+    var ctl=new AbortController(); var t=setTimeout(function(){ctl.abort();},4500);
+    var r=await fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat='+lat+'&lon='+lng+'&accept-language=el&zoom=18',{signal:ctl.signal});
+    clearTimeout(t);
+    var d=await r.json();
+    return _fmtAddr(d.address) || (d.display_name?d.display_name.split(',').slice(0,3).join(',').trim():'');
+  }catch(_){ return ''; }
+}
+
+async function _mapPicked(lat,lng,autoClose){
+  var seq=++_pickSeq;
+  lat=+lat.toFixed(6); lng=+lng.toFixed(6);
+  _setPickMarker(lat,lng);
+  document.getElementById('mLat').value=lat;
+  document.getElementById('mLng').value=lng;
+  document.getElementById('mPaste').value=lat+', '+lng;
+  mapPreview();
+  var status=document.getElementById('mapTapStatus');
+  if(status) status.innerHTML='📍 '+lat+', '+lng+' — <em>λήψη διεύθυνσης…</em>';
+  _mapPickedAddress=await _reverseAddr(lat,lng);
+  if(seq!==_pickSeq) return; // ακολούθησε νεότερη επιλογή
+  if(status) status.innerHTML='📍 '+(_mapPickedAddress?esc(_mapPickedAddress)+' ':'')+'<span style="color:var(--muted)">('+lat+', '+lng+')</span>';
+  if(autoClose){ mapSave(); }
 }
 
 function mapPreview(){
@@ -2353,15 +2508,16 @@ function mapPreview(){
 
 function mapLocateMe(){
   if(!navigator.geolocation){alert('Ο εντοπισμός δεν υποστηρίζεται.');return;}
-  navigator.geolocation.getCurrentPosition(pos=>{
-    const lat=pos.coords.latitude, lng=pos.coords.longitude;
-    document.getElementById('mLat').value=lat.toFixed(6);
-    document.getElementById('mLng').value=lng.toFixed(6);
-    document.getElementById('mPaste').value=lat.toFixed(6)+', '+lng.toFixed(6);
-    mapPreview();
-    // Also open Google Maps at this location
-    window.open('https://www.google.com/maps/@'+lat+','+lng+',17z','_blank');
-  }, err=>alert('GPS: '+err.message), {timeout:8000});
+  var status=document.getElementById('mapTapStatus');
+  if(status) status.innerHTML='📡 Εντοπισμός θέσης…';
+  navigator.geolocation.getCurrentPosition(function(pos){
+    var lat=pos.coords.latitude, lng=pos.coords.longitude;
+    if(_lMap) _lMap.setView([lat,lng],17);
+    // Pin + πεδία + διεύθυνση, ΧΩΡΙΣ αυτόματο κλείσιμο: το GPS έχει απόκλιση — σύρετε το pin αν χρειάζεται
+    _mapPicked(lat,lng,false);
+  }, function(err){
+    if(status) status.innerHTML='⚠ GPS: '+esc(err.message);
+  }, {timeout:8000,enableHighAccuracy:true});
 }
 
 function mapSave(){
@@ -2372,13 +2528,17 @@ function mapSave(){
     document.getElementById('i_mapLat').value=lat;
     document.getElementById('i_mapLng').value=lng;
     updateIssueCoordsDisplay();
-    _mapTarget='order'; // reset
   } else {
     woMapLat=lat; woMapLng=lng;
     updateCoordsDisplay();
+    // v9.18: η διεύθυνση από τον χάρτη συμπληρώνει το πεδίο Τοποθεσίας ΜΟΝΟ αν είναι κενό
+    if(_mapPickedAddress){
+      var locEl=document.getElementById('wo_loc');
+      if(locEl && !locEl.value.trim()) locEl.value=_mapPickedAddress;
+    }
   }
   closeMap();
-  toast('📍 Τοποθεσία αποθηκεύτηκε');
+  toast(_mapPickedAddress?('📍 '+_mapPickedAddress):'📍 Τοποθεσία αποθηκεύτηκε');
 }
 
 function updateCoordsDisplay(){
@@ -5324,12 +5484,16 @@ function renderReports(){
 function openIssueMapPicker(){
   // Reuse the existing map modal but route saves to issue fields
   _mapTarget = 'issue';
+  _mapPickedAddress=''; _lastResolvedLink='';
   document.getElementById('mLat').value = document.getElementById('i_mapLat').value||'';
   document.getElementById('mLng').value = document.getElementById('i_mapLng').value||'';
   const lat = document.getElementById('i_mapLat').value;
   const lng = document.getElementById('i_mapLng').value;
   document.getElementById('mPaste').value = (lat&&lng)?(lat+', '+lng):'';
+  var st=document.getElementById('mPasteStatus'); if(st) st.textContent='';
   document.getElementById('mapWrap').style.display='flex';
+  mapPreview();
+  _initPickMap();
 }
 
 let _mapTarget = 'order'; // 'order' or 'issue'
@@ -7967,13 +8131,15 @@ function printBulkProtocol(){
   <div class="map-box">
     <div class="map-box-hdr"><h3>📍 Επιλογή Σημείου στον Χάρτη</h3><button type="button" onclick="closeMap()">✕</button></div>
     <div class="map-box-body">
-      <div class="map-step"><strong>Βήμα 1:</strong> Ανοίξτε το Google Maps, βρείτε το σημείο και κάντε <strong>δεξί κλικ → «Τι υπάρχει εδώ;»</strong> για να δείτε τις συντεταγμένες.<br><button type="button" class="btn btn-p btn-sm" style="margin-top:8px" onclick="window.open('https://www.google.com/maps/@36.4341,28.2176,14z','_blank')">🗺 Άνοιγμα Google Maps</button> <button type="button" class="btn btn-sm" style="margin-top:8px" onclick="mapLocateMe()">📡 Χρήση GPS</button></div>
-      <div class="map-step"><strong>Βήμα 2:</strong> Επικολλήστε τις συντεταγμένες παρακάτω<br><em style="font-size:11px;color:var(--muted)">(μορφή: 36.4341, 28.2176)</em></div>
+      <div id="mapCanvas" style="height:280px;border-radius:10px;margin-bottom:6px;display:none;border:1px solid #e2e8f0;"></div>
+      <div id="mapTapStatus" style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5;">⏳ Φόρτωση χάρτη…</div>
+      <div class="map-step"><strong>Εναλλακτικά:</strong> Ανοίξτε το Google Maps (δεξί κλικ → «Τι υπάρχει εδώ;» για συντεταγμένες) ή χρησιμοποιήστε το GPS της συσκευής — το στίγμα θα μπει στον χάρτη.<br><button type="button" class="btn btn-p btn-sm" style="margin-top:8px" onclick="window.open('https://www.google.com/maps/@36.4341,28.2176,14z','_blank')">🗺 Άνοιγμα Google Maps</button> <button type="button" class="btn btn-sm" style="margin-top:8px" onclick="mapLocateMe()">📡 Χρήση GPS</button></div>
+      <div class="map-step"><strong>Ή επικολλήστε:</strong> συντεταγμένες <em>ή σύνδεσμο Google Maps</em> στο πεδίο παρακάτω<br><em style="font-size:11px;color:var(--muted)">(π.χ. 36.4341, 28.2176 — ή https://maps.app.goo.gl/…)</em></div>
       <div class="map-fields">
         <div class="map-field"><label>Γεωγρ. Πλάτος (Lat)</label><input type="number" id="mLat" step="0.000001" placeholder="36.4341" oninput="mapPreview()"></div>
         <div class="map-field"><label>Γεωγρ. Μήκος (Lng)</label><input type="number" id="mLng" step="0.000001" placeholder="28.2176" oninput="mapPreview()"></div>
       </div>
-      <div class="map-field" style="margin-bottom:12px"><label>Ή επικολλήστε ολόκληρες τις συντεταγμένες</label><input type="text" id="mPaste" placeholder="36.4341, 28.2176" oninput="mapParsePaste(this.value)"></div>
+      <div class="map-field" style="margin-bottom:12px"><label>Ή επικολλήστε συντεταγμένες / σύνδεσμο Google Maps</label><input type="text" id="mPaste" placeholder="36.4341, 28.2176  ή  https://maps.app.goo.gl/..." oninput="mapParsePaste(this.value)"><div id="mPasteStatus" style="font-size:11px;color:var(--muted);margin-top:4px;"></div></div>
       <div class="map-preview" id="mapPreview">🔗 Προεπισκόπηση: <a id="mapPreviewLink" href="#" target="_blank">Άνοιγμα στο Google Maps</a><br><span id="mapPreviewCoords" style="font-size:11px;color:var(--muted)"></span></div>
     </div>
     <div class="map-box-footer"><button type="button" class="btn" onclick="closeMap()">Ακύρωση</button><button type="button" class="btn btn-p" id="mapSaveBtn" onclick="mapSave()" disabled>✓ Αποθήκευση τοποθεσίας</button></div>
@@ -8255,7 +8421,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.17-cleanup-2026-07-06';
+  window.RODIOS_BUILD = 'v9.18-map-picker-2026-07-06';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){

@@ -8,7 +8,7 @@
    network is unavailable.
    ──────────────────────────────────────────────────────────────── */
 
-const CACHE_VERSION = 'rodios-v9-17';
+const CACHE_VERSION = 'rodios-v9-18';
 
 const STATIC_ASSETS = [
   './icon-192.png',
@@ -62,7 +62,8 @@ self.addEventListener('fetch', (event) => {
     url.hostname.includes('googleapis.com') ||
     url.hostname.includes('gstatic.com') ||
     url.hostname.includes('jsdelivr.net') ||
-    url.hostname.includes('geoapify.com')
+    url.hostname.includes('geoapify.com') ||
+    url.hostname.includes('openstreetmap.org')
   ) {
     return;
   }
