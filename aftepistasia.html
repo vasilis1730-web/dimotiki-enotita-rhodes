@@ -607,7 +607,6 @@ function hideDisclaimerModal(){
       <input type="text" id="woSearch" placeholder="Αναζήτηση..." oninput="renderOrders()">
       <select id="woStatus" onchange="renderOrders()">
         <option value="">Όλες καταστάσεις</option>
-        <option>Εκδόθηκε</option>
         <option>Εστάλη</option>
         <option>Ολοκληρώθηκε - Εκκρεμούν Υπογραφές</option>
         <option>Παραλήφθηκε</option>
@@ -940,7 +939,6 @@ function hideDisclaimerModal(){
         </div>
         <div class="fg"><label>Κατάσταση</label>
           <select id="wo_status">
-            <option value="Εκδόθηκε" hidden>Εκδόθηκε</option>
             <option>Εστάλη</option>
             <option>Ολοκληρώθηκε - Εκκρεμούν Υπογραφές</option>
             <option>Παραλήφθηκε</option>
@@ -4591,7 +4589,7 @@ function getAckState(wo) {
   if(wo.contractorAck) {
     return { color: 'green', label: 'Δηλώθηκε ολοκλήρωση', tooltip: 'Ο ανάδοχος δήλωσε ότι ολοκλήρωσε την εργασία. Άμεση αυτοψία και παραλαβή. (Σημ: ο χρόνος συνεχίζει να τρέχει μέχρι το πρωτόκολλο παραλαβής)' };
   }
-  if(getOrderTimerStartMs(wo) && wo.status !== 'Εκδόθηκε') {
+  if(getOrderTimerStartMs(wo)) {
     return { color: 'red', label: 'Σε εξέλιξη', tooltip: 'Στάλθηκε email στον ανάδοχο. Τρέχει ο χρόνος απόκρισης. Αναμένεται δήλωση ολοκλήρωσης.' };
   }
   return { color: 'yellow', label: 'Νέα εντολή', tooltip: 'Η εντολή δημιουργήθηκε αλλά δεν έχει σταλεί ακόμα email στον ανάδοχο.' };
@@ -4794,10 +4792,6 @@ function setOrderTimerStarted(wo, when){
 function buildCountdown(wo){
   if(!wo || wo.orderType==='service') return '';
 
-  // Make the state explicit instead of silently showing no timer.
-  if(wo.status==='Εκδόθηκε'){
-    return '<span class="deadline-warn">⏸ Αναμονή αποστολής — το χρονόμετρο δεν ξεκίνησε</span>';
-  }
 
   const activeStatuses=['Εστάλη','Ολοκληρώθηκε - Εκκρεμούν Υπογραφές'];
   if(!activeStatuses.includes(wo.status)) return '';
@@ -6132,7 +6126,7 @@ function openNewOrder(orderType){
   document.getElementById('wo_orderType').value = ot;
   // Show/hide sections based on order type
   toggleOrderTypeUI(ot);
-  document.getElementById('wo_status').value='Εκδόθηκε';
+  document.getElementById('wo_status').value='Εστάλη';
   updateDeadline();
   // Populate issue dropdown
   const sel=document.getElementById('wo_issue');
@@ -6194,7 +6188,7 @@ function editOrder(id){
     if(document.getElementById('wo_svc_status')) document.getElementById('wo_svc_status').value=wo.serviceStatus||wo.status||'Δόθηκε εντολή';
     if(document.getElementById('wo_svc_materials')) document.getElementById('wo_svc_materials').value=wo.serviceMaterials||'Δεν χρησιμοποιήθηκαν υλικά';
   } else {
-    document.getElementById('wo_status').value=wo.status||'Εκδόθηκε';
+    document.getElementById('wo_status').value=(wo.status==='Εκδόθηκε'?'Εστάλη':wo.status)||'Εστάλη';
   }
   document.getElementById('wo_complete').value=wo.completionDate||'';
   updateDeadline();
@@ -6425,11 +6419,12 @@ async function saveOrder(andPrint){
     data.orderNum = await commitOrderNumAsync();
     data.createdAt = data.createdAt || new Date().toISOString();
     data.issuedAt = data.issuedAt || new Date().toISOString();
-    // For new contractor orders: keep as issued until the server email is really sent.
-    // It becomes «Εστάλη» only after send-order-email returns ok:true.
+    // v9.18.4: η εντολή ξεκινά απευθείας ως «Εστάλη» — το νομικό χρονόμετρο
+    // τρέχει από τη στιγμή της αποθήκευσης. Το email αποστέλλεται αυτόματα αμέσως μετά·
+    // αν αποτύχει, ο χρήστης ειδοποιείται να το ξαναστείλει (κουμπί ✉), το ρολόι όμως μετρά.
     if(!isService){
-      data.status = 'Εκδόθηκε';
-      data.sentAt = '';
+      data.status = 'Εστάλη';
+      setOrderTimerStarted(data, new Date());
     }
     workOrders.push(data);
   }
@@ -7222,7 +7217,7 @@ async function autoMsgNewOrder(orderId){
   }catch(e){
     console.error('Auto email new order failed:', e);
     alert('❌ Η εντολή δημιουργήθηκε, αλλά το αυτόματο email ΔΕΝ στάλθηκε.\n\n'+((e && e.message) ? e.message : String(e))+'\n\nΕλέγξτε Supabase Auth, Edge Function deployment και SMTP secrets.');
-    toast('❌ Αυτόματη αποστολή απέτυχε — η εντολή έμεινε «Εκδόθηκε».');
+    toast('❌ Αυτόματη αποστολή απέτυχε — στείλτε ξανά με το κουμπί ✉ Email (το χρονόμετρο τρέχει).');
   }
 }
 
@@ -8447,7 +8442,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.18.3-staff-email-status-2026-07-08';
+  window.RODIOS_BUILD = 'v9.18.4-no-issued-status-2026-07-09';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
