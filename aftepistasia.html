@@ -708,7 +708,7 @@ function hideDisclaimerModal(){
           <h3 style="font-size:13px;font-weight:600;color:#0d7a5c;">🔧 Συνεργείο Υπηρεσίας — Υπάλληλοι</h3>
           <button class="btn btn-sm" style="background:#0d7a5c;color:#fff;border-color:#0d7a5c;" onclick="openAddStaff()">+ Νέος Υπάλληλος</button>
         </div>
-        <p style="font-size:10px;color:var(--muted);margin-bottom:10px;">Οι υπάλληλοι εμφανίζονται στο checklist των Εντολών Υπηρεσίας και χρησιμοποιούνται για κοινοποίηση μέσω Viber/WhatsApp.</p>
+        <p style="font-size:10px;color:var(--muted);margin-bottom:10px;">Οι υπάλληλοι εμφανίζονται στο checklist των Εντολών Υπηρεσίας και χρησιμοποιούνται για κοινοποίηση μέσω Viber/WhatsApp και email.</p>
         <div id="staffList"></div>
       </div>
 
@@ -940,7 +940,7 @@ function hideDisclaimerModal(){
         </div>
         <div class="fg"><label>Κατάσταση</label>
           <select id="wo_status">
-            <option>Εκδόθηκε</option>
+            <option value="Εκδόθηκε" hidden>Εκδόθηκε</option>
             <option>Εστάλη</option>
             <option>Ολοκληρώθηκε - Εκκρεμούν Υπογραφές</option>
             <option>Παραλήφθηκε</option>
@@ -3940,8 +3940,10 @@ async function importSignedPdf(input){
     // Upload to Supabase Storage
     try{
       const path = 'protocols/' + wo.orderNum.replace(/[^a-zA-Z0-9]/g,'_') + '_' + Date.now() + '.pdf';
+      // v9.18.2: το path είναι μοναδικό (Date.now()) ⇒ upsert:false.
+      // Το upsert:true απαιτεί SELECT policy στο storage.objects και απέτυχε σιωπηλά.
       const {data, error} = await sb.storage.from('attachments').upload(path, file, {
-        cacheControl:'3600', upsert:true
+        cacheControl:'3600', upsert:false
       });
       if(error) throw error;
       const {data:{publicUrl}} = sb.storage.from('attachments').getPublicUrl(path);
@@ -3953,11 +3955,17 @@ async function importSignedPdf(input){
       const b64 = await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file);});
       wo.signedPdfData = b64;
     }catch(err){
-      console.warn('Storage upload failed, using base64:', err);
-      const b64 = await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file);});
-      wo.signedPdfData = b64;
-      wo.signedPdfName = file.name;
-      wo.signedAt = new Date().toISOString();
+      // v9.18.2: ΠΟΤΕ ξανά σιωπηλή αποτυχία. Το base64 δεν αποθηκεύεται στη βάση
+      // (κόβεται από τον replacer), άρα το PDF θα χανόταν στο πρώτο refresh
+      // και η «Ολοκλήρωση Παραλαβής» θα μπλόκαρε ανεξήγητα.
+      console.error('Storage upload failed:', err);
+      _sigImportInProgress = false;
+      const _msg = (err && (err.message || err.error_description || err.error)) || err;
+      alert('⚠ Το ανέβασμα του υπογεγραμμένου PDF στο Storage απέτυχε.\n\n' + _msg +
+            '\n\nΤο πρωτόκολλο ΔΕΝ αποθηκεύτηκε. Ελέγξτε τη σύνδεση και δοκιμάστε ξανά.');
+      const _fi = document.getElementById('sigPdfInput');
+      if(_fi) _fi.value = '';
+      return;
     }
   } else {
     const b64 = await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file);});
@@ -4163,7 +4171,17 @@ function updateLinkedIssueStatus(wo, newStatus){
 function finalizeAcceptance(){
   const wo = workOrders.find(w=>w.id===_sigOrderId);
   if(!wo) return;
-  if(!wo.signedPdfData && !wo.signedPdfUrl){alert('Εισάγετε πρώτα το υπογεγραμμένο PDF.');return;}
+  if(!wo.signedPdfData && !wo.signedPdfUrl){
+    // v9.18.2: αν υπάρχει όνομα αρχείου χωρίς δεδομένα, το ανέβασμα είχε αποτύχει
+    // (ή το base64 χάθηκε σε refresh) — δώσε σαφή οδηγία αντί για παραπλανητικό μήνυμα.
+    if(wo.signedPdfName){
+      alert('⚠ Το υπογεγραμμένο PDF «'+wo.signedPdfName+'» δεν βρέθηκε αποθηκευμένο.\n\n'+
+            'Το ανέβασμα στο Storage είχε αποτύχει. Πατήστε «↩ Επανεκκίνηση» και ανεβάστε ξανά το PDF.');
+    } else {
+      alert('Εισάγετε πρώτα το υπογεγραμμένο PDF.');
+    }
+    return;
+  }
   let sigs = countPdfSignatures(wo.signedPdfData||'');
   const req = Math.max(1, (settings.eSignUsers||[]).filter(u=>u.name).length||3);
   if(sigs === 0){
@@ -6724,7 +6742,7 @@ async function ensureSignedProtocolAttachmentUrl(wo, fname){
   const { error } = await sb.storage.from('attachments').upload(path, blob, {
     contentType: 'application/pdf',
     cacheControl: '3600',
-    upsert: true
+    upsert: false // v9.18.2: μοναδικό path ⇒ χωρίς εξάρτηση από SELECT policy
   });
   if(error) throw error;
 
@@ -7348,6 +7366,7 @@ function renderStaffList(){
     const mobile = s.mobile||'—';
     const phone = s.phone||'';
     const role = s.role||'';
+    const email = s.email||'';
     return '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--rs);margin-bottom:6px;background:var(--sec);">'
       +'<div style="width:36px;height:36px;border-radius:50%;background:#0d7a5c;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px;flex-shrink:0;">'
       +(name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase())+'</div>'
@@ -7357,6 +7376,7 @@ function renderStaffList(){
           +(role?'<span style="background:#d1fae5;color:#065f46;padding:1px 5px;border-radius:3px;margin-right:5px;">'+esc(role)+'</span>':'')
           +'📱 '+esc(mobile)
           +(phone?' &nbsp;☎ '+esc(phone):'')
+          +(email?'<br>✉ '+esc(email):'')
         +'</div>'
       +'</div>'
       +'<div style="display:flex;gap:5px;">'
@@ -7373,6 +7393,7 @@ function openAddStaff(){
   document.getElementById('staff_role').value='';
   document.getElementById('staff_mobile').value='';
   document.getElementById('staff_phone').value='';
+  document.getElementById('staff_email').value='';
   document.getElementById('staff_idx').value='';
   document.getElementById('staffModal').style.display='flex';
   setTimeout(()=>document.getElementById('staff_name').focus(),100);
@@ -7386,6 +7407,7 @@ function openEditStaff(idx){
   document.getElementById('staff_role').value=s.role||'';
   document.getElementById('staff_mobile').value=s.mobile||'';
   document.getElementById('staff_phone').value=s.phone||'';
+  document.getElementById('staff_email').value=s.email||'';
   document.getElementById('staff_idx').value=idx;
   document.getElementById('staffModal').style.display='flex';
 }
@@ -7399,10 +7421,12 @@ function saveStaffMember(){
   const role = document.getElementById('staff_role').value.trim();
   const mobile = document.getElementById('staff_mobile').value.trim();
   const phone = document.getElementById('staff_phone').value.trim();
+  const email = document.getElementById('staff_email').value.trim();
   const idx = document.getElementById('staff_idx').value;
   if(!name){ alert('Συμπληρώστε το ονοματεπώνυμο.'); return; }
   if(!mobile){ alert('Συμπληρώστε κινητό τηλέφωνο.'); return; }
-  const member = {name, role, mobile, phone};
+  if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ alert('Το email δεν φαίνεται έγκυρο.'); return; }
+  const member = {name, role, mobile, phone, email};
   if(idx===''){
     member.id = String(name || ('staff_'+genId())).replace(/[^\w.\-:/]/g,'_');
     SERVICE_STAFF.push(member);
@@ -8408,6 +8432,8 @@ function printBulkProtocol(){
           <input type="tel" id="staff_mobile" placeholder="69xxxxxxxx"></div>
         <div class="fg"><label>Σταθερό Τηλέφωνο</label>
           <input type="tel" id="staff_phone" placeholder="2241xxxxxx"></div>
+        <div class="fg full"><label>Email</label>
+          <input type="email" id="staff_email" placeholder="π.χ. name@rhodes.gr"></div>
       </div>
       <input type="hidden" id="staff_idx" value="">
     </div>
@@ -8421,7 +8447,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.18.1-map-picker-2026-07-08';
+  window.RODIOS_BUILD = 'v9.18.3-staff-email-status-2026-07-08';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
