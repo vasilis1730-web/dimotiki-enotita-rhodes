@@ -657,7 +657,34 @@ function hideDisclaimerModal(){
           <div class="fg full"><label>Email Αναδόχου</label><input type="email" id="sEmail" onchange="saveSett()" placeholder="contractor@example.com"></div>
           <div class="fg full"><label>Τηλέφωνο Αναδόχου</label><input type="text" id="sPhone" onchange="saveSett()"></div>
           <div class="fg full"><label>Υπεύθυνος Έργου Αναδόχου</label><input type="text" id="sContact" onchange="saveSett()"></div>
-          <div class="fg full"><label>ΦΠΑ %</label><input type="number" id="sVat" value="24" onchange="saveSett()"></div>
+          <div class="fg"><label>ΦΠΑ %</label><input type="number" id="sVat" value="24" onchange="saveSett()"></div>
+          <div class="fg"><label>Έκπτωση Αναδόχου % <span style="color:var(--red);font-size:10px;">(κλειδώνει μετά την 1η εντολή)</span></label><input type="number" id="sDiscount" step="0.01" min="0" max="99" value="9" onchange="saveSett()"></div>
+          <div class="fg full" id="sDiscountInfo" style="font-size:11px;color:var(--muted);background:var(--sec);border-radius:var(--rs);padding:8px 10px;"></div>
+        </div>
+      </div>
+      <div id="sRlsNotice" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:var(--r);padding:12px 14px;margin-bottom:14px;font-size:12px;color:#856404;">
+        🔒 <strong>Οι ρυθμίσεις αποθηκεύονται μόνο από τον διαχειριστή.</strong> Μπορείτε να τις δείτε, αλλά τυχόν αλλαγές σας δεν θα συγχρονιστούν. Η καταχώρηση αιτημάτων, εντολών και πληρωμών λειτουργεί κανονικά.
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:14px;">
+        <h3 style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:4px;">⏱ Ωράριο Εργασιών & Αργίες</h3>
+        <p style="font-size:11px;color:var(--muted);margin:0 0 12px;">Χρησιμοποιείται για τον υπολογισμό προθεσμιών ΚΑΤ.3, ΚΑΤ.4 και ΚΑΤ.5. Οι ΚΑΤ.1 και ΚΑΤ.2 μετρώνται 24/7 (Άρθρο 6.1α).</p>
+        <div class="fgrid">
+          <div class="fg"><label>Ώρα Έναρξης</label><input type="time" id="sWorkStart" value="07:00" onchange="saveSett()"></div>
+          <div class="fg"><label>Ώρα Λήξης</label><input type="time" id="sWorkEnd" value="16:00" onchange="saveSett()"></div>
+          <div class="fg full"><label>Εργάσιμες Ημέρες</label>
+            <div id="sWorkDays" style="display:flex;gap:5px;flex-wrap:wrap;">
+              ${''}
+            </div>
+          </div>
+          <div class="fg full"><label>Αργίες <span style="color:var(--muted);font-weight:400;font-size:10px;">(δεν προσμετρώνται στις προθεσμίες)</span></label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+              <input type="date" id="sHolidayNew" style="flex:0 0 auto;width:auto;">
+              <input type="text" id="sHolidayLabel" placeholder="Περιγραφή (π.χ. Δεκαπενταύγουστος)" style="flex:1 1 200px;">
+              <button class="btn btn-sm" onclick="addHoliday()">+ Προσθήκη</button>
+              <button class="btn btn-sm" onclick="addGreekHolidays()" title="Προσθήκη σταθερών εθνικών/θρησκευτικών αργιών">📅 Σταθερές αργίες</button>
+            </div>
+            <div id="sHolidayList" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+          </div>
         </div>
       </div>
       <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:14px;">
@@ -917,14 +944,26 @@ function hideDisclaimerModal(){
           </select>
         </div>
         <div class="fg"><label>Προθεσμία Απόκρισης</label><input type="text" id="wo_deadline" readonly style="background:var(--sec)"></div>
+        <div class="fg full" style="background:var(--sec);border-radius:var(--rs);padding:8px 10px;">
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin:0;">
+            <input type="checkbox" id="wo_weather" onchange="updateDeadline()" style="width:auto;margin:0;">
+            <span>🌧 Ακραία καιρικά φαινόμενα — παράταση προθεσμίας 50% <span style="color:var(--muted);font-weight:400;">(Άρθρο 2.3.2, απαιτεί έγκριση Αναθέτουσας Αρχής)</span></span>
+          </label>
+          <div id="wo_deadlineCalc" style="font-size:11px;color:var(--muted);margin-top:6px;"></div>
+        </div>
         <div class="fg full"><label>Περιγραφή Εντολής <span class="req-star">*</span></label><textarea id="wo_desc"></textarea></div>
       </div>
       <div class="section-block">
         <h4>Εργασίες & Κόστη (από Αναλυτικό Τιμολόγιο)</h4>
         <table class="items-table" id="woItemsTable">
-          <thead><tr><th>Κωδικός</th><th style="min-width:280px">Περιγραφή Εργασίας</th><th>Μ.Μ.</th><th style="min-width:60px">Τιμή€</th><th style="min-width:60px">Ποσότητα</th><th style="min-width:80px">Σύνολο€</th><th></th></tr></thead>
+          <thead><tr><th>Κωδικός</th><th style="min-width:280px">Περιγραφή Εργασίας</th><th>Μ.Μ.</th><th style="min-width:60px">Τιμή€</th><th style="min-width:60px">Ποσότητα</th><th style="min-width:96px">Υπόλοιπο<br><small>σύμβασης</small></th><th style="min-width:80px">Σύνολο€</th><th></th></tr></thead>
           <tbody id="woItemsBody"></tbody>
-          <tfoot><tr class="total-row"><td colspan="5" style="text-align:right;">ΣΥΝΟΛΟ (χωρίς ΦΠΑ):</td><td id="woTotal">0,00 €</td><td></td></tr></tfoot>
+          <tfoot>
+            <tr><td colspan="6" style="text-align:right;color:var(--muted);font-size:11px;">Αξία με τιμές τιμολογίου μελέτης:</td><td id="woListSum" style="font-size:11px;color:var(--muted);">0,00 €</td><td></td></tr>
+            <tr><td colspan="6" style="text-align:right;color:var(--muted);font-size:11px;" id="woDiscLabel">(-) Έκπτωση:</td><td id="woDiscSum" style="font-size:11px;color:var(--muted);">0,00 €</td><td></td></tr>
+            <tr class="total-row"><td colspan="6" style="text-align:right;">ΚΑΘΑΡΗ ΣΥΜΒΑΤΙΚΗ ΑΞΙΑ (χωρίς ΦΠΑ):</td><td id="woTotal">0,00 €</td><td></td></tr>
+            <tr><td colspan="8" id="woBudgetBar" style="padding:8px 6px;"></td></tr>
+          </tfoot>
         </table>
         <button class="btn btn-sm" onclick="addItemRow()">+ Προσθήκη Εργασίας</button>
       </div>
@@ -957,7 +996,7 @@ function hideDisclaimerModal(){
             <div class="photo-thumbs" id="thumbsBefore"></div>
           </div>
         </div>
-        <div class="fg">
+        <div class="fg" id="fgMediaAfter">
           <label>📷 Φωτογραφίες / Βίντεο ΜΕΤΑ</label>
           <div class="photo-panel" id="panelAfter">
             <label class="upload-btn" for="uploadAfter">⬆ Προσθήκη αρχείων ΜΕΤΑ
@@ -1172,13 +1211,148 @@ for(const [catKey, cat] of Object.entries(CATALOG)){
 }
 
 // PRIORITY DATA
+// v9.19.2 — mode:
+//   'calendar' → 24/7 συνεχής μέτρηση (Άρθρο 6.1α: ο ανάδοχος οφείλει διαθεσιμότητα 24/7
+//                για ΚΑΤ.1 & ΚΑΤ.2)
+//   'working'  → μέτρηση σε ΕΡΓΑΣΙΜΕΣ ημέρες βάσει του ωραρίου των Ρυθμίσεων.
+//                Αν η εντολή σταλεί εκτός ωραρίου/αργία, ο χρόνος ξεκινά το επόμενο
+//                εργάσιμο πρωί.
+// penaltyGrace = ανοχή πριν την 1η ρήτρα (Πίνακας 3 — «Χρόνος καθυστέρησης»)
 const PRIO_DATA = {
-  'ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ':  {cls:'p1', resp:'2 ώρες',    minResp:120,  unit:'min'},
-  'ΚΑΤ. 2 - ΕΠΕΙΓΟΝ':                 {cls:'p2', resp:'6 ώρες',    minResp:360,  unit:'min'},
-  'ΚΑΤ. 3 - ΥΨΗΛΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ':    {cls:'p3', resp:'24 ώρες',   minResp:1440, unit:'min'},
-  'ΚΑΤ. 4 - ΚΑΝΟΝΙΚΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ': {cls:'p4', resp:'3 ημέρες',  minResp:4320, unit:'min'},
-  'ΚΑΤ. 5 - ΠΡΟΓΡΑΜΜΑΤΙΣΜΕΝΗ ΣΥΝΤΗΡΗΣΗ':{cls:'p5', resp:'5 ημέρες', minResp:7200, unit:'min'},
+  'ΚΑΤ. 1 - ΑΜΕΣΟΣ ΚΙΝΔΥΝΟΣ ΖΩΗΣ':  {cls:'p1', resp:'2 ώρες',    minResp:120,  unit:'min', mode:'calendar'},
+  'ΚΑΤ. 2 - ΕΠΕΙΓΟΝ':                 {cls:'p2', resp:'6 ώρες',    minResp:360,  unit:'min', mode:'calendar'},
+  'ΚΑΤ. 3 - ΥΨΗΛΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ':    {cls:'p3', resp:'24 ώρες',   minResp:1440, unit:'min', mode:'working', wdays:1},
+  'ΚΑΤ. 4 - ΚΑΝΟΝΙΚΗ ΠΡΟΤΕΡΑΙΟΤΗΤΑ': {cls:'p4', resp:'3 ημέρες',  minResp:4320, unit:'min', mode:'working', wdays:3},
+  'ΚΑΤ. 5 - ΠΡΟΓΡΑΜΜΑΤΙΣΜΕΝΗ ΣΥΝΤΗΡΗΣΗ':{cls:'p5', resp:'5 ημέρες', minResp:7200, unit:'min', mode:'working', wdays:5},
 };
+
+// ================================================================
+// v9.19.2 — ΜΗΧΑΝΗ ΕΡΓΑΣΙΜΟΥ ΧΡΟΝΟΥ
+// ================================================================
+function workCfg(){
+  return {
+    start   : settings.workStart || '07:00',
+    end     : settings.workEnd   || '16:00',
+    days    : Array.isArray(settings.workDays) && settings.workDays.length ? settings.workDays : [1,2,3,4,5,6],
+    holidays: Array.isArray(settings.holidays) ? settings.holidays : []
+  };
+}
+function _hm(str){ const p=String(str||'').split(':'); return {h:parseInt(p[0])||0, m:parseInt(p[1])||0}; }
+function workMinutesPerDay(){
+  const c=workCfg(), s=_hm(c.start), e=_hm(c.end);
+  return Math.max(0,(e.h*60+e.m)-(s.h*60+s.m));
+}
+function ymd(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function isWorkingDay(d){
+  const c=workCfg();
+  if(!c.days.includes(d.getDay())) return false;
+  return !c.holidays.includes(ymd(d));
+}
+function dayStart(d){ const c=workCfg(), s=_hm(c.start); const x=new Date(d); x.setHours(s.h,s.m,0,0); return x; }
+function dayEnd(d){   const c=workCfg(), e=_hm(c.end);   const x=new Date(d); x.setHours(e.h,e.m,0,0); return x; }
+
+// Μετατόπιση σε εργάσιμη στιγμή: αν είμαστε εκτός ωραρίου/αργία → επόμενο εργάσιμο πρωί
+function nextWorkingMoment(d){
+  let x=new Date(d);
+  for(let guard=0; guard<400; guard++){
+    if(isWorkingDay(x)){
+      const ds=dayStart(x), de=dayEnd(x);
+      if(x < ds) return ds;
+      if(x <= de) return x;
+    }
+    x=new Date(x); x.setDate(x.getDate()+1); x=dayStart(x);
+  }
+  return new Date(d);
+}
+// Προσθήκη N εργάσιμων ημερών διατηρώντας την ώρα
+function addWorkingDays(d, nDays){
+  let x=nextWorkingMoment(new Date(d));
+  let left=Math.max(0,Math.round(nDays));
+  for(let guard=0; guard<1000 && left>0; guard++){
+    x=new Date(x); x.setDate(x.getDate()+1);
+    if(isWorkingDay(x)) left--;
+  }
+  return x;
+}
+// Εργάσιμα λεπτά μεταξύ δύο στιγμών
+function workingMinutesBetween(a, b){
+  let from=new Date(Math.min(a,b)), to=new Date(Math.max(a,b));
+  let total=0;
+  for(let guard=0; guard<800; guard++){
+    if(from>=to) break;
+    if(isWorkingDay(from)){
+      const ds=dayStart(from), de=dayEnd(from);
+      const s=new Date(Math.max(from,ds)), e=new Date(Math.min(to,de));
+      if(e>s) total += (e-s)/60000;
+    }
+    const nx=new Date(from); nx.setDate(nx.getDate()+1); from=dayStart(nx);
+  }
+  return Math.round(total);
+}
+
+// Υπολογισμός προθεσμίας εντολής
+function computeDeadline(startISO, priority, weatherExt){
+  const pd=PRIO_DATA[priority];
+  const st=new Date(startISO);
+  if(!pd || isNaN(st.getTime())) return '';
+  const factor = weatherExt ? 1.5 : 1;   // Άρθρο 2.3.2 — παράταση 50%
+  if(pd.mode==='working'){
+    const base=nextWorkingMoment(st);
+    const days=Math.ceil((pd.wdays||1)*factor);
+    return addWorkingDays(base, days).toISOString();
+  }
+  return new Date(st.getTime()+pd.minResp*factor*60*1000).toISOString();
+}
+
+// Περιγραφή καθυστέρησης (για εμφάνιση + υπόδειξη κλιμακίου)
+function describeBreach(mins, mode){
+  if(mode==='working'){
+    const per=workMinutesPerDay()||540;
+    const d=mins/per;
+    return d>=1 ? d.toFixed(1)+' εργάσ. ημ.' : Math.round(mins)+' εργάσ. λεπτά';
+  }
+  const h=Math.floor(mins/60), m=Math.round(mins%60);
+  return h>0 ? h+'ω '+m+'λ' : m+'λ';
+}
+
+// v9.19.2 — Υπόδειξη κλιμακίου ρήτρας «Καθυστέρηση Απόκρισης» (Πίνακας 3).
+// ΠΡΟΣΟΧΗ: πρόταση προς την Επιτροπή, ΟΧΙ αυτόματη επιβολή.
+function suggestDelayPenalty(wo){
+  if(!wo || !(wo.breachMinutes>0)) return null;
+  const pd=PRIO_DATA[wo.priority]; if(!pd) return null;
+  const mode=wo.breachMode||pd.mode||'calendar';
+  const mins=wo.breachMinutes;
+  const per=workMinutesPerDay()||540;
+  const val = mode==='working' ? mins/per : mins/60;   // εργάσιμες ημέρες ή ώρες
+  const cat=(wo.priority||'').match(/ΚΑΤ\.\s*(\d)/);
+  if(!cat) return null;
+  const k=cat[1];
+  // [όριο, index στο PENALTY_CATS[0].items, βήμα προσαύξησης €, μονάδα]
+  const T={
+    '1':[[0.5,null],[1,0],[2,1],[Infinity,2,200,'ώρα']],           // λεπτά→ώρες
+    '2':[[2,null],[4,3],[8,4],[Infinity,5,100,'ώρα']],
+    '3':[[1,null],[2,6],[3,7],[Infinity,8,50,'ημέρα']],            // εργάσιμες ημέρες
+    '4':[[3,null],[5,9],[7,10],[Infinity,11,30,'ημέρα']],
+    '5':[[7,null],[10,12],[14,13],[Infinity,14,20,'ημέρα']],
+  }[k];
+  if(!T) return null;
+  for(const row of T){
+    if(val<=row[0]){
+      if(row[1]===null) return {idx:null, label:'Εντός ανοχής — δεν προβλέπεται ρήτρα', extra:0};
+      const item=PENALTY_CATS[0].items[row[1]];
+      let extra=0, note='';
+      if(row[2]){
+        const over=Math.max(0, val-(T[T.indexOf(row)-1]?.[0]||0));
+        extra=Math.floor(over)*row[2];
+        if(extra>0) note=' (+'+extra+' € για '+Math.floor(over)+' επιπλέον '+(row[3]==='ώρα'?'ώρες':'ημέρες')+')';
+      }
+      return {idx:row[1], item:item, label:item.name+note, extra:extra};
+    }
+  }
+  return null;
+}
 
 // ================================================================
 // DATA STORE
@@ -1192,7 +1366,7 @@ let oSortCol='date', oSortDir='desc';
 let iPage=1, iPageSize=50, _lastIssueFilterKey='';
 let oPage=1, oPageSize=50, _lastOrderFilterKey='';
 let pPage=1, pPageSize=50;
-let settings={listDate:todayStr(),contractValue:967741.20,contractor:'',contractorEmail:'',contractorPhone:'',contractorContact:'',vatRate:24,orderSeq:1,issueSeq:1,
+let settings={listDate:todayStr(),contractValue:967741.20,contractor:'',contractorEmail:'',contractorPhone:'',contractorContact:'',vatRate:24,discountPct:9,workStart:'07:00',workEnd:'16:00',workDays:[1,2,3,4,5,6],holidays:[],orderSeq:1,issueSeq:1,
   eSignUrl:'https://webapp.mindigital-shde.gr/login',
   eSignUsers:[
     {id:'eu1', name:'', role:'Πρόεδρος Επιτροπής', username:''},
@@ -1267,6 +1441,9 @@ async function _v9FetchPaged(table, select='*', opts={}){
   }
   return rows;
 }
+
+// v9.19.3: true όταν ο συγχρονισμός ρυθμίσεων απορρίφθηκε λόγω δικαιωμάτων.
+let _settingsSyncBlocked = false;
 
 async function _v9UpsertChunks(table, rows, onConflict='id', chunkSize=100){
   const sb = getSupabase();
@@ -1676,7 +1853,13 @@ async function _saveToSupabase(){
     await _v9AssertNoConflicts('rodios_payments', 'payments', [...paymentUpserts.map(r=>r.id), ...paymentDeletes]);
     await _v9AssertNoConflicts('rodios_app_users', 'users', [...userUpserts.map(r=>r.id), ...userDeletes]);
     await _v9AssertNoConflicts('rodios_service_staff', 'serviceStaff', [...staffUpserts.map(r=>r.id), ...staffDeletes]);
-    await _v9AssertNoConflicts('rodios_settings', 'settings', settingsUpserts.map(r=>r.key));
+    try{
+      await _v9AssertNoConflicts('rodios_settings', 'settings', settingsUpserts.map(r=>r.key));
+    }catch(_setChk){
+      const _m=String(_setChk&&(_setChk.message||''));
+      if(!/row-level security|permission denied|violates row-level/i.test(_m) && String(_setChk&&_setChk.code)!=='42501') throw _setChk;
+      console.warn('[v9.19.3] Παράλειψη ελέγχου συγκρούσεων ρυθμίσεων (admin-only).');
+    }
 
     if(paymentDeletes.length) await _v9DeleteRows('rodios_payments', paymentDeletes);
     if(orderDeletes.length) await _v9DeleteRows('rodios_work_orders', orderDeletes);
@@ -1687,7 +1870,20 @@ async function _saveToSupabase(){
     await _v9UpsertChunks('rodios_issues', issueUpserts, 'id', 100);
     await _v9UpsertChunks('rodios_work_orders', orderUpserts, 'id', 100);
     await _v9UpsertChunks('rodios_payments', paymentUpserts, 'id', 100);
-    await _v9UpsertChunks('rodios_settings', settingsUpserts, 'key', 50);
+    // v9.19.3: Ο πίνακας rodios_settings είναι γραμμή admin-only στο RLS.
+    // Για τα υπόλοιπα μέλη της Επιτροπής η άρνηση είναι ΑΝΑΜΕΝΟΜΕΝΗ και δεν
+    // πρέπει να ακυρώνει την αποθήκευση αιτημάτων/εντολών/πληρωμών.
+    try{
+      await _v9UpsertChunks('rodios_settings', settingsUpserts, 'key', 50);
+    }catch(_setErr){
+      const _code = String(_setErr && (_setErr.code || ''));
+      const _msg  = String(_setErr && (_setErr.message || ''));
+      const _isPerm = _code==='42501' || /row-level security|permission denied|violates row-level/i.test(_msg);
+      if(!_isPerm) throw _setErr;
+      console.warn('[v9.19.3] Οι ρυθμίσεις δεν συγχρονίστηκαν (admin-only). '
+                 + 'Τα δεδομένα αποθηκεύτηκαν κανονικά.', _msg);
+      _settingsSyncBlocked = true;
+    }
     await _v9UpsertChunks('rodios_app_users', userUpserts, 'id', 100);
     await _v9UpsertChunks('rodios_service_staff', staffUpserts, 'id', 100);
 
@@ -1904,32 +2100,132 @@ function daysOpen(issue){
   return Math.max(0,Math.round((e-s)/86400000));
 }
 
-// Total cost of a work order (gross, always)
+// v9.19: Στρογγυλοποίηση 2 δεκαδικών — αποφυγή συσσώρευσης σφάλματος κινητής υποδιαστολής
+function r2(n){ return Math.round((parseFloat(n)||0)*100)/100; }
+
+// v9.19: Ποσοστό έκπτωσης της εντολής.
+// ΠΑΓΩΝΕΙ στην εντολή κατά την αποθήκευση (wo.discountPct), ώστε μελλοντική αλλαγή
+// του ποσοστού στις Ρυθμίσεις να ΜΗΝ αλλοιώνει αναδρομικά παλιά πρωτόκολλα.
+function woDiscountPct(wo){
+  if(wo && wo.discountPct!==undefined && wo.discountPct!==null && wo.discountPct!=='')
+    return parseFloat(wo.discountPct)||0;
+  return parseFloat(settings.discountPct)||0;
+}
+
+// Αξία εργασιών με τις ΤΙΜΕΣ ΤΙΜΟΛΟΓΙΟΥ ΜΕΛΕΤΗΣ (προ έκπτωσης, χωρίς ΦΠΑ)
+function woListTotal(wo){
+  if(!wo||!wo.items||!wo.items.length)return 0;
+  return r2(wo.items.reduce((s,i)=>s+(parseFloat(i.qty)||0)*(parseFloat(i.unitPrice)||0),0));
+}
+
+// Ποσό έκπτωσης της εντολής
+function woDiscountAmount(wo){
+  return r2(woListTotal(wo)*woDiscountPct(wo)/100);
+}
+
+// ΚΑΘΑΡΗ ΣΥΜΒΑΤΙΚΗ ΑΞΙΑ (μετά έκπτωση, χωρίς ΦΠΑ).
+// Αυτή είναι πλέον η βάση για ΟΛΟΥΣ τους υπολογισμούς: προϋπολογισμός, ρήτρες, πληρωμές.
 function woTotal(wo){
-  if(!wo.items||!wo.items.length)return 0;
-  return wo.items.reduce((s,i)=>s+(parseFloat(i.qty)||0)*(parseFloat(i.unitPrice)||0),0);
+  if(!wo||!wo.items||!wo.items.length)return 0;
+  return r2(woListTotal(wo)-woDiscountAmount(wo));
 }
 
-// Total penalties of a work order
+// v9.19: ΣΩΡΕΥΤΙΚΟ σύνολο ρητρών εντολής (Άρθρο 4.3 — «εφαρμόζονται σωρευτικά»).
+// Πηγή αλήθειας: wo.penalties[]. Fallback στο παλαιό wo.penaltyAmount για εγγραφές
+// που δημιουργήθηκαν πριν την v9.19.
 function woPenaltiesTotal(wo){
-  if(!wo.penalties||!wo.penalties.length)return 0;
-  return wo.penalties.reduce((s,p)=>s+(parseFloat(p.amount)||0),0);
+  if(!wo) return 0;
+  if(Array.isArray(wo.penalties) && wo.penalties.length)
+    return r2(wo.penalties.reduce((s,p)=>s+Math.abs(parseFloat(p.amount)||0),0));
+  return r2(Math.abs(parseFloat(wo.penaltyAmount)||0));
 }
 
-// Net payable for a work order (penalties deducted ONLY when Παραλήφθηκε)
+// v9.19: Επανασυγχρονισμός των παράγωγων πεδίων μετά από κάθε μεταβολή ρητρών.
+// Το wo.penaltyAmount παραμένει ως ΠΑΡΑΓΩΓΟ άθροισμα, ώστε όλα τα υπάρχοντα σημεία
+// (πρωτόκολλο, email, Viber/WhatsApp, πληρωμές, μηνιαίες καταστάσεις) να δείχνουν
+// αυτόματα το σωστό σωρευτικό ποσό χωρίς περαιτέρω αλλαγές.
+function syncPenaltyFields(wo){
+  if(!wo) return;
+  if(!Array.isArray(wo.penalties)) wo.penalties = [];
+  const tot = woPenaltiesTotal(wo);
+  wo.penaltyAmount  = tot;
+  wo.penaltyApplied = wo.penalties.length>0 || tot>0;
+  wo.penaltyNote    = wo.penalties.length
+    ? wo.penalties.map(p=>p.category+' — '+p.item).join(' | ')
+    : (wo.penaltyNote||'');
+  wo.penaltyDate    = wo.penalties.length
+    ? wo.penalties[wo.penalties.length-1].date
+    : (wo.penaltyDate||'');
+  return tot;
+}
+
+// Καθαρό πληρωτέο εντολής (ρήτρες αφαιρούνται ΜΟΝΟ όταν Παραλήφθηκε)
 function woNetPayable(wo){
-  if(wo.status==='Παραλήφθηκε') return Math.max(0, woTotal(wo)-woPenaltiesTotal(wo));
+  if(wo.status==='Παραλήφθηκε') return Math.max(0, r2(woTotal(wo)-woPenaltiesTotal(wo)));
   return woTotal(wo);
 }
 
-// Total issued = ALL orders gross (for budget tracking)
-function totalIssued(){return workOrders.reduce((s,w)=>s+woTotal(w),0);}
+// v9.19.1: Καταστάσεις που ΔΕΣΜΕΥΟΥΝ πίστωση (εξαιρείται το «Δεν ολοκληρώθηκε» —
+// Άρθρο 9δ: «Εργασίες που δεν έχουν εκτελεστεί δεν αναγνωρίζονται και δεν πληρώνονται»)
+const COMMITTED_STATUSES = ['Εστάλη','Εκδόθηκε','Ολοκληρώθηκε - Εκκρεμούν Υπογραφές','Παραλήφθηκε'];
+const FINAL_STATUSES     = ['Ολοκληρώθηκε - Εκκρεμούν Υπογραφές','Παραλήφθηκε'];
+
+function isCommittedOrder(w){ return COMMITTED_STATUSES.includes(w.status); }
+function isFinalOrder(w){ return FINAL_STATUSES.includes(w.status); }
+
+// ΔΕΣΜΕΥΜΕΝΑ — εντολές σε εξέλιξη + παραληφθείσες (χωρίς τις ακυρωμένες)
+function totalIssued(){return r2(workOrders.filter(isCommittedOrder).reduce((s,w)=>s+woTotal(w),0));}
+
+// ΟΡΙΣΤΙΚΑ — μόνο παραληφθείσες/ολοκληρωμένες
+function totalFinal(){return r2(workOrders.filter(isFinalOrder).reduce((s,w)=>s+woTotal(w),0));}
+
+// ΑΚΥΡΩΘΕΝΤΑ — προς ενημέρωση, δεν δεσμεύουν πίστωση
+function totalCancelled(){return r2(workOrders.filter(w=>w.status==='Δεν ολοκληρώθηκε').reduce((s,w)=>s+woTotal(w),0));}
 
 // Total paid
 function totalPaid(){return payments.filter(p=>!p.isPenalty).reduce((s,p)=>s+(parseFloat(p.amount)||0),0);}
 
 // Remaining contract budget
-function remaining(){return settings.contractValue-totalIssued();}
+function remaining(){return r2((parseFloat(settings.contractValue)||0)-totalIssued());}
+
+// v9.19.1: Ποσοστό κατανάλωσης της σύμβασης
+function budgetPct(amount){
+  const cv=parseFloat(settings.contractValue)||0;
+  return cv>0 ? (amount/cv*100) : 0;
+}
+
+// v9.19.1: Ανάλωση ποσότητας ανά κωδικό τιμολογίου.
+//   mode 'final'     → μόνο ολοκληρωμένες/παραληφθείσες (τι έχει όντως εκτελεστεί)
+//   mode 'committed' → + εντολές σε εξέλιξη (τι έχει δεσμευτεί)
+// Το excludeOrderId επιτρέπει σωστό υπολογισμό όταν επεξεργαζόμαστε υπάρχουσα εντολή.
+function calcItemQty(code, mode, excludeOrderId){
+  const list = (mode==='committed') ? COMMITTED_STATUSES : FINAL_STATUSES;
+  const key = (code||'').trim();
+  let total = 0;
+  workOrders.forEach(function(wo){
+    if(!wo.items || !list.includes(wo.status)) return;
+    if(excludeOrderId && wo.id===excludeOrderId) return;
+    wo.items.forEach(function(it){
+      if(((it.etepCode||it.code||'').trim())===key) total += parseFloat(it.qty)||0;
+    });
+  });
+  return r2(total);
+}
+
+// v9.19.1: Πλήρης εικόνα υπολοίπου για έναν κωδικό
+function itemBalance(code, excludeOrderId){
+  const it = ALL_ITEMS.find(x=>x.code===code);
+  if(!it) return null;
+  const contract  = parseFloat(it.contractQty)||0;
+  const finalQty  = calcItemQty(code,'final',excludeOrderId);
+  const committed = calcItemQty(code,'committed',excludeOrderId);
+  return {
+    item: it, contract: contract,
+    final: finalQty, committed: committed,
+    remaining: r2(contract-committed),
+    pct: contract>0 ? (committed/contract*100) : 0
+  };
+}
 
 
 // ================================================================
@@ -2191,13 +2487,51 @@ function openPenaltyModal(orderId){
   if(!wo) return;
   // Order info
   const woAmt = woTotal(wo);
+  const already = woPenaltiesTotal(wo);
   document.getElementById('pModalOrderInfo').innerHTML =
     '<strong>Εντολή: ' + esc(wo.orderNum) + '</strong> — ' + esc(wo.location) +
-    '<br><span style="font-size:11px;color:var(--muted);">Αξία εντολής: <strong>' + fmt(woAmt) + ' €</strong> | Κατηγορία: ' + esc(wo.priority||'—') + '</span>';
+    '<br><span style="font-size:11px;color:var(--muted);">Καθαρή συμβατική αξία: <strong>' + fmt(woAmt) + ' €</strong> | Κατηγορία: ' + esc(wo.priority||'—') + ' | Κατάσταση: ' + esc(wo.status||'—') + '</span>' +
+    (already>0 ? '<br><span style="font-size:11px;color:var(--red);font-weight:600;">Ήδη επιβληθείσες ρήτρες: -' + fmt(already) + ' €</span>' : '');
+
+  // v9.19: Προειδοποίηση για επιβολή μετά την υπογραφή πρωτοκόλλου
+  const warnEl = document.getElementById('pSupplementaryWarn');
+  if(warnEl){
+    const needsSupplementary = (wo.status==='Παραλήφθηκε') || !!(wo.signedPdfUrl||wo.signedPdfData);
+    warnEl.style.display = needsSupplementary ? 'block' : 'none';
+  }
+
+  // v9.19.2: Υπόδειξη κλιμακίου «Καθυστέρηση Απόκρισης» βάσει μετρημένης υπέρβασης
+  const sugBox=document.getElementById('pDelaySuggest');
+  if(sugBox){
+    const s=suggestDelayPenalty(wo);
+    if(!wo.verifiedAt){
+      sugBox.style.display='block';
+      sugBox.style.background='var(--sec)'; sugBox.style.borderColor='var(--borderS)';
+      sugBox.innerHTML='<strong>⏱ Χρονόμετρο σε εξέλιξη.</strong> Για τεκμηριωμένη ρήτρα καθυστέρησης, σταματήστε πρώτα τον χρόνο (⏹ Διακοπή Χρόνου) ώστε να καταγραφεί η υπέρβαση.';
+    }else if(s){
+      const ok = s.idx===null;
+      sugBox.style.display='block';
+      sugBox.style.background = ok?'#e8f5e9':'#fff3cd';
+      sugBox.style.borderColor = ok?'#0d7a5c':'#ffc107';
+      sugBox.innerHTML = '<strong>'+(ok?'✅ ':'⚠ ')+'Μετρημένη υπέρβαση: '
+        + describeBreach(wo.breachMinutes||0, wo.breachMode)+'</strong>'
+        + '<div style="margin-top:3px;">Υπόδειξη Πίνακα 3: <strong>'+esc(s.label)+'</strong></div>'
+        + (wo.arrivalBreachMinutes!==undefined
+            ? '<div style="margin-top:3px;">🚚 Χρόνος άφιξης (Άρθρο 2.1): '
+              +(wo.arrivalBreachMinutes>0?'υπέρβαση '+describeBreach(wo.arrivalBreachMinutes,wo.breachMode):'εντός προθεσμίας')+'</div>'
+            : '<div style="margin-top:3px;color:var(--muted);">Δεν έχει δηλωθεί ώρα άφιξης συνεργείου (🚚 Άφιξη) — η ρήτρα καθυστέρησης <em>απόκρισης</em> στηρίζεται στον χρόνο εκτέλεσης.</div>')
+        + '<div style="margin-top:4px;font-size:10px;color:var(--muted);">Πρόταση προς την Επιτροπή — η τελική επιλογή και το ποσό παραμένουν στην κρίση σας.</div>';
+    }else{ sugBox.style.display='none'; }
+  }
+
+  // v9.19: Λίστα ήδη επιβληθεισών ρητρών με δυνατότητα αφαίρεσης
+  renderExistingPenalties(wo);
+
   // Reset
   document.getElementById('pSubItems').style.display='none';
   document.getElementById('pSelectedInfo').style.display='none';
   document.getElementById('pConfirmBtn').disabled=true;
+  const sEl=document.getElementById('pSurcharge'); if(sEl) sEl.value='';
   // Build category buttons
   const btns = document.getElementById('pCatBtns');
   btns.innerHTML = '';
@@ -2241,17 +2575,99 @@ function selectPenalty(cat, item, amt){
   document.getElementById('pComment').value = '';
   document.getElementById('pSelectedInfo').style.display='block';
   document.getElementById('pConfirmBtn').disabled=false;
+
+  // v9.19 — Άρθρο 4.3: υπόδειξη προσαύξησης 50% επί των ΛΟΙΠΩΝ ρητρών της εντολής.
+  // Η απόφαση παραμένει στην κρίση της Επιτροπής (χειροκίνητο πεδίο).
+  const wo = workOrders.find(w=>w.id===_pOrderId);
+  const others = wo ? woPenaltiesTotal(wo) : 0;
+  const hintEl = document.getElementById('pSurchargeHint');
+  const sEl = document.getElementById('pSurcharge');
+  if(sEl) sEl.value='';
+  if(hintEl){
+    hintEl.textContent = others>0
+      ? 'Άρθρο 4.3: 50% επί των λοιπών ρητρών της εντολής (' + fmt(others) + ' €) = ' + fmt(others*0.5) + ' €. Συμπληρώνεται κατά την αιτιολογημένη κρίση της Επιτροπής.'
+      : 'Άρθρο 4.3: εφαρμόζεται μόνο όταν η ίδια παράβαση εμπίπτει σε περισσότερες κατηγορίες.';
+  }
   document.getElementById('pSelectedInfo').scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+// v9.19: Λίστα ήδη επιβληθεισών ρητρών μέσα στο modal
+function renderExistingPenalties(wo){
+  const box = document.getElementById('pExistingList');
+  if(!box) return;
+  const list = Array.isArray(wo.penalties) ? wo.penalties : [];
+  if(!list.length && !(wo.penaltyAmount>0)){ box.innerHTML=''; box.style.display='none'; return; }
+  box.style.display='block';
+  let rows = list.map((p,i)=>
+    '<div class="penalty-row">'
+    + '<div><div class="pcategory">'+esc(p.category)+'</div><div class="pdesc">'+esc(p.item)
+    + (p.comment?' — '+esc(p.comment):'')
+    + (p.surcharge>0?' <strong>(+Άρθρο 4.3: '+fmt(p.surcharge)+' €)</strong>':'')
+    + '</div><div class="pdesc">'+fmtDate(p.date)+' · '+esc(p.stage||'')+'</div></div>'
+    + '<div class="penalty-amt">-'+fmt(p.amount)+' €</div>'
+    + '<button class="penalty-del" title="Αφαίρεση ρήτρας" onclick="removePenalty(\''+wo.id+'\',\''+p.id+'\')">🗑</button>'
+    + '</div>').join('');
+  if(!list.length && wo.penaltyAmount>0){
+    rows = '<div class="penalty-row"><div><div class="pcategory">Ρήτρα προ v9.19</div>'
+         + '<div class="pdesc">'+esc(wo.penaltyNote||'—')+'</div></div>'
+         + '<div class="penalty-amt">-'+fmt(wo.penaltyAmount)+' €</div><div></div></div>';
+  }
+  box.innerHTML = '<div class="penalty-section"><div class="penalty-section-hdr">'
+    + '<h4>Ήδη επιβληθείσες ρήτρες (σωρευτικά — Άρθρο 4.3)</h4></div>'
+    + rows
+    + '<div class="penalty-total">ΣΥΝΟΛΟ: -'+fmt(woPenaltiesTotal(wo))+' €</div></div>';
+}
+
+// v9.19: Αφαίρεση μεμονωμένης ρήτρας (διαγράφει και τη σχετική εγγραφή πληρωμής)
+async function removePenalty(orderId, penaltyId){
+  const wo = workOrders.find(w=>w.id===orderId);
+  if(!wo || !Array.isArray(wo.penalties)) return;
+  const p = wo.penalties.find(x=>x.id===penaltyId);
+  if(!p) return;
+  if(!confirm('Αφαίρεση της ρήτρας «'+p.category+' — '+p.item+'» ποσού '+fmt(p.amount)+' €;\n\nΘα διαγραφεί οριστικά και η αντίστοιχη αρνητική χρέωση.')) return;
+  try{
+    const payIds = payments.filter(x=>x.isPenalty && (x.penaltyId===penaltyId || x.id===p.paymentId)).map(x=>x.id);
+    if(payIds.length) await _v9DeleteRows('rodios_payments', payIds);
+    payIds.forEach(id=>_locallyDeleted.add(id));
+    payments = payments.filter(x=>!payIds.includes(x.id));
+    wo.penalties = wo.penalties.filter(x=>x.id!==penaltyId);
+    syncPenaltyFields(wo);
+    _v9ClearLightCachesAfterDelete();
+    await saveNow();
+    renderExistingPenalties(wo);
+    renderAll();
+    toast('🗑 Η ρήτρα αφαιρέθηκε — νέο σύνολο: '+fmt(woPenaltiesTotal(wo))+' €');
+  }catch(err){
+    alert('Δεν αφαιρέθηκε η ρήτρα από τη βάση.\n\n'+(err.message||JSON.stringify(err)));
+  }
 }
 
 function confirmPenalty(){
   if(!_pSelected||!_pOrderId) return;
   const wo = workOrders.find(w=>w.id===_pOrderId);
   if(!wo) return;
-  const finalAmt = Math.abs(parseFloat(document.getElementById('pFinalAmt').value)||0);
+  const baseAmt   = Math.abs(parseFloat(document.getElementById('pFinalAmt').value)||0);
+  const surcharge = Math.abs(parseFloat((document.getElementById('pSurcharge')||{}).value)||0);
+  const finalAmt  = r2(baseAmt + surcharge);
   const comment = document.getElementById('pComment').value.trim();
   if(finalAmt <= 0){alert('Εισάγετε ποσό ρήτρας > 0');return;}
-  // Add as negative payment
+
+  // v9.19: Στάδιο επιβολής — τεκμηριώνει ΠΟΤΕ διαπιστώθηκε η παράβαση
+  const stage = (wo.status==='Εστάλη' || wo.status==='Εκδόθηκε')
+    ? 'Στάδιο Α — Απόκριση/Εκτέλεση'
+    : 'Στάδιο Β — Παραλαβή';
+  const needsSupplementary = (wo.status==='Παραλήφθηκε') || !!(wo.signedPdfUrl||wo.signedPdfData);
+  if(needsSupplementary && !confirm(
+      'Η εντολή έχει ήδη υπογεγραμμένο πρωτόκολλο παραλαβής.\n\n'
+    + 'Η ρήτρα θα καταχωρηθεί κανονικά, αλλά απαιτείται έκδοση ΣΥΜΠΛΗΡΩΜΑΤΙΚΟΥ '
+    + 'πρωτοκόλλου για να είναι εκτελεστή.\n\nΝα προχωρήσω;')) return;
+
+  const penaltyId = genId();
+  const noteTxt = '⚠ Ποινική Ρήτρα: ' + _pSelected.cat + ' — ' + _pSelected.item.name
+                + (surcharge>0 ? ' | +Άρθρο 4.3: '+fmt(surcharge)+' €' : '')
+                + (comment?' | '+comment:'');
+
+  // Αρνητική χρέωση (1:1 με την εγγραφή ρήτρας)
   const penaltyPayment = {
     id: genId(),
     date: todayStr(),
@@ -2259,22 +2675,36 @@ function confirmPenalty(){
     orderId: _pOrderId,
     invoiceNum: 'ΡΗΤΡΑ-' + wo.orderNum,
     month: new Date().toLocaleDateString('el-GR',{month:'long',year:'numeric'}),
-    notes: '⚠ Ποινική Ρήτρα: ' + _pSelected.cat + ' — ' + _pSelected.item.name + (comment?' | '+comment:''),
-    isPenalty: true
+    notes: noteTxt,
+    isPenalty: true,
+    penaltyId: penaltyId
   };
   payments.push(penaltyPayment);
-  // Lock the work order
-  wo.penaltyApplied = true;
-  wo.penaltyNote = penaltyPayment.notes;
-  wo.penaltyAmount = finalAmt;
-  wo.penaltyDate = todayStr();
+
+  // v9.19: ΣΩΡΕΥΤΙΚΗ προσθήκη — δεν αντικαθιστά πλέον τις προηγούμενες
+  if(!Array.isArray(wo.penalties)) wo.penalties = [];
+  wo.penalties.push({
+    id: penaltyId,
+    date: todayStr(),
+    category: _pSelected.cat,
+    item: _pSelected.item.name,
+    base: baseAmt,
+    surcharge: surcharge,
+    amount: finalAmt,
+    comment: comment,
+    stage: stage,
+    imposedBy: (currentUser && currentUser.name) || '',
+    paymentId: penaltyPayment.id
+  });
+  syncPenaltyFields(wo);
+
   // Check contract limit
   const totalPen = totalPenaltiesImposed();
   const pct = settings.contractValue > 0 ? (totalPen / settings.contractValue * 100) : 0;
   save();
   closePenaltyModal();
   renderAll();
-  toast('⚠ Ρήτρα ' + fmt(finalAmt) + ' € επιβλήθηκε — Εντολή κλειδώθηκε');
+  toast('⚠ Ρήτρα ' + fmt(finalAmt) + ' € επιβλήθηκε — Σύνολο εντολής: ' + fmt(woPenaltiesTotal(wo)) + ' € (' + wo.penalties.length + ' ρήτρ' + (wo.penalties.length===1?'α':'ες') + ')');
   // Contract warnings
   if(pct >= 15){
     setTimeout(()=>alert('🚨 ΚΡΙΣΙΜΟ: Ποινικές ρήτρες ' + pct.toFixed(1) + '% της σύμβασης!\n\nΥπερβαίνει το 15%. Απαιτείται άμεση ενέργεια για καταγγελία σύμβασης (Άρθρο 4.1γ).'), 300);
@@ -2553,78 +2983,7 @@ function updateCoordsDisplay(){
   }
 }
 
-// ================================================================
-// PENALTY CLAUSES (ΠΟΙΝΙΚΕΣ ΡΗΤΡΕΣ — ΑΡΘΡΟ 4)
-// ================================================================
-let woPenalties = [];
 
-const PENALTY_CATALOG = [
-  {group:'Καθυστέρηση Απόκρισης', items:[
-    {name:'ΚΑΤ.1 — 31-60 λεπτά',            amount:200,   note:'Άρθρο 4.2 — Άμεσος κίνδυνος'},
-    {name:'ΚΑΤ.1 — 61-120 λεπτά',           amount:500,   note:'Άρθρο 4.2 — Άμεσος κίνδυνος'},
-    {name:'ΚΑΤ.1 — >2 ώρες (βασική)',        amount:1000,  note:'Άρθρο 4.2 — + 200€/ώρα επιπλέον'},
-    {name:'ΚΑΤ.2 — 2-4 ώρες',               amount:100,   note:'Άρθρο 4.2 — Επείγον'},
-    {name:'ΚΑΤ.2 — 4-8 ώρες',               amount:250,   note:'Άρθρο 4.2 — Επείγον'},
-    {name:'ΚΑΤ.2 — >8 ώρες (βασική)',        amount:500,   note:'Άρθρο 4.2 — + 100€/ώρα επιπλέον'},
-    {name:'ΚΑΤ.3 — 24-48 ώρες',             amount:80,    note:'Άρθρο 4.2 — Υψηλή προτεραιότητα'},
-    {name:'ΚΑΤ.3 — 48-72 ώρες',             amount:150,   note:'Άρθρο 4.2 — Υψηλή προτεραιότητα'},
-    {name:'ΚΑΤ.3 — >72 ώρες (βασική)',       amount:300,   note:'Άρθρο 4.2 — + 50€/ημέρα επιπλέον'},
-    {name:'ΚΑΤ.4 — 3-5 ημέρες',             amount:50,    note:'Άρθρο 4.2 — Κανονική'},
-    {name:'ΚΑΤ.4 — 5-7 ημέρες',             amount:100,   note:'Άρθρο 4.2 — Κανονική'},
-    {name:'ΚΑΤ.4 — >7 ημέρες (βασική)',      amount:200,   note:'Άρθρο 4.2 — + 30€/ημέρα επιπλέον'},
-    {name:'ΚΑΤ.5 — 7-10 ημέρες',            amount:30,    note:'Άρθρο 4.2 — Προγραμματισμένη'},
-    {name:'ΚΑΤ.5 — 10-14 ημέρες',           amount:60,    note:'Άρθρο 4.2 — Προγραμματισμένη'},
-    {name:'ΚΑΤ.5 — >14 ημέρες (βασική)',     amount:100,   note:'Άρθρο 4.2 — + 20€/ημέρα επιπλέον'},
-  ]},
-  {group:'Ελαττωματική Εκτέλεση', items:[
-    {name:'Μικρό ελάττωμα (απαιτεί επιδιόρθωση)',   amount:null, pct:20,  note:'20% αξίας εργασίας — Άρθρο 4.2'},
-    {name:'Σημαντικό ελάττωμα (απαιτεί επανεκτέλεση)', amount:null, pct:50, note:'50% αξίας εργασίας — Άρθρο 4.2'},
-    {name:'Ουσιώδες ελάττωμα (ακατάλληλο αποτέλεσμα)', amount:null, pct:100,note:'100% αξίας — Άρθρο 4.2'},
-  ]},
-  {group:'Μη Τήρηση Προδιαγραφών Υλικών', items:[
-    {name:'Χρήση υλικού κατώτερης ποιότητας',   amount:null, pct:50,  note:'50% αξίας εργασίας — Άρθρο 4.2'},
-    {name:'Χρήση ακατάλληλου υλικού',           amount:null, pct:100, note:'100% αξίας + αντικατάσταση — Άρθρο 4.2'},
-    {name:'Χρήση επικίνδυνου υλικού',           amount:null, pct:200, note:'200% αξίας + αποκατάσταση — Άρθρο 4.2'},
-  ]},
-  {group:'Σήμανση Εργοταξίου', items:[
-    {name:'Ελλιπής σήμανση',                    amount:150,  note:'Άρθρο 4.2 — ανά περιστατικό'},
-    {name:'Απουσία σήμανσης',                   amount:400,  note:'Άρθρο 4.2 — ανά περιστατικό'},
-    {name:'Πρόκληση ατυχήματος λόγω έλλειψης σήμανσης', amount:1500, note:'Άρθρο 4.2 — + πλήρης αποζημίωση'},
-  ]},
-  {group:'Μη Χρήση ΜΑΠ', items:[
-    {name:'Μεμονωμένο περιστατικό',              amount:100,  note:'Άρθρο 4.2 — ανά εργαζόμενο'},
-    {name:'Επαναλαμβανόμενη παράβαση (2-3 φορές)', amount:300, note:'Άρθρο 4.2 — ανά εργαζόμενο'},
-    {name:'Συστηματική παράβαση (>3 φορές)',     amount:500,  note:'Άρθρο 4.2 — + αναστολή εργασιών'},
-  ]},
-  {group:'Μη Ανταπόκριση σε Κλήση', items:[
-    {name:'1-2 ώρες (εργάσιμες)',                amount:50,   note:'Άρθρο 4.2'},
-    {name:'2-4 ώρες (εργάσιμες)',                amount:100,  note:'Άρθρο 4.2'},
-    {name:'>4 ώρες (εργάσιμες)',                 amount:200,  note:'Άρθρο 4.2 — + αυτεπάγγελτη εκτέλεση'},
-  ]},
-  {group:'Μη Υποβολή Αναφοράς Ολοκλήρωσης', items:[
-    {name:'1-24 ώρες καθυστέρηση',              amount:30,   note:'Άρθρο 4.2'},
-    {name:'24-48 ώρες καθυστέρηση',             amount:80,   note:'Άρθρο 4.2'},
-    {name:'>48 ώρες καθυστέρηση',               amount:150,  note:'Άρθρο 4.2 — + αναστολή πληρωμής'},
-  ]},
-  {group:'Μη Διαθεσιμότητα Συνεργείου Εκτός Ωραρίου', items:[
-    {name:'Απογευματινές ώρες (15:00-22:00)',    amount:200,  note:'Άρθρο 4.2 — ανά περιστατικό'},
-    {name:'Νυχτερινές ώρες (22:00-06:00)',       amount:400,  note:'Άρθρο 4.2 — ανά περιστατικό'},
-    {name:'Αργίες/Σαββατοκύριακα',               amount:300,  note:'Άρθρο 4.2 — ανά περιστατικό'},
-  ]},
-  {group:'Ανεπαρκής Στελέχωση', items:[
-    {name:'Έως 20% λιγότερο προσωπικό',          amount:50,   note:'Άρθρο 4.2 — ανά ημέρα'},
-    {name:'20-50% λιγότερο προσωπικό',           amount:150,  note:'Άρθρο 4.2 — ανά ημέρα'},
-    {name:'>50% λιγότερο προσωπικό',             amount:300,  note:'Άρθρο 4.2 — + αναστολή σύμβασης'},
-  ]},
-  {group:'Λοιπές Παραβάσεις', items:[
-    {name:'Παράλειψη ουσιώδους στοιχείου αναφοράς', amount:100, note:'Άρθρο 4.2'},
-    {name:'Εκ προθέσεως ψευδής αναφορά',         amount:500,  note:'Άρθρο 4.2 — + διερεύνηση σύμβασης'},
-    {name:'Μη συμμόρφωση με οδηγίες επίβλεψης (2η παράβαση)', amount:150, note:'Άρθρο 4.2'},
-    {name:'Μη συμμόρφωση με οδηγίες επίβλεψης (3η+)', amount:300, note:'Άρθρο 4.2 — + εξέταση καταγγελίας'},
-    {name:'Μη διαθεσιμότητα εξοπλισμού (καθυστέρηση 2-8h)', amount:200, note:'Άρθρο 4.2'},
-    {name:'Αδυναμία εκτέλεσης λόγω εξοπλισμού', amount:400,  note:'Άρθρο 4.2 — + κόστος εναλλακτικής'},
-  ]},
-];
 
 // ================================================================
 // USERS & LOGIN SYSTEM
@@ -4784,14 +5143,119 @@ function setOrderTimerStarted(wo, when){
   wo.sentAt = iso;
   wo.deadlineStartedAt = iso;
   const pd=PRIO_DATA[wo.priority];
-  wo.deadlineAt = pd && pd.minResp
-    ? new Date(new Date(iso).getTime()+pd.minResp*60*1000).toISOString()
-    : '';
+  // v9.19.2: Για ΚΑΤ.3/4/5 ο χρόνος ξεκινά την επόμενη εργάσιμη στιγμή
+  wo.clockStartsAt = (pd && pd.mode==='working')
+    ? nextWorkingMoment(new Date(iso)).toISOString()
+    : iso;
+  wo.deadlineAt = pd ? computeDeadline(iso, wo.priority, wo.weatherExtension) : '';
+  wo.deadlineMode = pd ? (pd.mode||'calendar') : '';
+}
+
+// v9.19.2 — Στιγμή διακοπής του χρονομέτρου.
+// Κύριο: η χειροκίνητη επαλήθευση της υπηρεσίας. Η δήλωση του αναδόχου
+// μετράει μόνο αν η υπηρεσία επέλεξε ρητά να κλειδώσει σε αυτήν.
+function getOrderStopMs(wo){
+  if(!wo) return NaN;
+  if(wo.verifiedAt){ const t=new Date(wo.verifiedAt).getTime(); if(!isNaN(t)) return t; }
+  return NaN;
+}
+
+// v9.19.2 — «Πάγωμα» της υπέρβασης. Καλείται μία φορά, κατά τη διακοπή.
+function freezeBreach(wo){
+  if(!wo) return;
+  const dl=getOrderDeadlineMs(wo), stop=getOrderStopMs(wo);
+  if(isNaN(dl)||isNaN(stop)){ return; }
+  const mode=wo.deadlineMode||(PRIO_DATA[wo.priority]||{}).mode||'calendar';
+  wo.breachMode=mode;
+  wo.breachMinutes = stop>dl
+    ? (mode==='working' ? workingMinutesBetween(new Date(dl), new Date(stop))
+                        : Math.round((stop-dl)/60000))
+    : 0;
+  // Χρόνος απόκρισης βάσει Άρθρου 2.1 (αν έχει δηλωθεί άφιξη συνεργείου)
+  if(wo.arrivedAt){
+    const arr=new Date(wo.arrivedAt).getTime();
+    if(!isNaN(arr)){
+      wo.arrivalBreachMinutes = arr>dl
+        ? (mode==='working' ? workingMinutesBetween(new Date(dl), new Date(arr))
+                            : Math.round((arr-dl)/60000))
+        : 0;
+    }
+  }
+}
+
+// v9.19.2 — Χειροκίνητη διακοπή χρόνου από την υπηρεσία
+async function stopOrderTimer(orderId, useContractorAck){
+  const wo=workOrders.find(w=>w.id===orderId); if(!wo) return;
+  if(wo.verifiedAt){
+    if(!confirm('Ο χρόνος έχει ήδη σταματήσει στις '+fmtDT(wo.verifiedAt)+'.\n\nΕπαναφορά και νέα διακοπή τώρα;')) return;
+  }
+  let stampISO, how;
+  if(useContractorAck){
+    const ts=wo.contractorAck && wo.contractorAck.timestamp;
+    if(!ts){ toast('Ο ανάδοχος δεν έχει δηλώσει ολοκλήρωση.'); return; }
+    if(!confirm('Κλείδωμα του χρόνου στη δήλωση ολοκλήρωσης του αναδόχου;\n\nΏρα δήλωσης: '+fmtDT(ts)+'\n\nΗ ενέργεια καταγράφεται και μπορεί να αλλάξει μόνο από admin.')) return;
+    stampISO=new Date(ts).toISOString(); how='Δήλωση αναδόχου';
+  }else{
+    if(!confirm('Διακοπή χρονομέτρησης για την εντολή '+wo.orderNum+' ΤΩΡΑ;\n\nΒεβαιώνετε ότι η υπηρεσία διαπίστωσε την ολοκλήρωση των εργασιών.')) return;
+    stampISO=new Date().toISOString(); how='Επαλήθευση υπηρεσίας';
+  }
+  wo.verifiedAt=stampISO;
+  wo.verifiedBy=(currentUser && (currentUser.name||currentUser.username))||'';
+  wo.verifiedHow=how;
+  freezeBreach(wo);
+  try{
+    await saveNow();
+    renderAll();
+    toast(wo.breachMinutes>0
+      ? '⏹ Χρόνος σταμάτησε — ⚠ Υπέρβαση '+describeBreach(wo.breachMinutes, wo.breachMode)
+      : '⏹ Χρόνος σταμάτησε — ✅ Εντός προθεσμίας');
+  }catch(e){ alert('Δεν αποθηκεύτηκε η διακοπή χρόνου.\n\n'+(e.message||'')); }
+}
+
+// v9.19.2 — Καταγραφή ώρας άφιξης συνεργείου (Άρθρο 2.1)
+async function setArrivalTime(orderId){
+  const wo=workOrders.find(w=>w.id===orderId); if(!wo) return;
+  const cur=wo.arrivedAt?fmtDT(wo.arrivedAt):'';
+  const v=prompt('Ώρα άφιξης συνεργείου στο σημείο επέμβασης\n(μορφή: ΗΗ/ΜΜ/ΕΕΕΕ ΩΩ:ΛΛ)\n\nΤεκμηριώνει τον χρόνο απόκρισης του Άρθρου 2.1.', cur);
+  if(v===null) return;
+  if(!v.trim()){ wo.arrivedAt=''; wo.arrivalBreachMinutes=undefined; }
+  else{
+    const m=v.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/);
+    if(!m){ alert('Μη έγκυρη μορφή. Παράδειγμα: 04/08/2026 09:30'); return; }
+    const d=new Date(+m[3], +m[2]-1, +m[1], +m[4], +m[5]);
+    if(isNaN(d.getTime())){ alert('Μη έγκυρη ημερομηνία.'); return; }
+    wo.arrivedAt=d.toISOString();
+    freezeBreach(wo);
+  }
+  try{ await saveNow(); renderAll(); toast('✓ Καταγράφηκε η ώρα άφιξης'); }
+  catch(e){ alert('Δεν αποθηκεύτηκε.\n\n'+(e.message||'')); }
+}
+
+function fmtDT(iso){
+  const d=new Date(iso); if(isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('el-GR')+' '+d.toLocaleTimeString('el-GR',{hour:'2-digit',minute:'2-digit'});
 }
 
 function buildCountdown(wo){
   if(!wo || wo.orderType==='service') return '';
 
+
+  // v9.19.2: Αν ο χρόνος έχει σταματήσει, εμφανίζεται το ΠΑΓΩΜΕΝΟ αποτέλεσμα —
+  // σε ΟΛΕΣ τις καταστάσεις, ώστε το τεκμήριο να μη χάνεται μετά την παραλαβή.
+  if(wo.verifiedAt){
+    const br=wo.breachMinutes||0;
+    const arr=wo.arrivalBreachMinutes;
+    let out = br>0
+      ? '<span class="deadline-over">⚠ Υπέρβαση '+describeBreach(br, wo.breachMode)+'</span>'
+      : '<span class="deadline-ok">✅ Εντός προθεσμίας</span>';
+    out += '<div style="font-size:9px;color:var(--muted);margin-top:2px;">⏹ '+fmtDT(wo.verifiedAt)
+         + (wo.verifiedHow?' · '+esc(wo.verifiedHow):'')+'</div>';
+    if(arr!==undefined){
+      out += '<div style="font-size:9px;color:'+(arr>0?'var(--red)':'var(--green)')+';">🚚 Άφιξη: '
+           + (arr>0?'υπέρβαση '+describeBreach(arr, wo.breachMode):'εντός')+'</div>';
+    }
+    return out;
+  }
 
   const activeStatuses=['Εστάλη','Ολοκληρώθηκε - Εκκρεμούν Υπογραφές'];
   if(!activeStatuses.includes(wo.status)) return '';
@@ -4834,8 +5298,11 @@ function checkAutopenalties(){
   if(!workOrders || !settings) return;
   workOrders.forEach(wo=>{
     if(wo.orderType==='service') return;
-    if(wo.status!=='Εστάλη') { wo._overdue=false; return; }
-    if(wo.penaltyApplied) return;
+    // v9.19.2: Αν ο χρόνος έχει σταματήσει, η υπέρβαση είναι ΠΑΓΩΜΕΝΗ και δεν
+    // επαναϋπολογίζεται — ούτε σβήνεται όταν η εντολή περάσει σε παραλαβή.
+    if(wo.verifiedAt){ wo._overdue = (wo.breachMinutes||0)>0; return; }
+    const openStatuses=['Εστάλη','Ολοκληρώθηκε - Εκκρεμούν Υπογραφές'];
+    if(!openStatuses.includes(wo.status)) { wo._overdue=false; return; }
     const deadlineMs=getOrderDeadlineMs(wo);
     wo._overdue = !isNaN(deadlineMs) && Date.now()>deadlineMs;
   });
@@ -4878,6 +5345,8 @@ function renderOrders(){
       ? '<span style="font-size:11px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:12px;font-weight:600;">'+(w.serviceMaterials||'—')+'</span>'
         +(w.serviceDuration?'<br><span style="font-size:10px;color:var(--muted);">⏱ '+w.serviceDuration+'</span>':'')
       : '<strong style="color:var(--navy)">'+fmt(tot)+' €</strong>'
+        +(woDiscountPct(w)>0?'<br><span style="font-size:10px;color:var(--muted)">Τιμολ. μελέτης: '+fmt(woListTotal(w))+' € − έκπτ. '+fmt(woDiscountPct(w))+'%</span>':'')
+        +(isCommittedOrder(w)&&tot>0?'<br><span style="font-size:10px;color:var(--navy);font-weight:600">📊 '+budgetPct(tot).toFixed(3)+'% της σύμβασης</span>':'')
         +(w.municipalMaterials==='Ναι'?'<br><span style="font-size:10px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-weight:600;">🏛 Υλικά Δήμου</span>':'')
       +'<br><span style="font-size:10px;color:var(--muted)">+ΦΠΑ: '+fmt(tot*(settings.vatRate||24)/100)+' €</span>';
     if(pen>0) costHtml+='<br><span style="font-size:10px;color:var(--red);font-weight:600;">Ρήτρες: -'+fmt(pen)+' €</span>';
@@ -4920,14 +5389,29 @@ function renderOrders(){
 
       } else if(st==='Εστάλη'){
         // Penalty button always active in Εστάλη
-        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(w.penaltyApplied?' ('+fmt(w.penaltyAmount||0)+'€)':'')+'</button>';
+        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(woPenaltiesTotal(w)>0?' ('+fmt(woPenaltiesTotal(w))+'€)':'')+'</button>';
         btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">✍ Υπογραφή</button>';
         btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
         btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
+        // v9.19.2 — Διακοπή χρονομέτρησης
+        if(!w.verifiedAt){
+          btnHtml+='<button style="background:#0d7a5c;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" title="Η υπηρεσία διαπίστωσε ολοκλήρωση εργασιών" onclick="stopOrderTimer(\''+w.id+'\')">⏹ Διακοπή Χρόνου</button>';
+          if(w.contractorAck && w.contractorAck.timestamp)
+            btnHtml+='<button style="background:#6b21a8;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" title="Κλείδωμα στη δήλωση ολοκλήρωσης του αναδόχου" onclick="stopOrderTimer(\''+w.id+'\',true)">🔒 Κλείδωμα στη δήλωση αναδόχου</button>';
+        }
+        btnHtml+='<button style="background:none;border:1px solid var(--borderS);border-radius:3px;padding:4px 8px;font-size:11px;cursor:pointer;" title="Ώρα άφιξης συνεργείου (Άρθρο 2.1)" onclick="setArrivalTime(\''+w.id+'\')">🚚 Άφιξη</button>';
         if(!w.penaltyApplied || isAdmin) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
 
       } else if(st==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές'){
-        btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">⚠ Ρήτρα</button>';
+        // v9.19.2 — Αν δεν έχει σταματήσει ο χρόνος, εξακολουθεί να τρέχει
+        if(!w.verifiedAt){
+          btnHtml+='<button style="background:#0d7a5c;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="stopOrderTimer(\''+w.id+'\')">⏹ Διακοπή Χρόνου</button>';
+          if(w.contractorAck && w.contractorAck.timestamp)
+            btnHtml+='<button style="background:#6b21a8;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="stopOrderTimer(\''+w.id+'\',true)">🔒 Κλείδωμα στη δήλωση αναδόχου</button>';
+        }
+        btnHtml+='<button style="background:none;border:1px solid var(--borderS);border-radius:3px;padding:4px 8px;font-size:11px;cursor:pointer;" onclick="setArrivalTime(\''+w.id+'\')">🚚 Άφιξη</button>';
+        // v9.19: Η Επιτροπή Παραλαβής επιβάλλει ρήτρες σε ΑΥΤΟ το στάδιο (Άρθρο 4.1α, Πίνακας 4 ΒΗΜΑ 9)
+        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(woPenaltiesTotal(w)>0?' ('+fmt(woPenaltiesTotal(w))+'€)':'')+'</button>';
         if(hasProtocol){
           btnHtml+='<button style="background:#198754;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="downloadSignedPdf(\''+w.id+'\')">📄 Πρωτόκολλο</button>';
           btnHtml+='<button class="ab-done" onclick="emailProtocol(\''+w.id+'\')">✉ Αποστολή</button>';
@@ -4939,6 +5423,8 @@ function renderOrders(){
         if(isAdmin) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN">✎</button>';
 
       } else if(st==='Παραλήφθηκε'){
+        // v9.19: Επιτρέπεται με έκδοση συμπληρωματικού πρωτοκόλλου
+        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(woPenaltiesTotal(w)>0?' ('+fmt(woPenaltiesTotal(w))+'€)':'')+'</button>';
         if(hasProtocol){
           btnHtml+='<button style="background:#198754;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="downloadSignedPdf(\''+w.id+'\')">📄 Πρωτόκολλο</button>';
           btnHtml+='<button class="ab-done" onclick="emailProtocol(\''+w.id+'\')">✉ Αποστολή</button>';
@@ -4947,7 +5433,7 @@ function renderOrders(){
 
       } else if(st==='Δεν ολοκληρώθηκε'){
         // Penalty button always active
-        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(w.penaltyApplied?' ('+fmt(w.penaltyAmount||0)+'€)':'')+'</button>';
+        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(woPenaltiesTotal(w)>0?' ('+fmt(woPenaltiesTotal(w))+'€)':'')+'</button>';
         btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
         btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
         if(isAdmin || !w.penaltyApplied) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
@@ -5139,10 +5625,13 @@ function renderFinance(){
   document.getElementById('finCards').innerHTML=`
     <div class="fin-card">
       <h3>Σύμβαση & Εκτέλεση Εντολών</h3>
-      <div class="fin-row"><span class="fk">Αξία Σύμβασης (χ.ΦΠΑ)</span><span class="fv">${fmt(settings.contractValue)} €</span></div>
+      <div class="fin-row"><span class="fk">Προϋπολογισμός Μελέτης (χ.ΦΠΑ)</span><span class="fv">${fmt(967741.20)} €</span></div>
+      <div class="fin-row"><span class="fk">(-) Έκπτωση Αναδόχου ${fmt(parseFloat(settings.discountPct)||0)}%</span><span class="fv neg">-${fmt(r2(967741.20*(parseFloat(settings.discountPct)||0)/100))} €</span></div>
+      <div class="fin-row"><span class="fk"><strong>Αξία Σύμβασης (χ.ΦΠΑ)</strong></span><span class="fv">${fmt(settings.contractValue)} €</span></div>
       <div class="fin-row"><span class="fk">ΦΠΑ ${vatRate}%</span><span class="fv">${fmt(settings.contractValue*vatRate/100)} €</span></div>
-      <div class="fin-row"><span class="fk">Εκδοθείσες Εντολές (σύνολο)</span><span class="fv">${fmt(issued)} €</span></div>
-      <div class="fin-row"><span class="fk">Παραληφθείσες Εντολές (μικτό)</span><span class="fv">${fmt(acceptedOrders.reduce((s,w)=>s+woTotal(w),0))} €</span></div>
+      <div class="fin-row"><span class="fk">Δεσμευμένα (εντολές σε ισχύ)</span><span class="fv">${fmt(issued)} € <small style="color:var(--muted)">· ${budgetPct(issued).toFixed(2)}%</small></span></div>
+      <div class="fin-row"><span class="fk">Οριστικά (παραληφθέντα)</span><span class="fv">${fmt(totalFinal())} € <small style="color:var(--muted)">· ${budgetPct(totalFinal()).toFixed(2)}%</small></span></div>
+      ${totalCancelled()>0?`<div class="fin-row"><span class="fk">Ακυρωθείσες <small>(δεν δεσμεύουν πίστωση)</small></span><span class="fv" style="color:var(--muted)">${fmt(totalCancelled())} €</span></div>`:''}
       <div class="fin-row"><span class="fk" style="color:var(--red)">(-) Ποινικές Ρήτρες Παραλαβής</span><span class="fv neg">-${fmt(penalties)} €</span></div>
       <div class="fin-row" style="border-top:2px solid var(--border);padding-top:6px;"><span class="fk"><strong>Καθαρό Πληρωτέο (παραλήφθηκαν)</strong></span><span class="fv" style="font-size:15px;">${fmt(payable)} €</span></div>
       <div class="fin-row"><span class="fk">Υπόλοιπο Σύμβασης</span><span class="fv ${rem<0?'neg':'pos'}">${fmt(rem)} €</span></div>
@@ -5244,54 +5733,152 @@ async function delPayment(id){
 // ================================================================
 // CATALOG
 // ================================================================
-function calcCatalogUsed(code){
-  // Sum quantities ONLY from completed work orders (Ολοκληρώθηκε - Εκκρεμούν Υπογραφές)
-  var completedStatuses = ['Ολοκληρώθηκε - Εκκρεμούν Υπογραφές','Παραλήφθηκε'];
-  var total = 0;
-  workOrders.forEach(function(wo){
-    if(!wo.items) return;
-    if(!completedStatuses.includes(wo.status)) return;
-    wo.items.forEach(function(item){
-      if((item.etepCode||item.code||'').trim() === code.trim()){
-        total += parseFloat(item.qty) || 0;
-      }
-    });
-  });
-  return total;
-}
+// Διατηρείται για συμβατότητα — τώρα delegate στη calcItemQty
+function calcCatalogUsed(code){ return calcItemQty(code,'final'); }
 
 function renderCatalog(){
+  const dPct = parseFloat(settings.discountPct)||0;
+  const budget = 967741.20;
   var cl=document.getElementById('catalogContractLabel');
-  if(cl) cl.textContent='Σύμβαση '+fmt(settings.contractValue||967741.20)+'€ (χωρίς ΦΠΑ) | CPV: 50000000-5';
-  document.getElementById('catalogList').innerHTML=Object.entries(CATALOG).map(([key,cat])=>`
+  if(cl) cl.textContent='Προϋπ. μελέτης '+fmt(budget)+'€ − έκπτωση '+fmt(dPct)+'% = '+fmt(settings.contractValue||budget)+'€ (χωρίς ΦΠΑ) | CPV: 50000000-5';
+
+  // ── Σύνοψη σύμβασης ──
+  const iss=totalIssued(), fin=totalFinal(), canc=totalCancelled(), rem=remaining();
+  const pctIss=budgetPct(iss), pctFin=budgetPct(fin);
+  const barCol = pctIss>90?'var(--red)':pctIss>70?'var(--amber)':'var(--green)';
+  let summary = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:14px;">
+      <div style="display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between;margin-bottom:10px;">
+        <div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);">Αξία Σύμβασης</div>
+             <div style="font-size:17px;font-weight:700;">${fmt(settings.contractValue||budget)} €</div></div>
+        <div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);">Δεσμευμένα</div>
+             <div style="font-size:17px;font-weight:700;color:var(--amber);">${fmt(iss)} €<span style="font-size:11px;font-weight:600;"> · ${pctIss.toFixed(2)}%</span></div></div>
+        <div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);">Οριστικά (παραληφθέντα)</div>
+             <div style="font-size:17px;font-weight:700;color:var(--green);">${fmt(fin)} €<span style="font-size:11px;font-weight:600;"> · ${pctFin.toFixed(2)}%</span></div></div>
+        <div><div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);">Υπόλοιπο</div>
+             <div style="font-size:17px;font-weight:700;color:${rem<0?'var(--red)':'var(--navy)'};">${fmt(rem)} €</div></div>
+      </div>
+      <div style="height:9px;background:var(--borderS);border-radius:5px;overflow:hidden;display:flex;">
+        <div style="height:9px;background:var(--green);width:${Math.min(100,pctFin).toFixed(2)}%"></div>
+        <div style="height:9px;background:${barCol};opacity:.55;width:${Math.min(100-Math.min(100,pctFin),Math.max(0,pctIss-pctFin)).toFixed(2)}%"></div>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:5px;">
+        🟩 οριστικά · 🟨 δεσμευμένα σε εξέλιξη${canc>0?' · ακυρωθείσες εντολές '+fmt(canc)+' € (δεν δεσμεύουν πίστωση)':''}
+      </div>
+    </div>`;
+
+  document.getElementById('catalogList').innerHTML = summary + Object.entries(CATALOG).map(([key,cat])=>{
+    const gContract = cat.items.reduce((s,i)=>s+(parseFloat(i.contractQty)||0)*(parseFloat(i.price)||0),0);
+    const gUsed = cat.items.reduce((s,i)=>s+calcItemQty(i.code,'committed')*(parseFloat(i.price)||0),0);
+    const gPct = gContract>0 ? gUsed/gContract*100 : 0;
+    return `
     <div class="price-cat">
       <div class="price-cat-hdr" onclick="toggleCat('cat-${key}')">
-        ${cat.icon} ${cat.label} <span style="margin-left:auto;font-size:11px;opacity:.8">${cat.items.length} εργασίες</span>
+        ${cat.icon} ${cat.label}
+        <span style="margin-left:auto;font-size:11px;opacity:.9">${cat.items.length} εργασίες · ${fmt(gContract)} € · αναλώθηκε ${gPct.toFixed(1)}%</span>
       </div>
       <div class="price-cat-body" id="cat-${key}">
         <div class="tbl-wrap" style="border:none;border-radius:0;">
-          <table><thead><tr><th>Κωδ.</th><th>Περιγραφή</th><th>Μ.Μ.</th><th style='text-align:right'>Τιμή €</th><th style='text-align:right'>Ποσότητα<br><small>Σύμβαση</small></th><th style='text-align:right'>Εκτελεσθείσα</th><th style='text-align:right'>Υπόλοιπο</th></tr></thead>
+          <table><thead><tr>
+            <th>Κωδ.</th><th>Περιγραφή</th><th>Μ.Μ.</th>
+            <th style='text-align:right'>Τιμή €</th>
+            <th style='text-align:right'>Ποσότητα<br><small>Σύμβαση</small></th>
+            <th style='text-align:right'>Εκτελεσθείσα<br><small>οριστικά</small></th>
+            <th style='text-align:right'>Δεσμευμένη<br><small>+σε εξέλιξη</small></th>
+            <th style='text-align:right'>Υπόλοιπο</th>
+            <th style='text-align:right'>Αξία<br><small>υπολοίπου</small></th>
+          </tr></thead>
           <tbody>${cat.items.map(i=>{
-            const used = calcCatalogUsed(i.code);
-            const rem = (i.contractQty||0) - used;
-            const pct = i.contractQty ? used/i.contractQty : 0;
-            const remColor = rem<0?'var(--red)':rem===0?'var(--amber)':'inherit';
-            const bar = i.contractQty ? `<div style='height:4px;background:var(--borderS);border-radius:2px;margin-top:3px'><div style='height:4px;background:${pct>0.9?'var(--red)':pct>0.7?'var(--amber)':'var(--green)'};border-radius:2px;width:${Math.min(100,pct*100).toFixed(0)}%'></div></div>` : '';
+            const b = itemBalance(i.code) || {contract:0,final:0,committed:0,remaining:0,pct:0};
+            const remColor = b.remaining<0?'var(--red)':b.remaining===0?'var(--amber)':'inherit';
+            const barCol2 = b.pct>90?'var(--red)':b.pct>70?'var(--amber)':'var(--green)';
+            const bar = b.contract ? `<div style='height:4px;background:var(--borderS);border-radius:2px;margin-top:3px'><div style='height:4px;background:${barCol2};border-radius:2px;width:${Math.min(100,b.pct).toFixed(0)}%'></div></div>` : '';
+            const remCell = b.remaining<0
+              ? `<span title="Υπέρβαση συμβατικής ποσότητας!">⚠ -${Math.abs(b.remaining).toFixed(1)}</span>`
+              : b.remaining.toFixed(1);
             return `<tr>
               <td><strong>${i.code}</strong></td>
               <td>${esc(i.desc)}${bar}</td>
               <td>${i.unit}</td>
               <td style='text-align:right'><strong>${fmt(i.price)} €</strong></td>
-              <td style='text-align:right'>${i.contractQty||'-'}</td>
-              <td style='text-align:right'>${used>0?used:'-'}</td>
-              <td style='text-align:right;color:${remColor};font-weight:600'>${rem<0?'<span title=\'Υπέρβαση!\'>⚠ '+Math.abs(rem).toFixed(1):'</span>'+rem.toFixed(1)}</td>
+              <td style='text-align:right'>${b.contract||'-'}</td>
+              <td style='text-align:right'>${b.final>0?b.final:'-'}</td>
+              <td style='text-align:right'>${b.committed>0?b.committed:'-'}</td>
+              <td style='text-align:right;color:${remColor};font-weight:600'>${remCell}</td>
+              <td style='text-align:right;color:var(--muted)'>${fmt(Math.max(0,b.remaining)*(parseFloat(i.price)||0)*(1-(parseFloat(settings.discountPct)||0)/100))} €</td>
             </tr>`;
           }).join('')}</tbody>
           </table>
         </div>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
+}
+
+// ================================================================
+// v9.19.2 — ΑΡΓΙΕΣ
+// ================================================================
+function renderHolidays(){
+  const box=document.getElementById('sHolidayList'); if(!box) return;
+  const hs=(settings.holidays||[]).slice().sort();
+  const lbl=settings.holidayLabels||{};
+  box.innerHTML = hs.length ? hs.map(function(h){
+    const d=new Date(h+'T12:00:00');
+    const dn=['Κυρ','Δευ','Τρι','Τετ','Πεμ','Παρ','Σαβ'][d.getDay()];
+    return '<span style="display:inline-flex;align-items:center;gap:6px;background:var(--rbg);border:1px solid var(--red);'
+      +'color:var(--red);border-radius:var(--rs);padding:4px 8px;font-size:11px;font-weight:600;">'
+      +d.toLocaleDateString('el-GR')+' ('+dn+')'
+      +(lbl[h]?'<span style="font-weight:400;opacity:.8">'+esc(lbl[h])+'</span>':'')
+      +'<button onclick="removeHoliday(\''+h+'\')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:13px;padding:0;line-height:1;">✕</button></span>';
+  }).join('') : '<span style="font-size:11px;color:var(--muted);">Καμία αργία καταχωρημένη.</span>';
+}
+function addHoliday(){
+  const d=document.getElementById('sHolidayNew');
+  const l=document.getElementById('sHolidayLabel');
+  if(!d || !d.value){ toast('Επιλέξτε ημερομηνία'); return; }
+  if(!Array.isArray(settings.holidays)) settings.holidays=[];
+  if(settings.holidays.includes(d.value)){ toast('Η αργία υπάρχει ήδη'); return; }
+  settings.holidays.push(d.value);
+  if(l && l.value.trim()){
+    if(!settings.holidayLabels) settings.holidayLabels={};
+    settings.holidayLabels[d.value]=l.value.trim();
+    l.value='';
+  }
+  d.value='';
+  saveNow().catch(function(e){console.warn(e);});
+  renderHolidays(); renderAll();
+  toast('✓ Προστέθηκε αργία');
+}
+function removeHoliday(dstr){
+  settings.holidays=(settings.holidays||[]).filter(function(x){return x!==dstr;});
+  if(settings.holidayLabels) delete settings.holidayLabels[dstr];
+  saveNow().catch(function(e){console.warn(e);});
+  renderHolidays(); renderAll();
+}
+// Σταθερές (μη κινητές) αργίες — το Πάσχα και οι εξαρτώμενες προστίθενται χειροκίνητα
+function addGreekHolidays(){
+  const y=new Date().getFullYear();
+  const fixed={
+    '01-01':'Πρωτοχρονιά', '01-06':'Θεοφάνεια', '03-25':'25η Μαρτίου',
+    '05-01':'Εργατική Πρωτομαγιά', '08-15':'Κοίμηση Θεοτόκου',
+    '10-28':'28η Οκτωβρίου', '12-25':'Χριστούγεννα', '12-26':'Σύναξη Θεοτόκου'
+  };
+  if(!Array.isArray(settings.holidays)) settings.holidays=[];
+  if(!settings.holidayLabels) settings.holidayLabels={};
+  let added=0;
+  [y,y+1,y+2].forEach(function(yy){
+    Object.keys(fixed).forEach(function(md){
+      const ds=yy+'-'+md;
+      if(!settings.holidays.includes(ds)){
+        settings.holidays.push(ds);
+        settings.holidayLabels[ds]=fixed[md];
+        added++;
+      }
+    });
+  });
+  saveNow().catch(function(e){console.warn(e);});
+  renderHolidays(); renderAll();
+  toast('✓ Προστέθηκαν '+added+' σταθερές αργίες ('+y+'–'+(y+2)+'). Το Πάσχα και οι κινητές εορτές προστίθενται χειροκίνητα.');
 }
 
 function toggleCat(id){
@@ -6139,6 +6726,11 @@ function openNewOrder(orderType){
   woMediaBefore=[];woMediaAfter=[];
   woAttachments=[]; renderOrderAttachments();
   renderThumbs('before');renderThumbs('after');
+  // v9.19.1: Σε ΝΕΑ εντολή δεν υπάρχουν ακόμη φωτογραφίες «ΜΕΤΑ» — το πεδίο εμφανίζεται
+  // μόνο κατά την επεξεργασία, αφού εκτελεστεί η εργασία.
+  setMediaAfterVisible(false);
+  const _wxN=document.getElementById('wo_weather'); if(_wxN) _wxN.checked=false;
+  updateDeadline();
   woMapLat=null;woMapLng=null;updateCoordsDisplay();
   document.getElementById('orderModal').style.display='flex';
 }
@@ -6208,13 +6800,34 @@ function editOrder(id){
   woMediaAfter=(wo.mediaAfter||[]);
   woAttachments=getEffectiveOrderAttachments(wo); renderOrderAttachments();
   renderThumbs('before'); renderThumbs('after');
+  setMediaAfterVisible(true);
+  const _wxE=document.getElementById('wo_weather'); if(_wxE) _wxE.checked=!!wo.weatherExtension;
+  updateDeadline();
   document.getElementById('orderModal').style.display='flex';
 }
 
 function updateDeadline(){
   const p=document.getElementById('wo_prio')?.value||'';
   const pd=PRIO_DATA[p];
-  document.getElementById('wo_deadline').value=pd?pd.resp:'—';
+  const wx=document.getElementById('wo_weather')?.checked||false;
+  document.getElementById('wo_deadline').value = pd
+    ? pd.resp + (pd.mode==='working'?' (εργάσιμες)':' (24/7)') + (wx?' +50%':'')
+    : '—';
+  // v9.19.2 — Προεπισκόπηση πραγματικής προθεσμίας βάσει ωραρίου
+  const box=document.getElementById('wo_deadlineCalc');
+  if(box && pd){
+    const now=new Date();
+    const dl=computeDeadline(now.toISOString(), p, wx);
+    const c=workCfg();
+    const startsAt = pd.mode==='working' ? nextWorkingMoment(now) : now;
+    const shifted = pd.mode==='working' && startsAt.getTime()>now.getTime()+60000;
+    box.innerHTML = 'Ωράριο: <strong>'+c.start+'–'+c.end+'</strong>, '
+      + c.days.map(d=>['Κυρ','Δευ','Τρι','Τετ','Πεμ','Παρ','Σαβ'][d]).join(' ')
+      + (c.holidays.length?' · '+c.holidays.length+' αργίες':'')
+      + '<br>Αν σταλεί τώρα: έναρξη <strong>'+fmtDT(startsAt.toISOString())+'</strong>'
+      + (shifted?' <span style="color:var(--amber)">(εκτός ωραρίου — μετατοπίζεται)</span>':'')
+      + ' → λήξη <strong>'+fmtDT(dl)+'</strong>';
+  }else if(box){ box.innerHTML=''; }
 }
 
 function addItemRow(existing){
@@ -6230,6 +6843,7 @@ function addItemRow(existing){
     <td><input type="text" id="${rowId}_unit" style="width:50px" value="${existing?esc(existing.unit||''):''}" placeholder="Μ.Μ."></td>
     <td><input type="number" id="${rowId}_price" style="width:65px" step="0.01" value="${existing?existing.unitPrice||'':''}" placeholder="0.00" oninput="recalcTotal()"></td>
     <td><input type="number" id="${rowId}_qty" style="width:60px" step="0.01" value="${existing?existing.qty||'':''}" placeholder="0" oninput="recalcTotal()"></td>
+    <td id="${rowId}_bal" style="font-size:11px;min-width:96px;color:var(--muted)">—</td>
     <td id="${rowId}_tot" style="font-weight:600;min-width:70px">0,00 €</td>
     <td><button onclick="removeRow('${rowId}')" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:14px;">✕</button></td>
   `;
@@ -6240,6 +6854,17 @@ function addItemRow(existing){
     for(let o of sel.options){if(o.value===existing.code){sel.value=existing.code;break;}}
   }
   recalcTotal();
+}
+
+// v9.19.1: Εμφάνιση/απόκρυψη του πεδίου φωτογραφιών «ΜΕΤΑ».
+// Σε νέα εντολή αποκρύπτεται (η εργασία δεν έχει εκτελεστεί ακόμη) και το πεδίο
+// «ΠΡΙΝ» καταλαμβάνει όλο το πλάτος.
+function setMediaAfterVisible(show){
+  const el=document.getElementById('fgMediaAfter');
+  if(!el) return;
+  el.style.display = show ? '' : 'none';
+  const before=document.getElementById('panelBefore');
+  if(before && before.parentElement) before.parentElement.classList.toggle('full', !show);
 }
 
 function fillFromSel(rowId){
@@ -6270,6 +6895,8 @@ function removeRow(rowId){
 
 function recalcTotal(){
   let total=0;
+  const editingId = (document.getElementById('wo_id')?.value)||null;
+
   document.getElementById('woItemsBody').querySelectorAll('tr').forEach(tr=>{
     const rowId=tr.id;
     const price=parseFloat(document.getElementById(`${rowId}_price`)?.value)||0;
@@ -6278,8 +6905,56 @@ function recalcTotal(){
     total+=sub;
     const totEl=document.getElementById(`${rowId}_tot`);
     if(totEl)totEl.textContent=fmt(sub)+' €';
+
+    // v9.19.1: Υπόλοιπο συμβατικής ποσότητας για τον κωδικό της γραμμής
+    const balEl=document.getElementById(`${rowId}_bal`);
+    if(balEl){
+      const code=(document.getElementById(`${rowId}_code`)?.value||'').trim();
+      const b=code?itemBalance(code, editingId):null;
+      if(!b || !b.contract){ balEl.textContent='—'; balEl.style.color='var(--muted)'; balEl.title=''; }
+      else{
+        const after=r2(b.remaining-qty);
+        const col = after<0?'var(--red)':after<b.contract*0.1?'var(--amber)':'var(--green)';
+        balEl.style.color=col;
+        balEl.style.fontWeight = after<0?'700':'600';
+        balEl.innerHTML = (after<0?'⚠ ':'') + after.toFixed(1) + ' ' + b.item.unit
+          + `<div style="font-size:9px;color:var(--muted);font-weight:400">από ${b.contract} ${b.item.unit}</div>`;
+        balEl.title = 'Συμβατική: '+b.contract+' · Δεσμευμένη: '+b.committed+' · Διαθέσιμο πριν από αυτή τη γραμμή: '+b.remaining;
+      }
+    }
   });
-  document.getElementById('woTotal').textContent=fmt(total)+' €';
+
+  // v9.19.1: Ανάλυση έκπτωσης
+  const dPct = parseFloat(settings.discountPct)||0;
+  const disc = r2(total*dPct/100);
+  const net  = r2(total-disc);
+  const lsEl=document.getElementById('woListSum'); if(lsEl) lsEl.textContent=fmt(total)+' €';
+  const dlEl=document.getElementById('woDiscLabel'); if(dlEl) dlEl.textContent='(-) Έκπτωση '+fmt(dPct)+'%:';
+  const dsEl=document.getElementById('woDiscSum'); if(dsEl) dsEl.textContent='-'+fmt(disc)+' €';
+  document.getElementById('woTotal').textContent=fmt(net)+' €';
+
+  // v9.19.1: Ποσοστιαία κατανάλωση σύμβασης
+  const barEl=document.getElementById('woBudgetBar');
+  if(barEl){
+    const cv=parseFloat(settings.contractValue)||0;
+    const already=r2(workOrders.filter(w=>isCommittedOrder(w)&&w.id!==editingId).reduce((s,w)=>s+woTotal(w),0));
+    const after=r2(already+net);
+    const pctThis=cv>0?net/cv*100:0, pctAfter=cv>0?after/cv*100:0;
+    const over=after>cv;
+    barEl.innerHTML = net<=0 ? '' : `
+      <div style="background:var(--sec);border-radius:var(--rs);padding:9px 11px;font-size:11px;${over?'border:2px solid var(--red);':''}">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
+          <span>Κατανάλωση αυτής της εντολής: <strong>${pctThis.toFixed(3)}%</strong></span>
+          <span>Σωρευτικά μετά: <strong style="color:${over?'var(--red)':'inherit'}">${pctAfter.toFixed(2)}%</strong></span>
+          <span>Υπόλοιπο σύμβασης: <strong style="color:${over?'var(--red)':'var(--green)'}">${fmt(r2(cv-after))} €</strong></span>
+        </div>
+        <div style="height:7px;background:var(--borderS);border-radius:4px;overflow:hidden;display:flex;">
+          <div style="height:7px;background:var(--navy);width:${Math.min(100,cv>0?already/cv*100:0).toFixed(2)}%"></div>
+          <div style="height:7px;background:${over?'var(--red)':'var(--amber)'};width:${Math.min(100-Math.min(100,cv>0?already/cv*100:0),pctThis).toFixed(2)}%"></div>
+        </div>
+        ${over?'<div style="color:var(--red);font-weight:700;margin-top:5px;">⚠ ΥΠΕΡΒΑΣΗ ΠΡΟΫΠΟΛΟΓΙΣΜΟΥ ΣΥΜΒΑΣΗΣ κατά '+fmt(r2(after-cv))+' €</div>':''}
+      </div>`;
+  }
 }
 
 function collectItems(){
@@ -6392,7 +7067,22 @@ async function saveOrder(andPrint){
       }
 
       if(_adminReset){
+        // v9.19 ΔΙΟΡΘΩΣΗ: διαγραφή και των αντίστοιχων εγγραφών payments.
+        // Παλαιότερα έμεναν «ορφανές» και αλλοίωναν μόνιμα τον δείκτη 15% (Άρθρο 4.4).
+        try{
+          const _penIds = payments.filter(p=>p.isPenalty && p.orderId===id).map(p=>p.id);
+          if(_penIds.length){
+            await _v9DeleteRows('rodios_payments', _penIds);
+            _penIds.forEach(pid=>_locallyDeleted.add(pid));
+            payments = payments.filter(p=>!_penIds.includes(p.id));
+            _v9ClearLightCachesAfterDelete();
+          }
+        }catch(_e){
+          alert('Οι ρήτρες ΔΕΝ διαγράφηκαν από τη βάση. Η επαναφορά ακυρώνεται.\n\n'+(_e.message||''));
+          return;
+        }
         // Admin reset: clear penalty, locks, restart countdown
+        data.penalties      = [];
         data.penaltyApplied = false;
         data.penaltyAmount  = 0;
         data.penaltyNote    = '';
@@ -6406,17 +7096,44 @@ async function saveOrder(andPrint){
         data.signedPdfPath  = existing.signedPdfPath  || '';
         toast('🔄 Εντολή επαναφέρθηκε — ρήτρα διαγράφηκε, χρονόμετρο επανεκκίνηση');
       } else {
+        data.penalties     = Array.isArray(existing.penalties)?existing.penalties:[];
         data.penaltyApplied=existing.penaltyApplied||false;
         data.penaltyAmount=existing.penaltyAmount||0;
         data.penaltyNote=existing.penaltyNote||'';
         data.penaltyDate=existing.penaltyDate||'';
+        syncPenaltyFields(data);
       }
     }
     const idx=workOrders.findIndex(w=>w.id===id);
     if(idx>=0)workOrders[idx]=data;
   } else {
     // Fix #8: assign (commit) the order number ONLY now that validation passed
+    // ── v9.19.1: Έλεγχος υπέρβασης συμβατικών ποσοτήτων & προϋπολογισμού ──
+    if(data.orderType!=='service'){
+      const warns=[];
+      (data.items||[]).forEach(function(it){
+        const b=itemBalance((it.code||'').trim(), id);
+        if(!b || !b.contract) return;
+        const after=r2(b.remaining-(parseFloat(it.qty)||0));
+        if(after<0) warns.push('  • '+it.code+' ('+b.item.desc.slice(0,42)+'): υπέρβαση κατά '+Math.abs(after).toFixed(2)+' '+b.item.unit+'  [συμβατική: '+b.contract+']');
+      });
+      const cv=parseFloat(settings.contractValue)||0;
+      const already=r2(workOrders.filter(w=>isCommittedOrder(w)&&w.id!==id).reduce((s,w)=>s+woTotal(w),0));
+      const thisNet=r2(woTotal(data));
+      const budgetOver=r2(already+thisNet-cv);
+      if(budgetOver>0) warns.push('  • Υπέρβαση προϋπολογισμού σύμβασης κατά '+fmt(budgetOver)+' €');
+      if(warns.length && !confirm(
+          '⚠ ΠΡΟΣΟΧΗ — Υπέρβαση συμβατικών μεγεθών:\n\n'+warns.join('\n')
+        + '\n\nΗ εντολή θα αποθηκευτεί ΚΑΝΟΝΙΚΑ, αλλά οι υπερβάσεις ενδέχεται να μην αναγνωριστούν '
+        + 'κατά την πιστοποίηση (Άρθρο 9δ).\n\nΝα προχωρήσω;')) return;
+    }
+
     data.orderNum = await commitOrderNumAsync();
+    // v9.19: «Πάγωμα» του ποσοστού έκπτωσης τη στιγμή της έκδοσης
+    if(data.discountPct===undefined || data.discountPct===null || data.discountPct==='')
+      data.discountPct = parseFloat(settings.discountPct)||0;
+    if(!Array.isArray(data.penalties)) data.penalties = [];
+    data.weatherExtension = document.getElementById('wo_weather')?.checked || false;
     data.createdAt = data.createdAt || new Date().toISOString();
     data.issuedAt = data.issuedAt || new Date().toISOString();
     // v9.18.4: η εντολή ξεκινά απευθείας ως «Εστάλη» — το νομικό χρονόμετρο
@@ -6471,9 +7188,14 @@ function buildWoHtml(wo){
   const atts = getEffectiveOrderAttachments(wo);
   const attRows = atts.length ? ('<div style="margin:8px 0;font-size:10pt;"><strong>Συνημμένα αιτήματος:</strong><ol style="margin:4px 0 0 18px;">'+atts.map(a=>'<li>'+esc(a.name||'αρχείο')+(a.url?' — '+esc(a.url):'')+'</li>').join('')+'</ol></div>') : '';
   const vatRate=settings.vatRate||24;
+  const listTotal=woListTotal(wo);
+  const discPct=woDiscountPct(wo);
+  const discAmount=woDiscountAmount(wo);
   const netTotal=woTotal(wo);
-  const vatAmount=netTotal*vatRate/100;
-  const grossTotal=netTotal+vatAmount;
+  const vatAmount=r2(netTotal*vatRate/100);
+  const grossTotal=r2(netTotal+vatAmount);
+  const penTotal=woPenaltiesTotal(wo);
+  const penList=Array.isArray(wo.penalties)?wo.penalties:[];
   const pd=PRIO_DATA[wo.priority]||{resp:'—',cls:'p4'};
   const itemRows=(wo.items||[]).map((it,idx)=>`
     <tr>
@@ -6507,16 +7229,19 @@ function buildWoHtml(wo){
     <p style="margin:8px 0;font-size:10pt;"><strong>${(wo.status==='Παραλήφθηκε'||wo.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') ? 'Περιγραφή Εργασιών που Παραλήφθηκαν:' : 'Περιγραφή Εντολής:'}</strong> ${esc(wo.description||'—')}</p>
     ${wo.notes?`<p style="margin:4px 0;font-size:10pt;"><strong>Ειδικές Οδηγίες:</strong> ${esc(wo.notes)}</p>`:''}
     ${attRows}
-    ${wo.status==='Παραλήφθηκε'&&wo.penaltyAmount>0?`<p style="margin:4px 0;font-size:10pt;color:#a32020;"><strong>⚠ Ποινική Ρήτρα:</strong> -${fmt(wo.penaltyAmount)} € (${esc(wo.penaltyNote||'')})</p>`:''}
+    ${wo.status==='Παραλήφθηκε'&&penTotal>0?`<p style="margin:4px 0;font-size:10pt;color:#a32020;"><strong>⚠ Ποινικές Ρήτρες (${penList.length||1}):</strong> -${fmt(penTotal)} € — ${esc(wo.penaltyNote||'')}</p>`:''}
     <br>
     <table class="wo-items">
       <thead><tr><th>#</th><th>Κωδ.</th><th>Περιγραφή Εργασίας</th><th class="right">Μ.Μ.</th><th class="right">Τιμή €</th><th class="right">Ποσότητα</th><th class="right">Σύνολο €</th></tr></thead>
       <tbody>${itemRows}</tbody>
       <tfoot>
-        <tr><td colspan="6" class="right">Καθαρή αξία (χωρίς ΦΠΑ):</td><td class="right"><strong>${fmt(netTotal)} €</strong></td></tr>
+        <tr><td colspan="6" class="right">Αξία εργασιών (τιμές τιμολογίου μελέτης):</td><td class="right">${fmt(listTotal)} €</td></tr>
+        ${discPct>0?`<tr><td colspan="6" class="right">(-) Έκπτωση ${fmt(discPct)}%:</td><td class="right">-${fmt(discAmount)} €</td></tr>`:''}
+        <tr><td colspan="6" class="right"><strong>Καθαρή συμβατική αξία (χωρίς ΦΠΑ):</strong></td><td class="right"><strong>${fmt(netTotal)} €</strong></td></tr>
         <tr><td colspan="6" class="right">ΦΠΑ ${vatRate}%:</td><td class="right">${fmt(vatAmount)} €</td></tr>
-        ${wo.status==='Παραλήφθηκε'&&wo.penaltyAmount>0?`<tr style="color:#a32020;"><td colspan="6" class="right">(-) Ποινική Ρήτρα:</td><td class="right">-${fmt(wo.penaltyAmount)} €</td></tr>`:''}
-        <tr class="wo-total"><td colspan="6" class="right">${wo.status==='Παραλήφθηκε' ? 'ΚΑΘΑΡΟ ΠΛΗΡΩΤΕΟ:' : 'ΣΥΝΟΛΟ (με ΦΠΑ):'}</td><td class="right"><strong>${fmt(wo.status==='Παραλήφθηκε' ? Math.max(0,grossTotal-(wo.penaltyAmount||0)) : grossTotal)} €</strong></td></tr>
+        ${wo.status==='Παραλήφθηκε'&&penTotal>0?penList.map(p=>`<tr style="color:#a32020;"><td colspan="6" class="right">(-) Ποινική Ρήτρα — ${esc(p.category)}: ${esc(p.item)}${p.surcharge>0?' (+Άρθρο 4.3)':''}</td><td class="right">-${fmt(p.amount)} €</td></tr>`).join(''):''}
+        ${wo.status==='Παραλήφθηκε'&&penTotal>0?`<tr style="color:#a32020;font-weight:700;"><td colspan="6" class="right">(-) ΣΥΝΟΛΟ ΠΟΙΝΙΚΩΝ ΡΗΤΡΩΝ:</td><td class="right">-${fmt(penTotal)} €</td></tr>`:''}
+        <tr class="wo-total"><td colspan="6" class="right">${wo.status==='Παραλήφθηκε' ? 'ΚΑΘΑΡΟ ΠΛΗΡΩΤΕΟ:' : 'ΣΥΝΟΛΟ (με ΦΠΑ):'}</td><td class="right"><strong>${fmt(wo.status==='Παραλήφθηκε' ? Math.max(0,r2(grossTotal-penTotal)) : grossTotal)} €</strong></td></tr>
       </tfoot>
     </table>
     ${wo.status==='Παραλήφθηκε'
@@ -7473,6 +8198,43 @@ function loadSettings(){
   document.getElementById('sPhone').value=settings.contractorPhone||'';
   document.getElementById('sContact').value=settings.contractorContact||'';
   document.getElementById('sVat').value=settings.vatRate||24;
+  // v9.19.2 — Ωράριο & αργίες
+  const _c=workCfg();
+  const _ws=document.getElementById('sWorkStart'); if(_ws) _ws.value=_c.start;
+  const _we=document.getElementById('sWorkEnd');   if(_we) _we.value=_c.end;
+  const _wd=document.getElementById('sWorkDays');
+  if(_wd){
+    _wd.innerHTML=[1,2,3,4,5,6,0].map(function(d){
+      const nm=['Κυριακή','Δευτέρα','Τρίτη','Τετάρτη','Πέμπτη','Παρασκευή','Σάββατο'][d];
+      const on=_c.days.includes(d);
+      return '<label style="display:flex;align-items:center;gap:4px;font-size:12px;font-weight:500;background:'
+        +(on?'var(--navy)':'var(--sec)')+';color:'+(on?'#fff':'var(--muted)')
+        +';padding:5px 10px;border-radius:var(--rs);cursor:pointer;margin:0;">'
+        +'<input type="checkbox" data-day="'+d+'" '+(on?'checked':'')+' onchange="saveSett()" style="width:auto;margin:0;">'+nm+'</label>';
+    }).join('');
+  }
+  renderHolidays();
+  // v9.19.3: Ενημέρωση ότι οι ρυθμίσεις γράφονται μόνο από τον διαχειριστή
+  const _sInfo=document.getElementById('sRlsNotice');
+  if(_sInfo){
+    const _isAdm = currentUser && currentUser.id==='admin';
+    _sInfo.style.display = _isAdm ? 'none' : 'block';
+  }
+  // v9.19: Έκπτωση αναδόχου — κλειδώνει μόλις εκδοθεί η πρώτη εντολή
+  const _dEl=document.getElementById('sDiscount');
+  if(_dEl){
+    _dEl.value=(settings.discountPct!==undefined?settings.discountPct:9);
+    const _hasOrders=(workOrders||[]).some(w=>w.orderType!=='service');
+    _dEl.disabled=_hasOrders && !(currentUser&&currentUser.id==='admin');
+    const _info=document.getElementById('sDiscountInfo');
+    if(_info){
+      const _pct=parseFloat(settings.discountPct)||0;
+      const _budget=967741.20;
+      _info.innerHTML='Προϋπολογισμός μελέτης: <strong>'+fmt(_budget)+' €</strong>'
+        +' → μετά έκπτωση '+fmt(_pct)+'%: <strong>'+fmt(r2(_budget*(1-_pct/100)))+' €</strong>'
+        +(_hasOrders?'<br><span style="color:var(--red);">🔒 Έχουν εκδοθεί εντολές — αλλαγή μόνο από admin.</span>':'');
+    }
+  }
 }
 
 function saveSett(){
@@ -7486,6 +8248,19 @@ function saveSett(){
   settings.contractorPhone=document.getElementById('sPhone').value;
   settings.contractorContact=document.getElementById('sContact').value;
   settings.vatRate=parseFloat(document.getElementById('sVat').value)||24;
+  // v9.19.2 — Ωράριο
+  const _wsIn=document.getElementById('sWorkStart'); if(_wsIn && _wsIn.value) settings.workStart=_wsIn.value;
+  const _weIn=document.getElementById('sWorkEnd');   if(_weIn && _weIn.value) settings.workEnd=_weIn.value;
+  const _wdBox=document.getElementById('sWorkDays');
+  if(_wdBox){
+    const sel=Array.from(_wdBox.querySelectorAll('input[data-day]')).filter(x=>x.checked).map(x=>parseInt(x.dataset.day));
+    if(sel.length) settings.workDays=sel.sort();
+  }
+  const _dIn=document.getElementById('sDiscount');
+  if(_dIn && !_dIn.disabled){
+    const _dv=parseFloat(_dIn.value);
+    settings.discountPct=(isNaN(_dv)||_dv<0||_dv>99)?(settings.discountPct||0):_dv;
+  }
   save();toast('Αποθηκεύτηκε');
 }
 
@@ -8286,8 +9061,13 @@ function printBulkProtocol(){
     <div style="padding:16px;">
       <div id="pModalOrderInfo" style="background:var(--sec);border-radius:var(--rs);padding:10px 12px;margin-bottom:14px;font-size:12px;"></div>
       <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:var(--rs);padding:8px 12px;font-size:11px;color:#856404;margin-bottom:14px;">
-        📌 Η ρήτρα θα καταχωρηθεί ως <strong>αρνητική χρέωση</strong> στον λογαριασμό του αναδόχου και θα <strong>αφαιρεθεί από την επόμενη πληρωμή</strong>. Η εντολή εργασίας θα κλειδώσει.
+        📌 Η ρήτρα καταχωρείται ως <strong>αρνητική χρέωση</strong> και αφαιρείται από την επόμενη πληρωμή. Οι ρήτρες <strong>σωρεύονται</strong> — μπορείτε να επιβάλετε όσες παραβάσεις διαπιστώθηκαν (Άρθρο 4.3).
       </div>
+      <div id="pSupplementaryWarn" style="display:none;background:#fee2e2;border:2px solid var(--red);border-radius:var(--rs);padding:8px 12px;font-size:11px;color:#991b1b;margin-bottom:14px;font-weight:600;">
+        ⚠ Η εντολή έχει υπογεγραμμένο πρωτόκολλο παραλαβής. Για να είναι εκτελεστή η ρήτρα απαιτείται έκδοση <strong>συμπληρωματικού πρωτοκόλλου</strong>.
+      </div>
+      <div id="pDelaySuggest" style="display:none;border:1px solid #ffc107;border-radius:var(--rs);padding:9px 12px;font-size:11px;color:#5b4a10;margin-bottom:14px;line-height:1.5;"></div>
+      <div id="pExistingList" style="display:none;margin-bottom:14px;"></div>
       <div style="margin-bottom:14px;">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:8px;">Επιλέξτε κατηγορία παράβασης:</div>
         <div id="pCatBtns" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;"></div>
@@ -8303,6 +9083,11 @@ function printBulkProtocol(){
         <div style="margin-top:8px;">
           <label style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">Προσαρμογή ποσού (€)</label>
           <input type="number" id="pFinalAmt" step="0.01" min="0" style="width:100%;border:1px solid var(--borderS);border-radius:var(--rs);padding:7px 9px;font-size:14px;font-weight:700;color:var(--red);font-family:inherit;margin-top:4px;">
+        </div>
+        <div style="margin-top:6px;">
+          <label style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">Προσαύξηση Άρθρου 4.3 (€) — προαιρετική</label>
+          <input type="number" id="pSurcharge" step="0.01" min="0" placeholder="0.00" style="width:100%;border:1px solid #ffc107;border-radius:var(--rs);padding:7px 9px;font-size:13px;font-weight:600;color:#856404;font-family:inherit;margin-top:4px;">
+          <div id="pSurchargeHint" style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4;"></div>
         </div>
         <div style="margin-top:6px;">
           <label style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;">Σχόλιο / Αιτιολόγηση</label>
@@ -8442,7 +9227,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.18.4-no-issued-status-2026-07-09';
+  window.RODIOS_BUILD = 'v9.19.3-security-hardening-2026-08-04';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
