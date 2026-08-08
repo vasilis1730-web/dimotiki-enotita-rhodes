@@ -672,7 +672,7 @@ function hideDisclaimerModal(){
             <input type="text" id="sSupabaseKey" onchange="saveSupabaseConfig()" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." style="font-family:monospace;font-size:10px;"></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
-          <button class="btn btn-p btn-sm" onclick="testSupabaseConnection()">🔌 Δοκιμή Σύνδεσης</button>
+          <button class="btn btn-p btn-sm" onclick="testSupabaseConnection(this)">🔌 Δοκιμή Σύνδεσης</button>
           <button class="btn btn-sm" onclick="forceSyncToSupabase()">⬆ Ανέβασμα Τοπικών Δεδομένων</button>
           <button class="btn btn-sm" onclick="forceLoadFromSupabase()">⬇ Κατέβασμα από Supabase</button>
         </div>
@@ -2202,10 +2202,16 @@ function _validateOrderItems(data, excludeOrderId){
     const ci=ALL_ITEMS.find(x=>x.code===c);
     if(!ci){ catErr.push('  • «'+c+'»: δεν υπάρχει στον συμβατικό κατάλογο'); return; }
     const cp=parseFloat(ci.price)||0;
-    if(Math.abs((parseFloat(it.price)||0)-cp)>0.005){
-      fixed.push('  • '+c+': '+fmt(parseFloat(it.price)||0)+' € → '+fmt(cp)+' € (τιμή καταλόγου)');
-      it.price=cp;
+    // v9.19.9 (ΔΙΟΡΘΩΣΗ): το πεδίο τιμής της γραμμής είναι it.unitPrice — το παλαιό
+    // it.price ήταν ΠΑΝΤΑ undefined, οπότε (α) εμφανιζόταν πάντα ψευδώς το μήνυμα
+    // «επαναφορά τιμών» και (β) το κλείδωμα τιμών ΔΕΝ εφαρμοζόταν ποτέ στους
+    // υπολογισμούς (woListTotal/woTotal/εκτύπωση διαβάζουν unitPrice).
+    const cur=parseFloat(it.unitPrice)||0;
+    if(Math.abs(cur-cp)>0.005){
+      fixed.push('  • '+c+': '+fmt(cur)+' € → '+fmt(cp)+' € (τιμή καταλόγου)');
+      it.unitPrice=cp;
     }
+    if(it.price!==undefined) delete it.price;   // καθαρισμός παλαιού νεκρού πεδίου
     if(ci.unit) it.unit=ci.unit;
   });
   if(catErr.length){
@@ -2595,7 +2601,10 @@ function selectPenalty(cat, item, amt){
       if(_rows.length){
         _scope.innerHTML = '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;">Εφαρμογή '+item.pct+'% στις εργασίες που αφορά η παράβαση:</div>'
           + _rows.map(function(it,ix){
-              const net = r2((parseFloat(it.qty)||0)*(parseFloat(it.price)||0)*(1-_dp/100));
+              // v9.19.9 (ΔΙΟΡΘΩΣΗ): το πεδίο τιμής της γραμμής εντολής είναι unitPrice.
+              // Με το παλαιό it.price η καθαρή αξία κάθε εργασίας έβγαινε 0,00 €, οπότε
+              // ΚΑΘΕ ποσοστιαία ρήτρα του Πίνακα 3 υπολογιζόταν ως 0,00 €.
+              const net = r2((parseFloat(it.qty)||0)*(parseFloat(it.unitPrice)||0)*(1-_dp/100));
               return '<label style="display:flex;align-items:center;gap:8px;font-size:11px;padding:3px 0;text-transform:none;letter-spacing:0;font-weight:400;">'
                 + '<input type="checkbox" data-net="'+net+'" data-code="'+esc((it.etepCode||it.code||''))+'" onchange="_pPctRecalc()">'
                 + '<span style="flex:1;">'+esc((it.etepCode||it.code||'')+' — '+(it.desc||'').slice(0,60))+'</span>'
@@ -3475,7 +3484,45 @@ function saveUsers(users){
 }
 
 
-function changeAdminPass(){const p=prompt("Νέος κωδικός Admin:");if(!p||p.length<6){alert("Τουλάχιστον 6 χαρακτήρες.");return;}const us=JSON.parse(localStorage.getItem("app_users")||"null");if(us){const a=us.find(u=>u.id==="admin");if(a){a.password=p;localStorage.setItem("app_users",JSON.stringify(us));}}else{const a=APP_USERS.find(u=>u.id==="admin");if(a)a.password=p;}toast("Κωδικός Admin άλλαξε");}
+// v9.19.9 (ΔΙΟΡΘΩΣΗ): Το παλαιό σώμα αναφερόταν στο ανύπαρκτο APP_USERS (ReferenceError
+// όταν δεν υπήρχε legacy localStorage 'app_users') και έγραφε τον κωδικό ΜΟΝΟ τοπικά,
+// εμφανίζοντας ψευδώς «Κωδικός Admin άλλαξε» ενώ το Supabase Auth έμενε αμετάβλητο.
+// Πλέον αλλάζει τον πραγματικό κωδικό της ενεργής συνεδρίας μέσω sb.auth.updateUser().
+async function changeAdminPass(){
+  const isAdminSession = !!(currentUser && (currentUser.id==='admin'
+    || String(currentUser.email||'').toLowerCase()==='diakolios@rhodes.gr'));
+  if(!isAdminSession){
+    alert('🚫 Η αλλαγή κωδικού Administrator γίνεται μόνο από τον συνδεδεμένο Administrator.');
+    return;
+  }
+  const p = prompt('Νέος κωδικός Administrator (τουλάχιστον 6 χαρακτήρες):');
+  if(p===null) return;
+  if(String(p).trim().length<6){
+    alert('⚠ Ο κωδικός πρέπει να έχει τουλάχιστον 6 χαρακτήρες — ΔΕΝ άλλαξε τίποτα.');
+    return;
+  }
+  const p2 = prompt('Επιβεβαίωση νέου κωδικού:');
+  if(p2===null) return;
+  if(String(p2).trim()!==String(p).trim()){
+    alert('⚠ Οι δύο κωδικοί δεν ταιριάζουν — ΔΕΝ άλλαξε τίποτα.');
+    return;
+  }
+  const sb = getSupabase();
+  if(!sb || !sb.auth){
+    alert('❌ Δεν υπάρχει ενεργή σύνδεση με Supabase — ο κωδικός ΔΕΝ άλλαξε.');
+    return;
+  }
+  toast('⏳ Αλλαγή κωδικού Administrator...');
+  try{
+    const { error } = await sb.auth.updateUser({ password: String(p).trim() });
+    if(error) throw error;
+    toast('✅ Ο κωδικός Administrator άλλαξε.');
+    alert('✅ Ο κωδικός άλλαξε στο Supabase Auth.\n\nΧρησιμοποιήστε τον νέο κωδικό στην επόμενη σύνδεση.');
+  }catch(e){
+    console.error('changeAdminPass failed:', e);
+    alert('❌ Ο κωδικός ΔΕΝ άλλαξε.\n\n'+((e&&e.message)?e.message:String(e)));
+  }
+}
 
 function renderUsersList(){
   const card = document.getElementById('userMgmtCard');
@@ -5320,7 +5367,7 @@ function renderOrders(){
       }
     } // end contractor block
     // v9.19.4 (#2): ΡΗΤΗ επαναφορά κλειδωμένης εντολής — ΜΟΝΟ admin
-    if(permDelete() && w.orderType!=='service' && (w.penaltyApplied || st==='Παραλήφθηκε')){
+    if(permDelete() && w.orderType!=='service' && (w.penaltyApplied || w.status==='Παραλήφθηκε')){
       btnHtml+='<button style="background:#b45309;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" title="ADMIN: Πλήρης επαναφορά — διαγράφει ρήτρες/πληρωμές, μηδενίζει χρονόμετρο/υπέρβαση" onclick="adminResetOrder(\''+w.id+'\')">🔄 Επαναφορά</button>';
     }
     // v9.19.5: Διαγραφή ΜΟΝΟ Administrator — πλήρες cascade, σε ΚΑΘΕ κατάσταση
@@ -7824,10 +7871,12 @@ function updateSupabaseStatus(){
   if(document.getElementById('sSupabaseKey')) document.getElementById('sSupabaseKey').value=key;
 }
 
-async function testSupabaseConnection(){
+async function testSupabaseConnection(btnEl){
   const sb = getSupabase();
   if(!sb){alert('Συμπλήρωσε πρώτα URL και Key.');return;}
-  const btn = event.target;
+  // v9.19.9 (ΔΙΟΡΘΩΣΗ): το παλαιό `event.target` βασιζόταν στο deprecated global
+  // window.event (ReferenceError εκτός Chrome/Edge, ή σε κλήση από κώδικα).
+  const btn = btnEl || { set disabled(_v){}, set textContent(_v){} };
   btn.disabled=true; btn.textContent='⏳ Δοκιμή...';
   try{
     const {data,error} = await sb.from('rodios_v9_counts').select('*');
@@ -8663,7 +8712,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.19.8-batch8-cleanup-2026-08-06';
+  window.RODIOS_BUILD = 'v9.19.9-hotfix-renderorders-2026-08-08';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){
