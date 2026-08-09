@@ -1992,15 +1992,31 @@ function genId(){return Date.now().toString(36)+Math.random().toString(36).slice
 
 
 // Fix #8: Preview the next number WITHOUT incrementing/burning the sequence.
-// The real number is assigned only on successful save (commitOrderNum).
-function previewOrderNum(){
-  const n=(settings.orderSeq||1);
-  return `ΕΕ-${new Date().getFullYear()}-${String(n).padStart(3,'0')}`;
+// The real number is assigned only on successful save (commitOrderNumAsync → RPC).
+//
+// v9.19.10: Η προεπισκόπηση υπολογίζεται πλέον από τους ΠΡΑΓΜΑΤΙΚΑ υπάρχοντες
+// αριθμούς του τρέχοντος έτους — ίδια λογική με τη νέα rodios_next_sequence.
+// Ο παλαιός τοπικός μετρητής settings.orderSeq δεν «έβλεπε» ποτέ τις διαγραφές,
+// οπότε μετά από καθαρισμό δεδομένων η προεπισκόπηση έδειχνε λάθος αριθμό.
+// (Η παλιά συγχρονη commitOrderNum() αφαιρέθηκε — ήταν νεκρός κώδικας.)
+function _maxUsedSeqNum(list, field, year){
+  const y = String(year);
+  let mx = 0;
+  (Array.isArray(list)?list:[]).forEach(function(r){
+    const m = String((r && r[field]) || '').match(/^[^-]+-(\d{4})-(\d+)$/);
+    if(m && m[1]===y){ const n = parseInt(m[2],10); if(!isNaN(n) && n>mx) mx = n; }
+  });
+  return mx;
 }
-function commitOrderNum(){
-  const n=(settings.orderSeq||1);
-  settings.orderSeq=n+1;
-  return `ΕΕ-${new Date().getFullYear()}-${String(n).padStart(3,'0')}`;
+function previewOrderNum(){
+  const y = new Date().getFullYear();
+  const n = _maxUsedSeqNum(workOrders, 'orderNum', y) + 1;
+  return `ΕΕ-${y}-${String(n).padStart(3,'0')}`;
+}
+function previewIssueNum(){
+  const y = new Date().getFullYear();
+  const n = _maxUsedSeqNum(issues, 'issueNum', y) + 1;
+  return `ΑΙΤ-${y}-${String(n).padStart(3,'0')}`;
 }
 
 // v9.11: Prefer atomic numbering from Supabase RPC to avoid duplicate issue/order numbers
@@ -8712,7 +8728,7 @@ function printBulkProtocol(){
 <script>
 // v9.3 clean: v9 data tables, versioned clean cache, no user-presence, no local-only user creation.
 (function(){
-  window.RODIOS_BUILD = 'v9.19.9-hotfix-renderorders-2026-08-08';
+  window.RODIOS_BUILD = 'v9.19.10-sequence-selfsync-2026-08-08';
   window.RODIOS_DISABLE_PRESENCE = true;
 
   function deleteDb(name){

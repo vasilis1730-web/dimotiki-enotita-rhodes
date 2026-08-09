@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────
-   sw.js — RODIOS v9.19.9 cache/versioning
+   sw.js — RODIOS v9.19.10 cache/versioning
    ----------------------------------------------------------------
    - HTML/navigation requests: Network-First, fallback to last cached copy.
    - Static assets: Cache-First.
@@ -8,7 +8,7 @@
    network is unavailable.
    ──────────────────────────────────────────────────────────────── */
 
-const CACHE_VERSION = 'rodios-v9-19-9';
+const CACHE_VERSION = 'rodios-v9-19-10';
 
 const STATIC_ASSETS = [
   './icon-192.png',
