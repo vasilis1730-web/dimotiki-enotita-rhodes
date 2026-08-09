@@ -2402,14 +2402,36 @@ function addMedia(slot, input){
             delete item.data; delete item.uploading;
             renderThumbs(slot);
           })
-          .catch(err=>{ console.warn('Media upload failed, keeping base64:', err); delete item.uploading; renderThumbs(slot); });
+          .catch(err=>{ console.warn('Media upload failed:', err); delete item.uploading; item.upload_failed=true; item.upload_error=(err&&err.message)||String(err); renderThumbs(slot); });
       } else {
-        delete item.uploading;
+        delete item.uploading; item.upload_failed=true; item.upload_error='Δεν υπάρχει ενεργή σύνδεση με Supabase.';
       }
     };
     reader.readAsDataURL(file);
   });
   input.value='';
+}
+
+async function retryOrderMedia(slot,idx){
+  const arr=slot==='before'?woMediaBefore:woMediaAfter;
+  const m=arr[idx]; if(!m||!m.data) return;
+  m.uploading=true; m.upload_failed=false; renderThumbs(slot);
+  try{
+    const sb=getSupabase(); if(!sb||!isSupabaseConfigured()) throw new Error('Δεν υπάρχει ενεργή σύνδεση με Supabase.');
+    const blob=await (await fetch(m.data)).blob();
+    const safe=(m.name||'photo').replace(/[^a-zA-Z0-9._-]/g,'_');
+    const p='orders/'+Date.now()+'_'+Math.random().toString(36).slice(2,8)+'_'+safe;
+    const {error}=await sb.storage.from('attachments').upload(p,blob,{cacheControl:'3600',upsert:false,contentType:m.type||blob.type||'image/jpeg'});
+    if(error) throw error;
+    const {data:signed,error:signErr}=await sb.storage.from('attachments').createSignedUrl(p,3600);
+    if(signErr||!signed||!signed.signedUrl) throw (signErr||new Error('Δεν δημιουργήθηκε ασφαλές URL συνημμένου'));
+    m.url=signed.signedUrl; m.path=p; m.stored='supabase'; delete m.data; delete m.uploading; delete m.upload_failed; delete m.upload_error;
+    renderThumbs(slot); toast('✅ Η φωτογραφία μεταφορτώθηκε.');
+  }catch(err){ delete m.uploading; m.upload_failed=true; m.upload_error=(err&&err.message)||String(err); renderThumbs(slot); toast('❌ Η μεταφόρτωση απέτυχε ξανά.'); }
+}
+
+function _hasUnresolvedOrderMedia(){
+  return [woMediaBefore,woMediaAfter].some(arr=>(arr||[]).some(m=>m&&(m.uploading||m.upload_failed||(m.data&&!m.path))));
 }
 
 function renderThumbs(slot){
@@ -2422,7 +2444,8 @@ function renderThumbs(slot){
     const tag = isVideo
       ? `<video src="${src}" muted playsinline style="width:100%;height:100%;object-fit:cover;"></video>`
       : `<img src="${src}" alt="${esc(m.name||'')}">`;
-    const badge = m.uploading ? `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;">⬆️…</div>` : '';
+    const badge = m.uploading ? `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;">⬆️…</div>`
+      : m.upload_failed ? `<div style="position:absolute;left:2px;right:2px;bottom:2px;background:#842029;color:#fff;font-size:9px;padding:2px;border-radius:3px;text-align:center;">⚠ Αποτυχία <button type="button" onclick="event.stopPropagation();retryOrderMedia('${slot}',${idx})" style="font-size:9px;margin-left:3px;">Retry</button></div>` : '';
     return `<div class="photo-thumb">${tag}${badge}<button class="del-thumb" onclick="delMedia('${slot}',${idx})">✕</button></div>`;
   }).join('');
 }
@@ -6114,50 +6137,42 @@ function updateIssueCoordsDisplay(){
 // ── ISSUE ATTACHMENTS ─────────────────────────────────────────────
 let _issueAttachments = [];
 
-async function addIssueAttachments(input){
-  const files = Array.from(input.files);
-  input.value='';
-  for(const file of files){
-    // Show uploading state
-    _issueAttachments.push({name:file.name, size:file.size, type:file.type, uploading:true});
-    renderIssueAttachList();
+async function _uploadIssueAttachmentAt(idx){
+  const a=_issueAttachments[idx];
+  if(!a || !a._file) return false;
+  a.uploading=true; a.upload_failed=false; renderIssueAttachList();
+  try{
+    const sb=getSupabase();
+    if(!sb || !isSupabaseConfigured()) throw new Error('Δεν υπάρχει ενεργή σύνδεση με Supabase.');
+    const safe=(a.name||'file').replace(/[^a-zA-Z0-9._-]/g,'_');
+    const p='issues/'+Date.now()+'_'+Math.random().toString(36).slice(2,8)+'_'+safe;
+    const {error}=await sb.storage.from('attachments').upload(p,a._file,{cacheControl:'3600',upsert:false,contentType:a.type||'application/octet-stream'});
+    if(error) throw error;
+    const {data:signed,error:signErr}=await sb.storage.from('attachments').createSignedUrl(p,3600);
+    if(signErr||!signed||!signed.signedUrl) throw (signErr||new Error('Δεν δημιουργήθηκε ασφαλές URL συνημμένου'));
+    a.url=signed.signedUrl; a.path=p; a.stored='supabase';
+    delete a._file; delete a.uploading; delete a.upload_failed; delete a.upload_error;
+    renderIssueAttachList(); return true;
+  }catch(err){
+    console.warn('Issue attachment upload failed:',err);
+    delete a.uploading; a.upload_failed=true; a.upload_error=(err&&err.message)||String(err);
+    renderIssueAttachList(); return false;
+  }
+}
 
-    const sb = getSupabase();
-    if(sb && isSupabaseConfigured()){
-      // Upload to Supabase Storage
-      try{
-        const path = 'issues/' + Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9._-]/g,'_');
-        const {data, error} = await sb.storage.from('attachments').upload(path, file, {
-          cacheControl:'3600', upsert:false
-        });
-        if(error) throw error;
-        // Private bucket: create a short-lived runtime URL; persist only path.
-        const {data:signed,error:signErr} = await sb.storage.from('attachments').createSignedUrl(path,3600);
-        if(signErr || !signed || !signed.signedUrl) throw (signErr||new Error('Δεν δημιουργήθηκε ασφαλές URL συνημμένου'));
-        // Update attachment entry
-        const idx = _issueAttachments.findIndex(a=>a.uploading&&a.name===file.name);
-        if(idx>=0) _issueAttachments[idx] = {
-          name:file.name, size:file.size, type:file.type,
-          url:signed.signedUrl, path:path, stored:'supabase'
-        };
-      }catch(err){
-        console.warn('Storage upload failed, falling back to base64:', err);
-        // Fallback: store as base64
-        const b64 = await new Promise(res=>{
-          const r=new FileReader(); r.onload=e=>res(e.target.result); r.readAsDataURL(file);
-        });
-        const idx = _issueAttachments.findIndex(a=>a.uploading&&a.name===file.name);
-        if(idx>=0) _issueAttachments[idx] = {name:file.name, size:file.size, type:file.type, data:b64};
-      }
-    } else {
-      // No Supabase — store as base64 locally
-      const b64 = await new Promise(res=>{
-        const r=new FileReader(); r.onload=e=>res(e.target.result); r.readAsDataURL(file);
-      });
-      const idx = _issueAttachments.findIndex(a=>a.uploading&&a.name===file.name);
-      if(idx>=0) _issueAttachments[idx] = {name:file.name, size:file.size, type:file.type, data:b64};
-    }
+async function retryIssueAttachment(idx){
+  const ok=await _uploadIssueAttachmentAt(idx);
+  toast(ok?'✅ Το συνημμένο μεταφορτώθηκε.':'❌ Η μεταφόρτωση απέτυχε ξανά.');
+}
+
+async function addIssueAttachments(input){
+  const files=Array.from(input.files||[]); input.value='';
+  for(const file of files){
+    const item={name:file.name,size:file.size,type:file.type,_file:file,uploading:true};
+    _issueAttachments.push(item);
+    const idx=_issueAttachments.length-1;
     renderIssueAttachList();
+    await _uploadIssueAttachmentAt(idx);
   }
 }
 
@@ -6167,11 +6182,12 @@ function renderIssueAttachList(){
   container.innerHTML = _issueAttachments.map((a,idx)=>{
     const isImg = a.type && a.type.startsWith('image/');
     const isPdf = a.type && a.type.includes('pdf');
-    const icon = a.uploading ? '⏳' : isImg ? '🖼' : isPdf ? '📄' : '📎';
+    const icon = a.uploading ? '⏳' : a.upload_failed ? '⚠️' : isImg ? '🖼' : isPdf ? '📄' : '📎';
     const kb = Math.round((a.size||0)/1024);
     const storeBadge = a.stored==='supabase'
       ? '<span style="font-size:9px;background:#d1e7dd;color:#155724;padding:1px 5px;border-radius:3px;">☁ Cloud</span>'
-      : a.data ? '<span style="font-size:9px;background:#fff3cd;color:#856404;padding:1px 5px;border-radius:3px;">📱 Τοπικό</span>'
+      : a.upload_failed ? '<span style="font-size:9px;background:#f8d7da;color:#842029;padding:1px 5px;border-radius:3px;">⚠ Αποτυχία</span>'
+      : a.uploading ? '<span style="font-size:9px;background:#cfe2ff;color:#084298;padding:1px 5px;border-radius:3px;">⬆ Μεταφόρτωση</span>'
       : '';
     return '<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;background:var(--sec);border:1px solid var(--border);border-radius:6px;font-size:11px;">'
       +'<span style="font-size:16px;">'+icon+'</span>'
@@ -6542,6 +6558,9 @@ async function saveIssue(){
   const _title=document.getElementById('i_title').value;
   const _loc=document.getElementById('i_location').value;
   if(!_date||!_cat||!_title||!_loc){alert('Συμπληρώστε τα υποχρεωτικά πεδία (*).');return;}
+  if((_issueAttachments||[]).some(a=>a&&(a.uploading||a.upload_failed||a._file))){
+    alert('⚠ Υπάρχει συνημμένο που δεν έχει μεταφορτωθεί επιτυχώς. Πατήστε Retry ή αφαιρέστε το πριν την αποθήκευση.'); return;
+  }
 
   const _existingIssue = id ? issues.find(x=>x.id===id) : null;
   const _issueNum = id ? (_existingIssue?.issueNum || await nextIssueNumAsync()) : await nextIssueNumAsync();
@@ -6946,6 +6965,7 @@ function collectItems(){
 
 async function saveOrder(andPrint){
   if(currentUser && currentUser.canOrders===false){toast('⛔ Δεν έχετε δικαίωμα επεξεργασίας εντολών εργασίας.');return;}
+  if(_hasUnresolvedOrderMedia()){toast('⚠ Υπάρχουν φωτογραφίες/βίντεο που δεν μεταφορτώθηκαν. Πατήστε Retry ή αφαιρέστε τα πριν την αποθήκευση.');return;}
   const id=document.getElementById('wo_id').value;
   const _existingWo = id ? workOrders.find(w=>w.id===id) : null;
   if(_existingWo && (_existingWo.signedPdfData||_existingWo.signedPdfUrl||_existingWo.signedPdfPath) && currentUser?.id!=='admin'){toast('🔒 Η εντολή έχει ψηφιακά υπογεγραμμένο πρωτόκολλο — δεν επιτρέπεται τροποποίηση.');closeM('orderModal');return;}
@@ -7480,7 +7500,7 @@ async function ensureOrderMediaUploaded(wo){
         const {data:signed,error:signErr} = await sb.storage.from('attachments').createSignedUrl(path,3600);
         if(signErr || !signed || !signed.signedUrl) throw (signErr||new Error('Δεν δημιουργήθηκε ασφαλές URL συνημμένου'));
         arr[i] = {name:m.name||safe, type:m.type||'', url:signed.signedUrl, path, stored:'supabase'};
-      }catch(e){ console.warn('media upload (pre-send) failed', e); }
+      }catch(e){ console.warn('media upload (pre-send) failed', e); m.upload_failed=true; m.upload_error=(e&&e.message)||String(e); }
     }
   }
 }
@@ -7498,6 +7518,11 @@ async function prepareContractorEmailPayload(wo){
   wo.attachments = cloneAttachments(allAtts);
   // Make sure the order's BEFORE/AFTER photos are in Storage (so they can be attached).
   await ensureOrderMediaUploaded(wo);
+  const unresolvedMedia=[]
+    .concat(Array.isArray(wo.mediaBefore)?wo.mediaBefore:[])
+    .concat(Array.isArray(wo.mediaAfter)?wo.mediaAfter:[])
+    .filter(m=>m&&(m.upload_failed||(m.data&&!m.path)));
+  if(unresolvedMedia.length) throw new Error('Υπάρχουν '+unresolvedMedia.length+' αρχεία εντολής που δεν μεταφορτώθηκαν στο ασφαλές Storage. Η αποστολή ακυρώθηκε.');
   // Body: request-attachment links (existing safety net).
   body += attachmentLinksBlock(wo);
   // Gather ALL sendable files: request attachments + the order's BEFORE/AFTER photos.
