@@ -1,4 +1,4 @@
-name: Staging citizen client patch
+name: Staging staff client patch
 
 on:
   push:
@@ -22,25 +22,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Apply guarded citizen patch
-        run: python scripts/patch_citizen_private_attachments.py
+      - name: Apply guarded staff patch
+        run: python scripts/patch_staff_private_attachments.py
       - name: Verify diff scope
         shell: bash
         run: |
           set -euo pipefail
           changed="$(git diff --name-only)"
           echo "$changed"
-          test "$changed" = "index.html"
-      - name: Commit patched citizen client
+          test "$changed" = "aftepistasia.html"
+      - name: Commit patched staff client
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- index.html; then
+          if git diff --quiet -- aftepistasia.html; then
             echo 'No client changes to commit.'
             exit 0
           fi
           git config user.name 'rodios-staging-bot'
           git config user.email 'actions@users.noreply.github.com'
-          git add index.html
-          git commit -m 'Route citizen attachments through secure private Storage service'
+          git add aftepistasia.html
+          git commit -m 'Use signed URLs for private staff attachments'
           git push origin HEAD:staging-production-hardening
