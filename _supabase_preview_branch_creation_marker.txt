@@ -1,0 +1,1 @@
+Supabase automatic branching validation marker.
