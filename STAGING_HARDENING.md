@@ -2,6 +2,8 @@
 
 Status: STAGING ONLY — do not merge to `main` until all gates pass.
 
+Integration trigger: 2026-08-10 00:10 EEST — GitHub ↔ Supabase connection confirmed by user; this staging-only commit is intended to trigger/retrigger the Supabase preview-branch integration for Draft PR #2.
+
 ## Isolation model
 
 - Git branch: `staging-production-hardening`
