@@ -335,6 +335,7 @@ function getSb(){ if(!_sb && window.supabase){ _sb=window.supabase.createClient(
 // the token and uses the SERVICE ROLE key. The citizen app never needs a DB
 // write privilege of its own.
 const BRIDGE_URL = SUPABASE_URL + '/functions/v1/citizen-bridge';
+const CITIZEN_ATTACHMENTS_URL = SUPABASE_URL + '/functions/v1/citizen-attachments';
 
 // Always returns a *fresh* (auto-refreshed) Firebase ID token, or null when
 // there is no signed-in Firebase user (e.g. local file test mode).
@@ -652,26 +653,80 @@ async function parseMapsLink(){
   }
 }
 
+// ════════════════ PRIVATE ATTACHMENTS (v9.20 staging) ════════════════
+async function callCitizenAttachmentsJson(action, payload){
+  const idToken = await getIdToken();
+  if(!idToken) return {ok:false,noAuth:true};
+  try{
+    const res = await fetch(CITIZEN_ATTACHMENTS_URL, {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'apikey':SUPABASE_KEY,
+        'x-firebase-id-token':idToken
+      },
+      body:JSON.stringify(Object.assign({action},payload||{}))
+    });
+    let data=null; try{ data=await res.json(); }catch(_){}
+    return res.ok ? {ok:true,data:data||{}} : {ok:false,status:res.status,error:(data&&data.error)||('HTTP '+res.status)};
+  }catch(e){
+    console.warn('citizen-attachments request failed',e);
+    return {ok:false,error:(e&&e.message)||String(e)};
+  }
+}
+
+async function hydrateCitizenAttachmentUrls(issueList){
+  const list=Array.isArray(issueList)?issueList:[];
+  const paths=[];
+  list.forEach(iss=>(iss&&Array.isArray(iss.attachments)?iss.attachments:[]).forEach(a=>{
+    if(a&&a.path&&!paths.includes(a.path)) paths.push(a.path);
+  }));
+  if(!paths.length) return;
+  const r=await callCitizenAttachmentsJson('sign',{paths:paths.slice(0,50)});
+  if(!r.ok||!r.data||!r.data.urls){
+    console.warn('Could not refresh private attachment URLs',r.error||r.status||'unknown');
+    return;
+  }
+  list.forEach(iss=>(iss&&Array.isArray(iss.attachments)?iss.attachments:[]).forEach(a=>{
+    if(a&&a.path&&r.data.urls[a.path]) a.url=r.data.urls[a.path];
+  }));
+}
+
 // ════════════════ FILE UPLOAD ════════════════
 async function handleFiles(fileList){
   const files=Array.from(fileList||[]);
   if(!files.length) return;
-  const sb=getSb();
-  if(!sb){ toast('Η μεταφόρτωση απαιτεί σύνδεση.'); return; }
   for(const f of files){
     if(f.size>50*1024*1024){ toast('Το «'+f.name+'» ξεπερνά τα 50MB.'); continue; }
     const tmpId='att_'+genId();
-    pendingAttachments.push({_id:tmpId,name:f.name,type:f.type,size:f.size,url:null,path:null,uploading:true});
+    pendingAttachments.push({_id:tmpId,name:f.name,type:f.type,size:f.size,url:null,path:null,uploading:true,_newUpload:true});
     renderAttachments();
     try{
-      const path='citizen/'+normPhone(currentPhone)+'/'+Date.now()+'_'+safeName(f.name);
-      const {error}=await sb.storage.from('attachments').upload(path,f,{upsert:false,contentType:f.type||'application/octet-stream'});
-      if(error) throw error;
-      const {data:pub}=sb.storage.from('attachments').getPublicUrl(path);
+      const idToken=await getIdToken();
+      if(!idToken) throw new Error('Η σύνδεση έληξε. Συνδεθείτε ξανά.');
+      const fd=new FormData();
+      fd.append('action','upload');
+      fd.append('file',f,f.name);
+      const res=await fetch(CITIZEN_ATTACHMENTS_URL,{
+        method:'POST',
+        headers:{'apikey':SUPABASE_KEY,'x-firebase-id-token':idToken},
+        body:fd
+      });
+      let data=null; try{data=await res.json();}catch(_){}
+      if(!res.ok||!data||!data.ok||!data.attachment) throw new Error((data&&data.error)||('HTTP '+res.status));
       const item=pendingAttachments.find(a=>a._id===tmpId);
-      if(item){ item.url=pub.publicUrl; item.path=path; item.uploading=false; }
+      if(item){
+        item.path=data.attachment.path;
+        item.name=data.attachment.name||f.name;
+        item.type=data.attachment.type||f.type||'';
+        item.size=data.attachment.size||f.size;
+        item.uploading=false;
+        // URL is intentionally short-lived and never persisted for private files.
+        const signed=await callCitizenAttachmentsJson('sign',{paths:[item.path]});
+        if(signed.ok&&signed.data&&signed.data.urls) item.url=signed.data.urls[item.path]||null;
+      }
     }catch(e){
-      console.warn('upload failed',e);
+      console.warn('secure attachment upload failed',e);
       pendingAttachments=pendingAttachments.filter(a=>a._id!==tmpId);
       toast('❌ Αποτυχία μεταφόρτωσης «'+f.name+'»');
     }
@@ -679,7 +734,17 @@ async function handleFiles(fileList){
   }
   document.getElementById('i_fileInput').value='';
 }
-function removeAttachment(id){ pendingAttachments=pendingAttachments.filter(a=>a._id!==id); renderAttachments(); }
+async function removeAttachment(id){
+  const item=pendingAttachments.find(a=>a._id===id);
+  pendingAttachments=pendingAttachments.filter(a=>a._id!==id);
+  renderAttachments();
+  // Delete only files uploaded during the current unsaved form session.
+  // Existing attachments are not deleted merely by removing them from an edit form.
+  if(item&&item._newUpload&&item.path){
+    const r=await callCitizenAttachmentsJson('remove',{path:item.path});
+    if(!r.ok) console.warn('Could not clean unsaved attachment',r.error||r.status||'unknown');
+  }
+}
 function renderAttachments(){
   const el=document.getElementById('attList');
   if(!pendingAttachments.length){ el.innerHTML=''; return; }
@@ -760,7 +825,7 @@ function collectForm(){
     desc:document.getElementById('i_desc').value.trim(),
     lat:document.getElementById('i_mapLat').value||null,
     lng:document.getElementById('i_mapLng').value||null,
-    atts:pendingAttachments.filter(a=>!a.uploading && a.url).map(a=>({name:a.name,type:a.type,size:a.size,url:a.url,path:a.path}))
+    atts:pendingAttachments.filter(a=>!a.uploading && (a.path||a.url)).map(a=>({name:a.name,type:a.type,size:a.size,path:a.path||null,url:a.path?null:(a.url||null)}))
   };
 }
 
@@ -845,13 +910,13 @@ function buildIssue(f, ref, modifiesRef, description){
 
 async function submitIssue(issue){
   const r = await callBridge('submit', { issue });
-  if(r.ok && r.data && r.data.issue) return r.data.issue;
+  if(r.ok && r.data && r.data.issue){ await hydrateCitizenAttachmentUrls([r.data.issue]); return r.data.issue; }
   return null;
 }
 
 async function updateIssueInCloud(updated){
   const r = await callBridge('update', { issue: updated });
-  if(r.ok && r.data && r.data.issue) return r.data.issue;
+  if(r.ok && r.data && r.data.issue){ await hydrateCitizenAttachmentUrls([r.data.issue]); return r.data.issue; }
   if(r.status===409) return 'expired';                    // server: modify window passed
   return null;
 }
@@ -862,6 +927,7 @@ async function loadMyIssues(){
   const r = await callBridge('list', {});
   if(r.ok && r.data && Array.isArray(r.data.issues)){
     myIssues = r.data.issues;   // server already filtered to this caller's phone
+    await hydrateCitizenAttachmentUrls(myIssues);
     renderIssues(); return;
   }
   myIssues=[]; renderIssues();
@@ -888,8 +954,9 @@ function renderIssues(){
       attHtml='<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">'
         +iss.attachments.map(a=>{
             const isImg=(a.type||'').startsWith('image/');
-            if(isImg) return '<a href="'+esc(a.url)+'" target="_blank"><img class="att-thumb" src="'+esc(a.url)+'" alt=""></a>';
-            return '<a class="att-file" href="'+esc(a.url)+'" target="_blank">📎 '+esc((a.name||'αρχείο').slice(0,22))+'</a>';
+            if(!a.url) return '<span class="att-file" title="Το προσωρινό ασφαλές URL δεν είναι διαθέσιμο">🔒 '+esc((a.name||'αρχείο').slice(0,22))+'</span>';
+            if(isImg) return '<a href="'+esc(a.url)+'" target="_blank" rel="noopener"><img class="att-thumb" src="'+esc(a.url)+'" alt=""></a>';
+            return '<a class="att-file" href="'+esc(a.url)+'" target="_blank" rel="noopener">📎 '+esc((a.name||'αρχείο').slice(0,22))+'</a>';
           }).join('')
         +'</div>';
     }
