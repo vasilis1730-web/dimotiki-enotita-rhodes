@@ -1,4 +1,4 @@
-name: Staging Gate E signature fail-closed patch
+name: Staging Gate E signature fail-closed patch v2
 
 on:
   push:
@@ -21,8 +21,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Apply guarded Gate E patch
-        run: python scripts/patch_signature_fail_closed_gate_e.py
+      - name: Apply guarded Gate E patch v2
+        run: python scripts/patch_signature_fail_closed_gate_e_v2.py
       - name: Verify diff scope
         shell: bash
         run: |
@@ -37,5 +37,5 @@ jobs:
           git config user.name 'rodios-staging-bot'
           git config user.email 'actions@users.noreply.github.com'
           git add aftepistasia.html
-          git commit -m 'Require server cryptographic verification for protocol acceptance'
+          git commit -m 'Require explicit server cryptographic verification for protocol acceptance'
           git push origin HEAD:staging-production-hardening
