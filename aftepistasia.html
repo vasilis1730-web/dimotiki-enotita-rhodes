@@ -666,10 +666,10 @@ function hideDisclaimerModal(){
         <h3 style="font-size:13px;font-weight:600;color:#1a7a4a;margin-bottom:6px;">🔗 Σύνδεση Supabase — Κοινόχρηστα Δεδομένα</h3>
         <div id="supabaseStatus" style="font-size:11px;margin-bottom:10px;"></div>
         <div class="fgrid">
-          <div class="fg full"><label>Supabase Project URL</label>
-            <input type="url" id="sSupabaseUrl" onchange="saveSupabaseConfig()" placeholder="https://xxxx.supabase.co" style="font-family:monospace;font-size:11px;"></div>
-          <div class="fg full"><label>Supabase Anon Key</label>
-            <input type="text" id="sSupabaseKey" onchange="saveSupabaseConfig()" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." style="font-family:monospace;font-size:10px;"></div>
+          <div class="fg full"><label>Supabase Project URL — κλειδωμένο περιβάλλον</label>
+            <input type="url" id="sSupabaseUrl" readonly aria-readonly="true" style="font-family:monospace;font-size:11px;background:var(--sec);"></div>
+          <div class="fg full"><label>Supabase Publishable/Anon Key — κλειδωμένο περιβάλλον</label>
+            <input type="password" id="sSupabaseKey" readonly aria-readonly="true" autocomplete="off" style="font-family:monospace;font-size:10px;background:var(--sec);"></div>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
           <button class="btn btn-p btn-sm" onclick="testSupabaseConnection(this)">🔌 Δοκιμή Σύνδεσης</button>
@@ -2959,8 +2959,8 @@ function mapParsePaste(val){
 
 async function _resolveShortLink(url){
   try{
-    var k=window._sb_key_override||localStorage.getItem('sb_key')||SUPABASE_KEY;
-    var b=window._sb_url_override||localStorage.getItem('sb_url')||SUPABASE_URL;
+    var k=String(SUPABASE_KEY||'').trim();
+    var b=String(SUPABASE_URL||'').replace(/\/+$/,'');
     var r=await fetch(b+'/functions/v1/resolve-maps-link',{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+k,'apikey':k},
@@ -3472,7 +3472,7 @@ function userTier(u){
   return 'user';
 }
 function permDelete(u){ return userTier(u)==='admin'; }
-function permSettings(u){ return userTier(u)!=='user'; }
+function permSettings(u){ return userTier(u)==='admin'; }
 
 function applyTabPermissions(u){
   // v9.19.5: Διαχείριση χρηστών ΜΟΝΟ admin (η Edge Function manage-app-user
@@ -3514,8 +3514,37 @@ function closeLogoutPop(e){
   }
 }
 
+async function _purgeOperationalBrowserState(){
+  const keys=[
+    'rodios_v9_light_cache','rodios_v9_last_counts','rhodesAppUsers','serviceStaff',
+    'sb_url','sb_key'
+  ];
+  keys.forEach(k=>{ try{ localStorage.removeItem(k); }catch(_){ } });
+  _clearLegacySupabaseOverrides();
+
+  // Delete only RODIOS operational IndexedDB caches; do not wipe unrelated origin data.
+  const known=['rodios_v9_cache_db','rodios_v9_cache_db_v2','rodios_v9_cache_db_v3','rodios_v9_cache_db_v4','rodios_v9_cache_db_v5'];
+  let names=known.slice();
+  try{
+    if(indexedDB && typeof indexedDB.databases==='function'){
+      const dbs=await indexedDB.databases();
+      (dbs||[]).forEach(d=>{ if(d&&d.name&&String(d.name).startsWith('rodios_')&&!names.includes(d.name)) names.push(d.name); });
+    }
+  }catch(_){ }
+  names.forEach(n=>{ try{ indexedDB.deleteDatabase(n); }catch(_){ } });
+
+  // Remove sensitive operational state from memory before showing the login screen.
+  issues=[]; workOrders=[]; payments=[];
+  if(typeof SERVICE_STAFF!=='undefined') SERVICE_STAFF=[];
+  try{ _locallyDeleted.clear(); }catch(_){ }
+  try{ _bulkSelected.clear(); }catch(_){ }
+  _lastSyncTime=0;
+}
+
 async function doLogout(){
   try{ const sb=getSupabase(); if(sb && sb.auth) await sb.auth.signOut(); }catch(e){}
+  await _purgeOperationalBrowserState();
+  _supabase=null;
   currentUser=null;
   document.getElementById('logoutPop').style.display='none';
   document.getElementById('headerUser').style.display='none';
@@ -4310,7 +4339,7 @@ async function importSignedPdf(input){
       _extractedNames = extractPdfSignerNames(wo.signedPdfData||'');
       wo._sigExtractedNames = _extractedNames;
     } else {
-      const _anonKey = (window._sb_key_override||localStorage.getItem('sb_key')||SUPABASE_KEY||'').trim();
+      const _anonKey = (window._sb_key_override||SUPABASE_KEY||SUPABASE_KEY||'').trim();
       if(!_anonKey){ alert('Δεν βρέθηκε Supabase Anon Key. Ελέγξτε τις Ρυθμίσεις → Supabase.'); _sigImportInProgress=false; return; }
       toast('📡 Επικοινωνία με Edge Function...');
       const _resp = await fetch(_edgeUrl, {
@@ -4574,9 +4603,9 @@ function showTab(tab){
     toast('⛔ Δεν έχετε πρόσβαση σε αυτή την ενότητα.');
     return;
   }
-  // v9.19.5: Ρυθμίσεις — Administrator & Διαχειριστής
+  // v9.20: Ρυθμίσεις — μόνο Administrator
   if(tab==='settings' && !permSettings()){
-    toast('⛔ Οι Ρυθμίσεις είναι διαθέσιμες μόνο σε Administrator/Διαχειριστή.');
+    toast('⛔ Οι Ρυθμίσεις είναι διαθέσιμες μόνο στον Administrator.');
     return;
   }
   currentTab=tab;
@@ -7300,8 +7329,8 @@ async function sendEmailPayloadViaServer(payload){
   const accessToken = session && session.access_token;
   if(!accessToken) throw new Error('Δεν υπάρχει ενεργό Supabase login. Κάντε έξοδο και ξανά σύνδεση.');
 
-  const sbUrl = String(window._sb_url_override || localStorage.getItem('sb_url') || SUPABASE_URL || '').replace(/\/+$/,'');
-  const anonKey = String(window._sb_key_override || localStorage.getItem('sb_key') || SUPABASE_KEY || '').trim();
+  const sbUrl = String(SUPABASE_URL || '').replace(/\/+$/,'');
+  const anonKey = String(SUPABASE_KEY || '').trim();
   if(!sbUrl || !anonKey) throw new Error('Λείπουν SUPABASE_URL ή SUPABASE_KEY από την εφαρμογή.');
 
   const fnUrl = sbUrl + '/functions/v1/send-order-email';
@@ -7537,8 +7566,8 @@ async function sendOrderEmailViaServer(wo){
 
   // Χρησιμοποιούμε απευθείας fetch αντί για sb.functions.invoke, ώστε να παίρνουμε καθαρότερο σφάλμα
   // για 404/401/403/500 και να ξεχωρίζουμε αν το πρόβλημα είναι deployment/Auth/SMTP.
-  const sbUrl = String(window._sb_url_override || localStorage.getItem('sb_url') || SUPABASE_URL || '').replace(/\/+$/,'');
-  const anonKey = String(window._sb_key_override || localStorage.getItem('sb_key') || SUPABASE_KEY || '').trim();
+  const sbUrl = String(SUPABASE_URL || '').replace(/\/+$/,'');
+  const anonKey = String(SUPABASE_KEY || '').trim();
   if(!sbUrl || !anonKey) throw new Error('Λείπουν SUPABASE_URL ή SUPABASE_KEY από την εφαρμογή.');
   const fnUrl = sbUrl + '/functions/v1/send-order-email';
 
@@ -7892,23 +7921,23 @@ async function savePayment(){
 // ================================================================
 
 // ── SUPABASE SETTINGS ─────────────────────────────────────────────
+function _clearLegacySupabaseOverrides(){
+  try{ localStorage.removeItem('sb_url'); }catch(_){ }
+  try{ localStorage.removeItem('sb_key'); }catch(_){ }
+  try{ delete window._sb_url_override; }catch(_){ window._sb_url_override=undefined; }
+  try{ delete window._sb_key_override; }catch(_){ window._sb_key_override=undefined; }
+}
+
 function saveSupabaseConfig(){
-  const url = (document.getElementById('sSupabaseUrl')?.value||'').trim();
-  const key = (document.getElementById('sSupabaseKey')?.value||'').trim();
-  localStorage.setItem('sb_url', url);
-  localStorage.setItem('sb_key', key);
-  // Re-init client
-  _supabase = null;
-  // Update the constants (they're read-only but we patch via closure)
-  window._sb_url_override = url;
-  window._sb_key_override = key;
+  _clearLegacySupabaseOverrides();
   updateSupabaseStatus();
-  renderStaffList();
+  toast('🔒 Η σύνδεση Supabase είναι κλειδωμένη από την έκδοση της εφαρμογής και δεν αλλάζει από τον browser.');
 }
 
 function getSupabase(){
-  const url = window._sb_url_override || localStorage.getItem('sb_url') || SUPABASE_URL;
-  const key = window._sb_key_override || localStorage.getItem('sb_key') || SUPABASE_KEY;
+  _clearLegacySupabaseOverrides();
+  const url = String(SUPABASE_URL || '').trim();
+  const key = String(SUPABASE_KEY || '').trim();
   if(!_supabase && url && key && url.startsWith('http')){
     _supabase = supabase.createClient(url, key);
     if(typeof setupAckSubscription === 'function') {
@@ -7919,8 +7948,9 @@ function getSupabase(){
 }
 
 function isSupabaseConfigured(){
-  const url = window._sb_url_override || localStorage.getItem('sb_url') || SUPABASE_URL;
-  const key = window._sb_key_override || localStorage.getItem('sb_key') || SUPABASE_KEY;
+  _clearLegacySupabaseOverrides();
+  const url=String(SUPABASE_URL||'').trim();
+  const key=String(SUPABASE_KEY||'').trim();
   return !!(url && key && url.startsWith('http'));
 }
 
@@ -7932,9 +7962,10 @@ function updateSupabaseStatus(){
   } else {
     el.innerHTML = '<span style="color:#856404;font-weight:600;">⚠ Δεν έχει ρυθμιστεί — Τα δεδομένα είναι μόνο τοπικά</span>';
   }
-  // Populate fields from localStorage
-  const url = localStorage.getItem('sb_url')||SUPABASE_URL||'';
-  const key = localStorage.getItem('sb_key')||SUPABASE_KEY||'';
+  // Environment is build-locked; legacy per-browser overrides are removed.
+  _clearLegacySupabaseOverrides();
+  const url = SUPABASE_URL||'';
+  const key = SUPABASE_KEY||'';
   if(document.getElementById('sSupabaseUrl')) document.getElementById('sSupabaseUrl').value=url;
   if(document.getElementById('sSupabaseKey')) document.getElementById('sSupabaseKey').value=key;
 }
@@ -8179,8 +8210,8 @@ function updContractPreview(){
 }
 
 function saveSett(){
-  // v9.19.5: Ρυθμίσεις — Administrator & Διαχειριστής
-  if(!permSettings()){ alert('🚫 Οι Ρυθμίσεις επιτρέπονται μόνο σε Administrator/Διαχειριστή.'); return; }
+  // v9.20: Ρυθμίσεις — μόνο Administrator
+  if(!permSettings()){ alert('🚫 Οι Ρυθμίσεις επιτρέπονται μόνο στον Administrator.'); return; }
   settings.listDate=document.getElementById('sDate').value;
   // v9.19.4 (#6): στιβαρό parsing — ΠΟΤΕ σιωπηλή αλλαγή κλίμακας (×100 bug)
   var _cvParsed=parseAmountGr(document.getElementById('sContract').value);
@@ -8362,7 +8393,7 @@ async function importBulkSignedPdf(input){
   if(!window._bulkWo) window._bulkWo={};
   window._bulkWo.signedPdfData=b64; window._bulkWo.signedPdfName=file.name; window._bulkWo.signedAt=new Date().toISOString();
   let edgeResult=null;
-  const edgeUrl=(settings.edgeFnUrl||'').trim(), anonKey=(localStorage.getItem('sb_key')||'').trim();
+  const edgeUrl=(settings.edgeFnUrl||'').trim(), anonKey=(SUPABASE_KEY||'').trim();
   if(edgeUrl&&anonKey){
     try{const resp=await fetch(edgeUrl,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+anonKey,'apikey':anonKey},body:JSON.stringify({pdfBase64:b64})});
       if(resp.ok)edgeResult=await resp.json();}catch(e){}
