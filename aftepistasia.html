@@ -3977,9 +3977,7 @@ function renderSigModal(){
   const _edgeResult = wo._edgeResult || null;
   const _edgeSigners = _edgeResult ? (_edgeResult.signers || _edgeResult.names || _edgeResult.signerNames || []) : [];
   const _edgeOk = _edgeResult
-    ? ((_edgeResult.verified === true || _edgeResult.valid === true || _edgeResult.certificatesOk === true)
-        ? true
-        : ((_edgeResult.verified === false || _edgeResult.valid === false) ? false : null))
+    ? (_edgeResult.verified === true ? true : (_edgeResult.verified === false ? false : null))
     : null;
   const _allMembersMatched = _edgeSigners.length > 0 && _committee.length > 0
     && _committee.every(mb => _edgeSigners.some(n =>
@@ -3994,8 +3992,8 @@ function renderSigModal(){
     || (_edgeSigners.length > 0 && _committee.length > 0 && !_allMembersMatched);
   const _localSigCountOk = sigCount >= requiredSigs;
   const isValid = hasSigned && _committeeConfigured && _localSigCountOk && !_edgeFailed
-    && (_edgeOk === true || _edgeOk === null);
-  const _verificationMode = _edgeOk === true ? 'crypto' : (isValid ? 'local' : 'pending');
+    && _edgeOk === true;
+  const _verificationMode = isValid ? 'crypto' : 'pending';
 
   // ── FIX: If order is already finalized (Παραλήφθηκε), show info card instead
   if(wo.status === 'Παραλήφθηκε' && hasSigned){
@@ -4291,12 +4289,12 @@ async function importSignedPdf(input){
     wo._edgeSigCount = _sigs;
     wo._edgeResult = {
       verified: null,
-      valid: _sigs >= _req,
+      valid: false,
       count: _sigs,
       signers: localNames,
-      message: message || 'Τοπικός έλεγχος: εντοπίστηκαν '+_sigs+'/'+_req+' ψηφιακές υπογραφές στο PDF.'
+      message: message || 'Τοπικός προκαταρκτικός έλεγχος: εντοπίστηκαν '+_sigs+'/'+_req+' υπογραφές. Απαιτείται κρυπτογραφική επαλήθευση από τον server.'
     };
-    if(_sigs >= _req) wo._protocolReady = true;
+    wo._protocolReady = false;
   };
 
   // Render once now with PDF info but before verification - shows "Αναμονή επαλήθευσης"
@@ -4341,21 +4339,14 @@ async function importSignedPdf(input){
           wo._edgeResult = _result;
           const _edgeCount = Number(_result.count || _result.signatureCount || 0);
           wo._edgeSigCount = Math.max(_edgeCount, _sigs);
-          // Set persistent flag if verification succeeded OR if Edge only reports valid=true
-          if(_result.verified === true || _result.valid === true || _result.certificatesOk === true) {
-            wo._protocolReady = true;
-          } else if(_result.verified !== false && _result.valid !== false && _sigs >= _req) {
-            // Edge did not explicitly reject the PDF, and local count is sufficient.
-            wo._protocolReady = true;
-          }
-          if(_result.valid || _result.verified === true){
+          // Gate E: fail closed. Only explicit server cryptographic verification authorizes the protocol.
+          wo._protocolReady = (_result.verified === true);
+          if(_result.verified === true){
             toast('✅ Κρυπτογραφική επαλήθευση: ΕΓΚΥΡΟ — '+(_extractedNames.join(', ')||(_sigs+'/'+_req+' υπογραφές')));
-          } else if(_result.verified && !_result.certificatesOk){
-            toast('⚠ Υπογραφές παρούσες αλλά: '+_result.message);
-          } else if(_sigs >= _req && _result.verified !== false && _result.valid !== false){
-            toast('✅ '+_sigs+'/'+_req+' ψηφιακές υπογραφές — συνέχιση με τοπικό έλεγχο');
+          } else if(_result.verified === false){
+            toast('❌ Κρυπτογραφική επαλήθευση: ΑΠΟΡΡΙΦΘΗΚΕ — '+(_result.message||'Μη έγκυρο PDF'));
           } else {
-            toast('❌ Επαλήθευση: '+(_result.message||'Σφάλμα'));
+            toast('⏳ Δεν υπάρχει οριστικό κρυπτογραφικό αποτέλεσμα. Η παραλαβή παραμένει κλειδωμένη.');
           }
         }
       }
@@ -4375,15 +4366,12 @@ async function importSignedPdf(input){
   wo._sigExtractedNames = _allNames;
   if(!wo._edgeSigCount || wo._edgeSigCount < _sigs) wo._edgeSigCount = _sigs;
   if(!wo._edgeResult){
-    wo._edgeResult = {verified:null, valid:_sigs>=_req, count:_sigs, signers:_allNames, message:'Τοπικός έλεγχος: εντοπίστηκαν '+_sigs+'/'+_req+' ψηφιακές υπογραφές στο PDF.'};
+    wo._edgeResult = {verified:null, valid:false, count:_sigs, signers:_allNames, message:'Τοπικός προκαταρκτικός έλεγχος: εντοπίστηκαν '+_sigs+'/'+_req+' υπογραφές. Αναμένεται κρυπτογραφική επαλήθευση.'};
+    wo._protocolReady = false;
   } else {
     if(!Array.isArray(wo._edgeResult.signers) || !wo._edgeResult.signers.length) wo._edgeResult.signers = _allNames;
     if(!wo._edgeResult.count || wo._edgeResult.count < _sigs) wo._edgeResult.count = _sigs;
-    if(_sigs >= _req && wo._edgeResult.verified !== false && wo._edgeResult.valid !== false){
-      wo._edgeResult.valid = true;
-      wo._protocolReady = true;
-      if(!wo._edgeResult.message) wo._edgeResult.message = 'Τοπικός έλεγχος: εντοπίστηκαν '+_sigs+'/'+_req+' ψηφιακές υπογραφές στο PDF.';
-    }
+    wo._protocolReady = (wo._edgeResult.verified === true);
   }
   
   // CRITICAL: Force immediate cloud save (not debounced!) to ensure _protocolReady persists
@@ -4503,29 +4491,25 @@ async function finalizeAcceptance(){
     }
     return;
   }
+  if(!wo._edgeResult || wo._edgeResult.verified !== true){
+    alert('🚫 Η παραλαβή δεν μπορεί να οριστικοποιηθεί χωρίς ρητή επιτυχή κρυπτογραφική επαλήθευση του PDF από τον server.');
+    return;
+  }
   let sigs = countPdfSignatures(wo.signedPdfData||'');
   const req = Math.max(1, (settings.eSignUsers||[]).filter(u=>u.name).length||3);
   if(sigs === 0){
     sigs = Number(wo._edgeSigCount || (wo._edgeResult && (wo._edgeResult.count || wo._edgeResult.signatureCount)) || ((wo._sigExtractedNames||[]).length) || 0);
   }
 
-  // v9.19.4 (#5): ΣΚΛΗΡΟ μπλοκ — η παραλαβή απαιτεί ΟΛΕΣ τις υπογραφές.
-  // Μόνο ο admin μπορεί να παρακάμψει, με ΥΠΟΧΡΕΩΤΙΚΗ καταγεγραμμένη αιτιολογία.
+  // Gate E: all required signatures are mandatory; no administrative bypass is allowed.
   if(sigs < req){
-    if(userTier()==='user'){
-      alert('🚫 Ανιχνεύθηκαν '+sigs+'/'+req+' ψηφιακές υπογραφές.\n\nΗ παραλαβή απαιτεί και τις '+req+' υπογραφές (Άρθρο 9). Ανεβάστε το ΠΛΗΡΩΣ υπογεγραμμένο πρωτόκολλο.');
-      return;
-    }
-    const _ovr = prompt('ADMIN OVERRIDE — Ανιχνεύθηκαν '+sigs+'/'+req+' υπογραφές.\n\nΓια ολοκλήρωση παρά την έλλειψη, καταγράψτε ΥΠΟΧΡΕΩΤΙΚΑ την αιτιολογία (αποθηκεύεται μόνιμα στην εντολή):');
-    if(!_ovr || !_ovr.trim()){ alert('Απαιτείται αιτιολογία — η παραλαβή ΑΚΥΡΩΘΗΚΕ.'); return; }
-    wo.sigOverride = { by: (currentUser?.name||currentUser?.id||'admin'), reason: _ovr.trim(), at: new Date().toISOString(), found: sigs, required: req };
-  }
+    alert('🚫 Ανιχνεύθηκαν '+sigs+'/'+req+' ψηφιακές υπογραφές.
 
-  // Check using Edge Function result ONLY if it explicitly rejected the PDF.
-  if(wo._edgeResult && (wo._edgeResult.verified === false || wo._edgeResult.valid === false)){
-    alert('🚫 Δεν είναι δυνατή η ολοκλήρωση.\n\nΤο πρωτόκολλο δεν έχει τις απαιτούμενες έγκυρες ψηφιακές υπογραφές.\n\nΑνεβάστε το σωστό υπογεγραμμένο πρωτόκολλο.');
+Η παραλαβή απαιτεί όλες τις υπογραφές (Άρθρο 9). Ανεβάστε το πλήρως υπογεγραμμένο πρωτόκολλο.');
     return;
   }
+
+  // Server result was already required to be verified=true above.
   // If edge result says verified=true → proceed without any further checks
 
   closeSigModal();
@@ -5381,17 +5365,11 @@ function renderOrders(){
       // ── CONTRACTOR ORDER ──
       const isAdmin = !!(currentUser && currentUser.id==='admin');
       const st = w.status;
-      // hasProtocol = PDF exists AND edge function verified it (or no edge result yet)
+      // Gate E: a protocol is ready only if a PDF exists and the server explicitly verified it cryptographically.
       const _wEdgeOk = w._edgeResult
-        ? ((w._edgeResult.verified === true || w._edgeResult.valid === true || w._edgeResult.certificatesOk === true)
-            ? true
-            : ((w._edgeResult.verified === false || w._edgeResult.valid === false) ? false : null))
+        ? (w._edgeResult.verified === true ? true : (w._edgeResult.verified === false ? false : null))
         : null;
-      // Multiple checks for robustness across page reloads:
-      // 1. _protocolReady flag (set when verification succeeds, survives reloads)
-      // 2. signedPdfUrl exists (file uploaded to Supabase Storage)
-      // 3. signedPdfData exists (base64 in memory, may not survive reload)
-      const hasProtocol = !!(w._protocolReady || w.signedPdfUrl || w.signedPdfPath || (w.signedPdfData && _wEdgeOk !== false));
+      const hasProtocol = !!((w.signedPdfUrl || w.signedPdfPath || w.signedPdfData) && _wEdgeOk === true && w._protocolReady === true);
 
       if(st==='Εκδόθηκε'){
         btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">⚠ Ρήτρα</button>';
@@ -8396,9 +8374,7 @@ function renderBulkResultModal(orders,edgeResult,fname,b64){
   const committee=(settings.eSignUsers||[]).filter(u=>u.name&&u.name.trim());
   const sigCount=countPdfSignatures(b64), req=Math.max(1,committee.length||3);
   const edgeOk=edgeResult
-    ? ((edgeResult.verified===true || edgeResult.valid===true || edgeResult.certificatesOk===true)
-        ? true
-        : ((edgeResult.verified===false || edgeResult.valid===false) ? false : null))
+    ? (edgeResult.verified===true ? true : (edgeResult.verified===false ? false : null))
     : null;
   const edgeSigners=edgeResult?(edgeResult.signers||[]):[];
   const allMatched=edgeSigners.length>0&&committee.length>0&&committee.every(mb=>edgeSigners.some(n=>(()=>{
@@ -8408,7 +8384,7 @@ function renderBulkResultModal(orders,edgeResult,fname,b64){
         return mbParts.length>0 && mbParts.every(p=>sigN.includes(p));
       })()));
   const edgeFailed=(edgeOk===false)||(edgeSigners.length>0&&committee.length>0&&!allMatched);
-  const isValid=sigCount>=req&&!edgeFailed&&(edgeOk===true || edgeOk===null);
+  const isValid=sigCount>=req&&!edgeFailed&&edgeOk===true;
   const sc=isValid?'#198754':'#856404',sb=isValid?'#d1e7dd':'#fff3cd',sbr=isValid?'#198754':'#ffc107';
   let html='<div style="background:'+sb+';border:2px solid '+sbr+';border-radius:8px;padding:14px;margin-bottom:14px;">'
     +'<div style="font-size:24px;margin-bottom:6px;">'+(isValid?'✅':'⚠️')+'</div>'
@@ -8446,6 +8422,17 @@ async function finalizeBulkAcceptance(){
   if(!orders.length)return;
   if(!confirm('Ολοκλήρωση μαζικής παραλαβής για '+orders.length+' εντολές;'))return;
   const bulkWo=window._bulkWo||{};
+  const edgeResult=bulkWo._edgeResult||null;
+  if(!edgeResult || edgeResult.verified !== true){
+    alert('🚫 Η μαζική παραλαβή δεν μπορεί να οριστικοποιηθεί χωρίς ρητή επιτυχή κρυπτογραφική επαλήθευση του PDF από τον server.');
+    return;
+  }
+  const req=Math.max(1,(settings.eSignUsers||[]).filter(u=>u.name&&u.name.trim()).length||3);
+  const serverCount=Number(edgeResult.count||edgeResult.signatureCount||((edgeResult.signers||[]).length)||0);
+  if(serverCount < req){
+    alert('🚫 Ο server επιβεβαίωσε μόνο '+serverCount+'/'+req+' απαιτούμενες υπογραφές. Η μαζική παραλαβή ακυρώθηκε.');
+    return;
+  }
   const today=todayStr(); const d=new Date();
   orders.forEach(wo=>{
     wo.status='Παραλήφθηκε'; wo.completionDate=today;
