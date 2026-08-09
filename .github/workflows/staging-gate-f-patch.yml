@@ -1,4 +1,4 @@
-name: Staging Gate F settings config logout patch
+name: Staging Gate F settings config logout patch v2
 
 on:
   push:
@@ -21,8 +21,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Apply guarded Gate F patch
-        run: python scripts/patch_gate_f_settings_config_logout.py
+      - name: Apply guarded Gate F patch v2
+        run: python scripts/patch_gate_f_settings_config_logout_v2.py
       - name: Verify diff scope
         shell: bash
         run: |
