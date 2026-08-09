@@ -1,0 +1,41 @@
+name: Staging Gate D attachment retry patch
+
+on:
+  push:
+    branches:
+      - staging-production-hardening
+    paths:
+      - '.github/workflows/staging-gate-d-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging-production-hardening
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply guarded Gate D patch
+        run: python scripts/patch_attachment_retry_gate_d.py
+      - name: Verify diff scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$(git diff --name-only)"
+          echo "$changed"
+          test "$changed" = "aftepistasia.html"
+      - name: Commit Gate D client changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'rodios-staging-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add aftepistasia.html
+          git commit -m 'Fail closed and retry failed attachment uploads'
+          git push origin HEAD:staging-production-hardening
