@@ -1,0 +1,6 @@
+# RODIOS Supabase configuration
+# citizen-attachments uses an external Firebase ID token, verified cryptographically
+# inside the function, so the Supabase gateway JWT check must be disabled.
+
+[functions.citizen-attachments]
+verify_jwt = false
