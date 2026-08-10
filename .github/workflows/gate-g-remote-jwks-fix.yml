@@ -1,9 +1,12 @@
-name: Gate G App Check remote JWKS fix
+name: Gate G remote JWKS fix
 
 on:
   push:
-    branches: [staging-production-hardening]
-    paths: [.github/workflows/gate-g-remote-jwks-fix.yml]
+    branches:
+      - staging-production-hardening
+    paths:
+      - scripts/gate_g_remote_jwks_fix.py
+      - .github/workflows/gate-g-remote-jwks-fix.yml
   workflow_dispatch:
 
 permissions:
@@ -18,89 +21,17 @@ jobs:
         with:
           ref: staging-production-hardening
           fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Apply guarded remote JWKS patch
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('supabase/functions/citizen-attachments/index.ts')
-          s=p.read_text(encoding='utf-8')
-          orig=s
-
-          def once(old,new,label):
-              global s
-              n=s.count(old)
-              if n!=1:
-                  raise SystemExit(f'{label}: expected 1 match, found {n}')
-              s=s.replace(old,new,1)
-
-          once(
-            "import { decodeProtectedHeader, importJWK, importX509, jwtVerify, type JWTPayload } from 'npm:jose@6.2.3'",
-            "import { createRemoteJWKSet, decodeProtectedHeader, importX509, jwtVerify, type JWTPayload } from 'npm:jose@6.2.3'",
-            'jose import')
-
-          once(
-            "const APP_CHECK_JWKS_URL = 'https://firebaseappcheck.googleapis.com/v1/jwks'",
-            "const APP_CHECK_JWKS_URL = 'https://firebaseappcheck.googleapis.com/v1/jwks'\nconst APP_CHECK_JWKS = createRemoteJWKSet(new URL(APP_CHECK_JWKS_URL))",
-            'remote JWKS constant')
-
-          once(
-            "let cachedAppCheckJwks: Array<Record<string, unknown>> | null = null\nlet appCheckJwksExpireAt = 0\n",
-            "",
-            'manual JWK cache vars')
-
-          start=s.find('async function getAppCheckJwks(): Promise<Array<Record<string, unknown>>> {')
-          if start<0:
-              raise SystemExit('manual getAppCheckJwks start not found')
-          end=s.find('\n}\n\ntype FirebasePayload', start)
-          if end<0:
-              raise SystemExit('manual getAppCheckJwks end not found')
-          s=s[:start]+s[end+3:]
-
-          old_verify="""async function verifyAppCheckToken(token: string): Promise<JWTPayload> {
-  if (!token || token.length > 20000) throw new Error('Missing or malformed Firebase App Check token')
-  const header = decodeProtectedHeader(token)
-  if (header.alg !== 'RS256' || header.typ !== 'JWT' || !header.kid) throw new Error('Invalid Firebase App Check header')
-  const jwks = await getAppCheckJwks()
-  const jwk = jwks.find((x) => String(x?.kid || '') === String(header.kid))
-  if (!jwk) throw new Error('Firebase App Check signing key is unknown or expired')
-  const key = await importJWK(jwk as any, 'RS256')
-  const { payload } = await jwtVerify(token, key, {
-    algorithms: ['RS256'],
-    audience: APP_CHECK_AUDIENCE,
-    issuer: APP_CHECK_ISSUER,
-    subject: FIREBASE_WEB_APP_ID,
-  })
-  return payload
-}"""
-          new_verify="""async function verifyAppCheckToken(token: string): Promise<JWTPayload> {
-  if (!token || token.length > 20000) throw new Error('Missing or malformed Firebase App Check token')
-  const header = decodeProtectedHeader(token)
-  if (header.alg !== 'RS256' || header.typ !== 'JWT' || !header.kid) throw new Error('Invalid Firebase App Check header')
-  const { payload } = await jwtVerify(token, APP_CHECK_JWKS, {
-    algorithms: ['RS256'],
-    audience: APP_CHECK_AUDIENCE,
-    issuer: APP_CHECK_ISSUER,
-  })
-  if (payload.sub !== FIREBASE_WEB_APP_ID) throw new Error('Firebase App Check app ID is not authorized')
-  return payload
-}"""
-          once(old_verify,new_verify,'App Check verifier')
-
-          forbidden=['importJWK','getAppCheckJwks','cachedAppCheckJwks','appCheckJwksExpireAt']
-          for x in forbidden:
-              if x in s:
-                  raise SystemExit(f'forbidden manual JWK pattern remains: {x}')
-          required=['createRemoteJWKSet','jwtVerify(token, APP_CHECK_JWKS','payload.sub !== FIREBASE_WEB_APP_ID']
-          for x in required:
-              if x not in s:
-                  raise SystemExit(f'required remote JWKS invariant missing: {x}')
-          if s==orig:
-              raise SystemExit('no function changes produced')
-          p.write_text(s,encoding='utf-8')
-          print('App Check remote JWKS patch applied.')
-          PY
+        run: python scripts/gate_g_remote_jwks_fix.py
       - name: Commit function patch
         run: |
+          if git diff --quiet -- supabase/functions/citizen-attachments/index.ts; then
+            echo 'No Edge Function diff produced.' >&2
+            exit 1
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add supabase/functions/citizen-attachments/index.ts
