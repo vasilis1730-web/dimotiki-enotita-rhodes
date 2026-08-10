@@ -235,7 +235,7 @@ async function authenticate(req: Request) {
       verifyAppCheckToken(appCheckToken),
     ])
     const phoneDigits = normalizePhone(claims.phone_number || '')
-    if (phoneDigits.length < 10 || phoneDigits.length > 15) throw new Error('Verified phone number is invalid')
+    if (!/^3069\d{8}$/.test(phoneDigits)) throw new Error('Verified Greek mobile phone is invalid')
     const identityHash = await sha256Hex(claims.sub || '')
     return { claims, phoneDigits, identityHash }
   } catch (err) {
@@ -254,6 +254,30 @@ async function consumeUploadQuota(admin: ReturnType<typeof getAdminClient>, iden
   if (error) throw new Error(`Citizen upload quota RPC failed: ${error.code || 'unknown'}`)
   if (!data || data.allowed !== true) {
     throw new HttpError(429, 'Έχει ξεπεραστεί προσωρινά το όριο μεταφόρτωσης αρχείων. Δοκιμάστε ξανά αργότερα.')
+  }
+}
+
+async function consumeActionQuota(admin: ReturnType<typeof getAdminClient>, identityHash: string, action: 'sign' | 'remove') {
+  const limits = { sign: 240, remove: 120 }
+  const { data, error } = await admin.rpc('rodios_consume_edge_quota', {
+    p_scope: `citizen-attachments:${action}`,
+    p_actor_key: identityHash,
+    p_limit: limits[action],
+  })
+  if (error) throw new Error(`Attachment action quota RPC failed: ${error.message}`)
+  if (data !== true) throw new HttpError(429, 'Πάρα πολλές αιτήσεις. Δοκιμάστε ξανά αργότερα.')
+}
+
+async function assertAttachmentIsUnreferenced(admin: ReturnType<typeof getAdminClient>, path: string) {
+  const { data, error } = await admin
+    .from('rodios_issues')
+    .select('id')
+    .is('deleted_at', null)
+    .contains('data', { attachments: [{ path }] })
+    .limit(1)
+  if (error) throw new Error(`Attachment reference check failed: ${error.message}`)
+  if ((data || []).length) {
+    throw new HttpError(409, 'Το συνημμένο εξακολουθεί να χρησιμοποιείται από καταχωρισμένο αίτημα.')
   }
 }
 
@@ -307,6 +331,8 @@ Deno.serve(async (req: Request) => {
     let body: Record<string, unknown>
     try { body = await req.json() } catch (_) { throw new HttpError(400, 'Μη έγκυρο αίτημα.') }
     const action = String(body?.action || '')
+    if (action !== 'sign' && action !== 'remove') throw new HttpError(400, 'Άγνωστη ενέργεια.')
+    await consumeActionQuota(admin, identityHash, action)
 
     if (action === 'sign') {
       const rawPaths = Array.isArray(body?.paths) ? body.paths : []
@@ -326,6 +352,7 @@ Deno.serve(async (req: Request) => {
     if (action === 'remove') {
       const path = String(body?.path || '')
       if (!pathBelongsToPhone(path, phoneDigits)) throw new HttpError(403, 'Δεν επιτρέπεται διαγραφή του συγκεκριμένου συνημμένου.')
+      await assertAttachmentIsUnreferenced(admin, path)
       const { error } = await admin.storage.from(BUCKET).remove([path])
       if (error) throw new Error(`Storage delete failed: ${error.message}`)
       return json(req, 200, { ok: true })

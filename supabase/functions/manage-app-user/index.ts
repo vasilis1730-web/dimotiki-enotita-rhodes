@@ -43,14 +43,14 @@ Deno.serve(async(req:Request)=>{
     if(!profile.id)throw new HttpError(400,"Profile id is required");
     if(action!=="delete"){
       if(!profile.name||!profile.role||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(profile.email))throw new HttpError(400,"Missing or invalid profile data");
-      if(password.length>256)throw new HttpError(400,"Invalid password");
+      if(password.length>128)throw new HttpError(400,"Invalid password");
     }
     if(action==="delete"&&profile.id==="admin")throw new HttpError(400,"The primary Administrator profile cannot be deleted");
     const current=await existingProfile(ctx.admin,profile.id); let authUserId:string|null=current?.auth_user_id||null;
     if(!authUserId&&action!=="create")authUserId=await findAuthUserIdByEmail(ctx.admin,normalizeEmail(current?.data?.email||oldEmail||profile.email));
     if(action==="create"){
       if(current&&current.deleted_at===null)throw new HttpError(409,"Profile id already exists");
-      if(password.length<6)throw new HttpError(400,"Password must be at least 6 characters");
+      if(password.length<12)throw new HttpError(400,"Password must be at least 12 characters");
       const {data,error}=await ctx.admin.auth.admin.createUser({email:profile.email,password,email_confirm:true,user_metadata:{rodios_profile_id:profile.id,name:profile.name,role:profile.role,tier:profile.tier}});
       if(error)throw error; authUserId=data.user?.id||null; if(!authUserId)throw new Error("Created Auth user has no id");
       const stored={...profile,authUserId};
@@ -60,22 +60,31 @@ Deno.serve(async(req:Request)=>{
     }
     if(action==="update"){
       if(!current||current.deleted_at!==null)throw new HttpError(404,"Profile not found");
+      let recreatedAuthUserId:string|null=null;
       if(!authUserId){
-        if(password.length<6)throw new HttpError(409,"Auth account is missing; set a password to recreate it");
+        if(password.length<12)throw new HttpError(409,"Auth account is missing; set a password of at least 12 characters to recreate it");
         const {data,error}=await ctx.admin.auth.admin.createUser({email:profile.email,password,email_confirm:true,user_metadata:{rodios_profile_id:profile.id,name:profile.name,role:profile.role,tier:profile.tier}});
-        if(error)throw error; authUserId=data.user?.id||null;
+        if(error)throw error; authUserId=data.user?.id||null; recreatedAuthUserId=authUserId;
       }else{
         const attrs:Record<string,unknown>={email:profile.email,user_metadata:{rodios_profile_id:profile.id,name:profile.name,role:profile.role,tier:profile.tier}};
-        if(password){if(password.length<6)throw new HttpError(400,"Password must be at least 6 characters"); attrs.password=password;}
+        if(password){if(password.length<12)throw new HttpError(400,"Password must be at least 12 characters"); attrs.password=password;}
         const {error}=await ctx.admin.auth.admin.updateUserById(authUserId,attrs); if(error)throw error;
       }
       if(!authUserId)throw new Error("Auth account id is missing after update");
-      const stored={...profile,authUserId}; const {error}=await ctx.admin.from("rodios_app_users").update({auth_user_id:authUserId,data:stored,deleted_at:null}).eq("id",profile.id); if(error)throw error;
+      const stored={...profile,authUserId}; const {error}=await ctx.admin.from("rodios_app_users").update({auth_user_id:authUserId,data:stored,deleted_at:null}).eq("id",profile.id);
+      if(error){if(recreatedAuthUserId){try{await ctx.admin.auth.admin.deleteUser(recreatedAuthUserId);}catch(cleanupError){console.error("[manage-app-user] orphan auth cleanup failed",cleanupError);}}throw error;}
       return json(req,{ok:true,action,profile:stored});
     }
-    if(!current||current.deleted_at!==null)throw new HttpError(404,"Profile not found");
-    if(authUserId){const {error}=await ctx.admin.auth.admin.deleteUser(authUserId);if(error)throw error;}
-    const {error}=await ctx.admin.from("rodios_app_users").update({deleted_at:new Date().toISOString(),auth_user_id:null}).eq("id",profile.id); if(error)throw error;
+    if(!current)throw new HttpError(404,"Profile not found");
+    const {error:deactivateError}=await ctx.admin.from("rodios_app_users").update({deleted_at:new Date().toISOString()}).eq("id",profile.id); if(deactivateError)throw deactivateError;
+    if(authUserId){
+      const {error:authDeleteError}=await ctx.admin.auth.admin.deleteUser(authUserId);
+      if(authDeleteError){
+        const stillExists=await findAuthUserIdByEmail(ctx.admin,normalizeEmail(current?.data?.email||oldEmail||profile.email));
+        if(stillExists)throw authDeleteError;
+      }
+    }
+    const {error:clearAuthError}=await ctx.admin.from("rodios_app_users").update({auth_user_id:null}).eq("id",profile.id); if(clearAuthError)throw clearAuthError;
     return json(req,{ok:true,action,profile:{...profile,authUserId:null}});
   }catch(e){return handleError(req,"manage-app-user",e);}
 });

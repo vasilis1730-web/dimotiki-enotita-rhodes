@@ -273,6 +273,19 @@ values(
   'Σε εξέλιξη',null
 );
 
+-- Exact real-browser shape regression probe: authoritative status is in JSONB while
+-- the legacy/denormalized top-level status column is NULL. This shape exposed the
+-- PostgreSQL three-valued-logic bypass during the real-network Gate H.7 test.
+insert into public.rodios_work_orders(id,issue_id,data,deleted_at)
+values(
+  'stg_accept_null_status_wo','stg_accept_issue',
+  jsonb_build_object(
+    'id','stg_accept_null_status_wo','orderNum','ΕΝΤ-2026-997','status','Σε εξέλιξη','orderType','contractor',
+    'items',jsonb_build_array(jsonb_build_object('qty',1,'unitPrice',10))
+  ),
+  null
+);
+
 insert into public.rodios_pdf_verification_proofs(
   id,order_ids,pdf_sha256,protocol_path,pdf_name,signature_count,verified_by,
   order_snapshot,verification_summary,verified_at,expires_at
@@ -305,6 +318,28 @@ begin
   exception when insufficient_privilege then blocked:=true;
   end;
   if not blocked then raise exception 'GATE_H5_FAIL: direct accepted-state UPDATE was allowed'; end if;
+end $$;
+
+-- Permanent regression: the same direct transition must also be denied when OLD.status
+-- is NULL and only OLD.data.status carries the operational state.
+do $$
+declare blocked boolean:=false; top_status text; json_status text;
+begin
+  select status, data->>'status' into top_status, json_status
+  from public.rodios_work_orders where id='stg_accept_null_status_wo';
+  if top_status is not null or json_status <> 'Σε εξέλιξη' then
+    raise exception 'GATE_H7_FAIL: NULL-status regression fixture shape is invalid';
+  end if;
+  begin
+    update public.rodios_work_orders
+    set data=data||jsonb_build_object('status','Παραλήφθηκε')
+    where id='stg_accept_null_status_wo';
+  exception when insufficient_privilege then blocked:=true;
+  end;
+  if not blocked then raise exception 'GATE_H7_FAIL: NULL-status direct acceptance bypass was allowed'; end if;
+  if (select data->>'status' from public.rodios_work_orders where id='stg_accept_null_status_wo') <> 'Σε εξέλιξη' then
+    raise exception 'GATE_H7_FAIL: denied NULL-status bypass still changed row data';
+  end if;
 end $$;
 
 -- Exact proof + exact order set must atomically update order, linked issue and one payment.
@@ -372,10 +407,10 @@ end $$;
 -- Clean behavioral probe rows so the ordinary synthetic dataset remains small.
 delete from public.rodios_payments where work_order_id='stg_accept_wo';
 delete from public.rodios_pdf_verification_proofs where id='20000000-0000-4000-8000-000000000001'::uuid;
-delete from public.rodios_work_orders where id='stg_accept_wo';
+delete from public.rodios_work_orders where id in ('stg_accept_wo','stg_accept_null_status_wo');
 delete from public.rodios_issues where id='stg_accept_issue';
 
-select 'STAGING_GATE_H5_VERIFIED_ACCEPTANCE_PASS' as result;
+select 'STAGING_GATE_H5_H7_VERIFIED_ACCEPTANCE_PASS' as result;
 
 commit;
 
