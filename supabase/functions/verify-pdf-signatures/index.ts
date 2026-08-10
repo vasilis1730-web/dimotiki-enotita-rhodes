@@ -117,11 +117,17 @@ function certCommonName(cert: any): string {
   return "";
 }
 
+function ownedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 async function verifyOne(bytes: Uint8Array, r: ByteRange, index: number): Promise<SignatureDetail> {
   const coversFinalRevision = r.end2 === bytes.length;
   try {
     const cmsBytes = extractCms(bytes, r);
-    const contentInfo = ContentInfo.fromBER(cmsBytes.buffer);
+    const contentInfo = ContentInfo.fromBER(ownedArrayBuffer(cmsBytes));
     if (contentInfo.contentType !== ContentInfo.SIGNED_DATA) throw new Error("Contents is not CMS SignedData");
     const signedData = new SignedData({ schema: contentInfo.content });
     if (!signedData.signerInfos?.length) throw new Error("CMS has no signer");
@@ -142,14 +148,15 @@ async function verifyOne(bytes: Uint8Array, r: ByteRange, index: number): Promis
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", ownedArrayBuffer(bytes)));
   return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function normalizeOrderIds(body: any): string[] {
-  const raw = Array.isArray(body?.workOrderIds) ? body.workOrderIds : body?.workOrderId ? [body.workOrderId] : [];
-  const ids = [...new Set(raw.map((x: unknown) => String(x || "").trim()).filter(Boolean))].sort();
-  if (!ids.length || ids.length > MAX_ORDER_IDS || ids.some((x) => x.length > 180 || /[\u0000-\u001f]/.test(x))) {
+  const raw: unknown[] = Array.isArray(body?.workOrderIds) ? body.workOrderIds : body?.workOrderId ? [body.workOrderId] : [];
+  const normalized: string[] = raw.map((x: unknown) => String(x || "").trim()).filter((x: string) => x.length > 0);
+  const ids: string[] = [...new Set<string>(normalized)].sort();
+  if (!ids.length || ids.length > MAX_ORDER_IDS || ids.some((x: string) => x.length > 180 || /[\u0000-\u001f]/.test(x))) {
     throw new HttpError(400, "Μη έγκυρο σύνολο εντολών.");
   }
   if (ids.length !== raw.length) throw new HttpError(400, "Οι εντολές πρέπει να είναι μοναδικές.");
@@ -247,7 +254,7 @@ Deno.serve(async (req: Request) => {
       protocolPath = `verified/${pdfSha256}.pdf`;
       const { error: uploadError } = await ctx.admin.storage.from("protocols").upload(
         protocolPath,
-        new Blob([bytes], { type: "application/pdf" }),
+        new Blob([ownedArrayBuffer(bytes)], { type: "application/pdf" }),
         { contentType: "application/pdf", cacheControl: "3600", upsert: true },
       );
       if (uploadError) throw new Error(`Verified protocol upload failed: ${uploadError.message}`);
