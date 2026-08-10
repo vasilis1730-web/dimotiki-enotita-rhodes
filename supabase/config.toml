@@ -23,3 +23,9 @@ verify_jwt = true
 
 [functions.resolve-maps-link]
 verify_jwt = true
+
+# TEST-ONLY function. Exists only on the disposable staging-real-integration Preview.
+# The handler independently refuses the production project ref and any database
+# whose rodios_settings.main is not explicitly marked staging:true.
+[functions.staging-real-integration]
+verify_jwt = false
