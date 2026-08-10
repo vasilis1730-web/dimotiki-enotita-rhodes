@@ -108,7 +108,13 @@ where id='stg_issue_001';
 update public.rodios_settings
 set value = jsonb_set(value,'{managerMustNotWrite}','true'::jsonb,true)
 where key='main';
-delete from public.rodios_issues where id='stg_issue_002';
+do $$ begin
+  begin
+    delete from public.rodios_issues where id='stg_issue_002';
+  exception when insufficient_privilege then
+    null; -- stronger table-level denial is an acceptable/pass condition
+  end;
+end $$;
 
 -- USER: can read/update operational rows, cannot change settings or delete.
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000003',true);
@@ -126,7 +132,13 @@ where id='stg_issue_001';
 update public.rodios_settings
 set value = jsonb_set(value,'{userMustNotWrite}','true'::jsonb,true)
 where key='main';
-delete from public.rodios_issues where id='stg_issue_002';
+do $$ begin
+  begin
+    delete from public.rodios_issues where id='stg_issue_002';
+  exception when insufficient_privilege then
+    null; -- stronger table-level denial is an acceptable/pass condition
+  end;
+end $$;
 
 -- ORPHAN AUTH: valid Auth UUID, no application profile => sees zero protected rows.
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000099',true);
@@ -147,7 +159,7 @@ end $$;
 
 reset role;
 
--- Verify manager/user forbidden operations were truly filtered by RLS.
+-- Verify manager/user forbidden operations were truly denied.
 do $$
 declare v_count integer;
 begin
@@ -240,7 +252,6 @@ delete from public.rodios_sequences where year=2027;
 
 commit;
 
--- Visible success marker in deployment logs / SQL output.
 select 'STAGING_GATE_A_B_PASS' as result,
        (select count(*) from public.rodios_app_users where deleted_at is null) as active_profiles,
        (select count(*) from public.rodios_issues where id like 'stg_%') as synthetic_issues,
