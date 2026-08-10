@@ -70,7 +70,7 @@ grant select,insert,update on table public.work_order_acknowledgments to authent
 
 create or replace function public.generate_ack_token()
 returns text language sql volatile security definer set search_path='' as $$
-  select translate(encode(gen_random_bytes(24),'base64'),E'+/=\n\r','-_')
+  select translate(encode(extensions.gen_random_bytes(24),'base64'),E'+/=\n\r','-_')
 $$;
 revoke all on function public.generate_ack_token() from public,anon,authenticated;
 grant execute on function public.generate_ack_token() to service_role;
