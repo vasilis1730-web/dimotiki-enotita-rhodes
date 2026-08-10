@@ -1475,15 +1475,19 @@ async function _v9DeleteRows(table, ids){
   const sb = getSupabase && getSupabase();
   const list = (Array.isArray(ids) ? ids : [ids]).filter(x => x !== undefined && x !== null && String(x).trim() !== '').map(String);
   if(!sb || !list.length) return {ok:true, skipped:true};
+  const allowed = new Set(['rodios_issues','rodios_work_orders','rodios_payments','rodios_service_staff']);
+  if(!allowed.has(String(table||''))) throw new Error('Μη υποστηριζόμενη οντότητα αρχειοθέτησης.');
 
-  // Delete σε μικρά chunks για να μη σκάει σε πολλές εγγραφές.
+  // Release hardening: core rows are never physically deleted from the browser.
+  // Administrator-only server RPC sets deleted_at and the DB trigger writes audit metadata.
   for(let i=0; i<list.length; i+=100){
     const part = list.slice(i, i+100);
-    const { error } = await sb.from(table).delete().in('id', part);
+    const { data, error } = await sb.rpc('rodios_soft_delete', {p_entity:String(table), p_ids:part});
     if(error){
-      console.error('[v9 delete failed]', table, part, error);
+      console.error('[v9 soft delete failed]', table, part, error);
       throw error;
     }
+    if(Number(data||0) < 0) throw new Error('Μη έγκυρη απάντηση αρχειοθέτησης.');
   }
   return {ok:true};
 }
@@ -1493,7 +1497,7 @@ function _v9NormalizeStaffId(s, idx){
   const c = _safeCloneForDb(s||{});
   const id = String(c.id || c.name || ('staff_'+idx)).replace(/[^\w.\-:/]/g,'_');
   c.id = id;
-  return {id, data:c, deleted_at:null};
+  return {id, data:c};
 }
 
 function _v9Sig(obj){
@@ -1832,20 +1836,20 @@ async function _saveToSupabase(){
   try{
     const issueRows = (issues||[]).filter(Boolean).map(i=>{
       const c = _ensureId(_safeCloneForDb(i), 'issue');
-      return {id:String(c.id), data:c, deleted_at:null};
+      return {id:String(c.id), data:c};
     });
     const orderRows = (workOrders||[]).filter(Boolean).map(w=>{
       const c = _ensureId(_safeCloneForDb(w), 'wo');
-      return {id:String(c.id), issue_id:c.issueId||c.issue_id||null, data:c, deleted_at:null};
+      return {id:String(c.id), issue_id:c.issueId||c.issue_id||null, data:c};
     });
     const paymentRows = (payments||[]).filter(Boolean).map(p=>{
       const c = _ensureId(_safeCloneForDb(p), 'pay');
-      return {id:String(c.id), work_order_id:c.workOrderId||c.orderId||c.woId||c.work_order_id||null, data:c, deleted_at:null};
+      return {id:String(c.id), work_order_id:c.workOrderId||c.orderId||c.woId||c.work_order_id||null, data:c};
     });
     const settingsRows = [{key:'main', value:_safeCloneForDb(settings||{})}];
     const userRows = (getEffectiveUsers()||[]).filter(Boolean).map(u=>{
       const c = _ensureId(_safeCloneForDb(u), 'user');
-      return {id:String(c.id), data:c, deleted_at:null};
+      return {id:String(c.id), data:c};
     });
     const staffRows = (SERVICE_STAFF||[]).filter(Boolean).map((s,idx)=>_v9NormalizeStaffId(s, idx));
 
@@ -1880,7 +1884,7 @@ async function _saveToSupabase(){
     if(paymentDeletes.length) await _v9DeleteRows('rodios_payments', paymentDeletes);
     if(orderDeletes.length) await _v9DeleteRows('rodios_work_orders', orderDeletes);
     if(issueDeletes.length) await _v9DeleteRows('rodios_issues', issueDeletes);
-    if(userDeletes.length) await _v9DeleteRows('rodios_app_users', userDeletes);
+    if(userDeletes.length) console.warn('[v9] App-user deletion is managed only through manage-app-user; sync delete skipped.', userDeletes);
     if(staffDeletes.length) await _v9DeleteRows('rodios_service_staff', staffDeletes);
 
     await _v9UpsertChunks('rodios_issues', issueUpserts, 'id', 100);
@@ -3595,7 +3599,7 @@ function saveUsers(users){
   if(isSupabaseConfigured()){
     const sb=getSupabase();
     if(sb){
-      const rows=(users||[]).map(u=>{ const c=_safeCloneForDb(u); if(!c.id)c.id='user_'+genId(); return {id:String(c.id), data:c, deleted_at:null}; });
+      const rows=(users||[]).map(u=>{ const c=_safeCloneForDb(u); if(!c.id)c.id='user_'+genId(); return {id:String(c.id), data:c}; });
       _v9UpsertChunks('rodios_app_users', rows, 'id', 100).catch(e=>console.warn('saveUsers v9 failed:', e));
     }
   }
