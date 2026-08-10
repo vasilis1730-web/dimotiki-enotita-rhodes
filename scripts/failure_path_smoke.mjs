@@ -48,15 +48,8 @@ const result=await page.evaluate(async()=>{
   window.nextIssueNumAsync=async()=>{numberingCalls++; return 'ΑΙΤ-2099-999';};
   const issuesBefore=issues.length;
   await saveIssue();
-  out.issueBlocked={
-    category:document.getElementById('i_cat').value,
-    title:document.getElementById('i_title').value,
-    numberingCalls,
-    issuesDelta:issues.length-issuesBefore,
-    alert:alerts.at(-1)||''
-  };
+  out.issueBlocked={category:document.getElementById('i_cat').value,title:document.getElementById('i_title').value,numberingCalls,issuesDelta:issues.length-issuesBefore,alert:alerts.at(-1)||''};
   window.nextIssueNumAsync=originalNext;
-
   out.retryFunction=typeof retryIssueAttachment;
 
   // 2) Order save must fail before reading the rest of the form when media is unresolved.
@@ -67,15 +60,12 @@ const result=await page.evaluate(async()=>{
   await saveOrder(false);
   out.orderBlocked={ordersDelta:workOrders.length-ordersBefore,toast:toasts.at(-1)||''};
 
-  // 3) Email preparation must reject unresolved media before returning a sendable payload.
+  // 3) Email preparation must reject unresolved media before returning a sendable payload or ACK side effect.
   settings.contractorEmail='contractor@example.invalid';
   const originalEnsure=window.ensureOrderMediaUploaded;
   window.ensureOrderMediaUploaded=async()=>{};
   try{
-    await prepareContractorEmailPayload({
-      id:'wo_test',orderNum:'ΕΝΤ-2099-001',orderType:'contractor',
-      mediaBefore:[{name:'x.jpg',upload_failed:true,data:'data:image/jpeg;base64,AA'}],mediaAfter:[]
-    });
+    await prepareContractorEmailPayload({id:'wo_test',orderNum:'ΕΝΤ-2099-001',orderType:'contractor',mediaBefore:[{name:'x.jpg',upload_failed:true,data:'data:image/jpeg;base64,AA'}],mediaAfter:[]});
     out.emailBlocked={threw:false,message:''};
   }catch(e){ out.emailBlocked={threw:true,message:String(e?.message||e)}; }
   window.ensureOrderMediaUploaded=originalEnsure;
@@ -91,23 +81,40 @@ const result=await page.evaluate(async()=>{
   }catch(e){ out.manageUserBlocked={threw:true,message:String(e?.message||e),supabaseRequested}; }
   window.getSupabase=originalGetSupabase;
 
-  // 5) PDF acceptance: local markers/count alone must never authorize acceptance.
+  // 5) PDF acceptance: no/false verification must never authorize acceptance.
   settings.eSignUsers=[{name:'A'},{name:'B'},{name:'C'}];
   const fakePdf='data:application/pdf;base64,'+btoa('%PDF-1.7 /ByteRange [0 10 20 30] /ByteRange [0 10 20 30] /ByteRange [0 10 20 30]');
   const baseWo={id:'wo_sig_test',orderNum:'ΕΝΤ-2099-002',status:'Σε εξέλιξη',signedPdfData:fakePdf,signedPdfName:'fake.pdf',issueId:null};
-  workOrders=[structuredClone(baseWo)];
-  _sigOrderId='wo_sig_test';
-  alerts.length=0;
+  workOrders=[structuredClone(baseWo)]; payments=[]; issues=[];
+  _sigOrderId='wo_sig_test'; alerts.length=0;
   await finalizeAcceptance();
   out.pdfNoServer={status:workOrders[0].status,protocolReady:!!workOrders[0]._protocolReady,alert:alerts.at(-1)||''};
 
-  workOrders=[{...structuredClone(baseWo),_edgeResult:{verified:false,count:3,signatureCount:3},_edgeSigCount:3}];
-  _sigOrderId='wo_sig_test';
-  alerts.length=0;
+  workOrders=[{...structuredClone(baseWo),_edgeResult:{verified:false,count:3,signatureCount:3},_edgeSigCount:3}]; payments=[];
+  _sigOrderId='wo_sig_test'; alerts.length=0;
   await finalizeAcceptance();
   out.pdfVerifiedFalse={status:workOrders[0].status,protocolReady:!!workOrders[0]._protocolReady,alert:alerts.at(-1)||''};
 
-  // 6) CSV export neutralizer must change dangerous leading spreadsheet formulas only in export representation.
+  // 6) verified:true without a server proof must be blocked before RPC/client creation.
+  let noProofRpcCalls=0;
+  window.getSupabase=()=>({rpc:async()=>{noProofRpcCalls++; throw new Error('RPC_MUST_NOT_RUN');}});
+  workOrders=[{...structuredClone(baseWo),_edgeResult:{verified:true,count:3,signatureCount:3},_edgeSigCount:3}]; payments=[]; issues=[];
+  _sigOrderId='wo_sig_test'; alerts.length=0;
+  await finalizeAcceptance();
+  out.pdfNoProof={status:workOrders[0].status,protocolReady:!!workOrders[0]._protocolReady,paymentCount:payments.length,rpcCalls:noProofRpcCalls,alert:alerts.at(-1)||''};
+
+  // 7) valid proof but failed transaction must leave all local business state untouched.
+  let failedRpcCalls=0;
+  window.getSupabase=()=>({rpc:async(name,args)=>{failedRpcCalls++; return {data:null,error:{message:'SIMULATED_ATOMIC_RPC_FAILURE'}};}});
+  const failingWo={...structuredClone(baseWo),_edgeResult:{verified:true,count:3,signatureCount:3,verificationProofId:'20000000-0000-4000-8000-000000000099'},_edgeSigCount:3};
+  workOrders=[failingWo]; payments=[{id:'existing_penalty',orderId:'other',amount:1}]; issues=[{id:'unrelated_issue',status:'Εκκρεμεί'}];
+  const beforeFailure=JSON.stringify({workOrders,payments,issues});
+  _sigOrderId='wo_sig_test'; alerts.length=0;
+  await finalizeAcceptance();
+  out.pdfRpcFailure={rpcCalls:failedRpcCalls,stateUnchanged:JSON.stringify({workOrders,payments,issues})===beforeFailure,status:workOrders[0].status,alert:alerts.at(-1)||''};
+  window.getSupabase=originalGetSupabase;
+
+  // 8) CSV export neutralizer only changes export representation.
   out.csv={eq:_csvSafeCell('=1+1'),plus:_csvSafeCell('+SUM(A1:A2)'),safe:_csvSafeCell('κανονικό κείμενο')};
 
   window.alert=originalAlert;
@@ -117,7 +124,7 @@ const result=await page.evaluate(async()=>{
 
 assert.equal(result.issueBlocked.numberingCalls,0,'failed attachment burned/asked for issue number');
 assert.equal(result.issueBlocked.issuesDelta,0,'failed attachment allowed issue persistence');
-assert.match(result.issueBlocked.alert,/Retry|μεταφορτωθεί/i,`failed attachment did not show retry/block message; cat=${result.issueBlocked.category} title=${result.issueBlocked.title} alert=${result.issueBlocked.alert}`);
+assert.match(result.issueBlocked.alert,/Retry|μεταφορτωθεί/i,`failed attachment did not show retry/block message; alert=${result.issueBlocked.alert}`);
 assert.equal(result.retryFunction,'function','retryIssueAttachment is missing');
 assert.equal(result.orderBlocked.ordersDelta,0,'unresolved order media allowed save');
 assert.match(result.orderBlocked.toast,/Retry|δεν μεταφορτώθηκαν/i,'unresolved order media did not block save');
@@ -131,6 +138,14 @@ assert.equal(result.pdfNoServer.protocolReady,false,'PDF without server verifica
 assert.match(result.pdfNoServer.alert,/κρυπτογραφική επαλήθευση/i,'missing-verifier rejection absent');
 assert.notEqual(result.pdfVerifiedFalse.status,'Παραλήφθηκε','verified:false PDF was accepted');
 assert.equal(result.pdfVerifiedFalse.protocolReady,false,'verified:false PDF set protocolReady');
+assert.equal(result.pdfNoProof.rpcCalls,0,'verified:true without proof reached acceptance RPC');
+assert.equal(result.pdfNoProof.status,'Σε εξέλιξη','verified:true without proof changed status');
+assert.equal(result.pdfNoProof.paymentCount,0,'verified:true without proof created payment');
+assert.match(result.pdfNoProof.alert,/server proof|επαλήθευση είναι παλαιού τύπου/i,'missing proof rejection absent');
+assert.equal(result.pdfRpcFailure.rpcCalls,1,'valid proof did not attempt exactly one transactional RPC');
+assert.equal(result.pdfRpcFailure.stateUnchanged,true,'failed transactional RPC mutated local business state');
+assert.equal(result.pdfRpcFailure.status,'Σε εξέλιξη','failed transactional RPC changed work-order status');
+assert.match(result.pdfRpcFailure.alert,/ΔΕΝ ολοκληρώθηκε|δεν έγινε τοπική αλλαγή/i,'transaction failure message missing');
 assert.match(result.csv.eq,/^"'/,'formula starting = was not neutralized');
 assert.match(result.csv.plus,/^"'/,'formula starting + was not neutralized');
 assert.equal(result.csv.safe,'"κανονικό κείμενο"','safe CSV text was unexpectedly altered');
@@ -138,7 +153,9 @@ assert.equal(prod.length,0,'failure-path test attempted production Supabase: '+p
 console.log('PASS issue attachment fail-closed + Retry contract');
 console.log('PASS order media save/email fail-closed contract');
 console.log('PASS non-admin manage-user client guard');
-console.log('PASS PDF client fail-closed contract');
+console.log('PASS PDF no/false verification fail-closed contract');
+console.log('PASS PDF verified:true without proof blocked before RPC');
+console.log('PASS transactional RPC failure leaves local state unchanged');
 console.log('PASS CSV formula neutralization');
 console.log('FAILURE_PATH_SMOKE_PASS');
 await browser.close();
