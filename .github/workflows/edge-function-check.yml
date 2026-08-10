@@ -19,6 +19,7 @@ permissions:
 jobs:
   deno-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
@@ -40,5 +41,7 @@ jobs:
             echo 'No Edge Function index.ts files found.' >&2
             exit 1
           fi
-      - name: Dependency summary
+      - name: Dependency summary — citizen attachments
         run: deno info supabase/functions/citizen-attachments/index.ts
+      - name: Dependency summary — PDF verifier/proof issuer
+        run: deno info supabase/functions/verify-pdf-signatures/index.ts
