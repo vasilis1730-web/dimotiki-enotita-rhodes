@@ -1,35 +1,74 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.110.9'
-import { decodeProtectedHeader, importX509, jwtVerify, type JWTPayload } from 'npm:jose@6.2.3'
+import { decodeProtectedHeader, importJWK, importX509, jwtVerify, type JWTPayload } from 'npm:jose@6.2.3'
 
 const FIREBASE_PROJECT_ID = 'dimosrodou-otp'
+const FIREBASE_PROJECT_NUMBER = '315292350668'
+const FIREBASE_WEB_APP_ID = '1:315292350668:web:8288883847d24ac33e2a69'
 const FIREBASE_ISSUER = `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`
 const FIREBASE_CERTS_URL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com'
+const APP_CHECK_ISSUER = `https://firebaseappcheck.googleapis.com/${FIREBASE_PROJECT_NUMBER}`
+const APP_CHECK_AUDIENCE = `projects/${FIREBASE_PROJECT_NUMBER}`
+const APP_CHECK_JWKS_URL = 'https://firebaseappcheck.googleapis.com/v1/jwks'
+
 const BUCKET = 'attachments'
 const MAX_FILE_BYTES = 50 * 1024 * 1024
+const MAX_MULTIPART_BYTES = MAX_FILE_BYTES + (2 * 1024 * 1024)
 const SIGNED_URL_TTL_SECONDS = 15 * 60
+const MAX_UPLOADS_PER_HOUR = 20
+const MAX_UPLOAD_BYTES_PER_HOUR = 200 * 1024 * 1024
 
 const ALLOWED_ORIGINS = new Set([
   'https://vasilis1730-web.github.io',
 ])
 
-const ALLOWED_EXTENSIONS = new Set([
-  'jpg','jpeg','png','gif','webp','heic','heif','bmp','tif','tiff',
-  'pdf','doc','docx','xls','xlsx','txt','zip'
-])
+type FileRule = { contentType: string, acceptedMime: string[] }
+const FILE_RULES: Record<string, FileRule> = {
+  jpg:  { contentType: 'image/jpeg', acceptedMime: ['image/jpeg', 'image/jpg'] },
+  jpeg: { contentType: 'image/jpeg', acceptedMime: ['image/jpeg', 'image/jpg'] },
+  png:  { contentType: 'image/png', acceptedMime: ['image/png'] },
+  gif:  { contentType: 'image/gif', acceptedMime: ['image/gif'] },
+  webp: { contentType: 'image/webp', acceptedMime: ['image/webp'] },
+  heic: { contentType: 'image/heic', acceptedMime: ['image/heic', 'image/heif'] },
+  heif: { contentType: 'image/heif', acceptedMime: ['image/heif', 'image/heic'] },
+  bmp:  { contentType: 'image/bmp', acceptedMime: ['image/bmp', 'image/x-ms-bmp'] },
+  tif:  { contentType: 'image/tiff', acceptedMime: ['image/tiff'] },
+  tiff: { contentType: 'image/tiff', acceptedMime: ['image/tiff'] },
+  pdf:  { contentType: 'application/pdf', acceptedMime: ['application/pdf'] },
+  doc:  { contentType: 'application/msword', acceptedMime: ['application/msword'] },
+  docx: { contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', acceptedMime: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'] },
+  xls:  { contentType: 'application/vnd.ms-excel', acceptedMime: ['application/vnd.ms-excel'] },
+  xlsx: { contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', acceptedMime: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'] },
+  txt:  { contentType: 'text/plain', acceptedMime: ['text/plain'] },
+  zip:  { contentType: 'application/zip', acceptedMime: ['application/zip', 'application/x-zip-compressed'] },
+}
 
 let cachedCerts: Record<string, string> | null = null
 let certsExpireAt = 0
+let cachedAppCheckJwks: Array<Record<string, unknown>> | null = null
+let appCheckJwksExpireAt = 0
+
+class HttpError extends Error {
+  status: number
+  publicMessage: string
+  constructor(status: number, publicMessage: string, internalMessage?: string) {
+    super(internalMessage || publicMessage)
+    this.status = status
+    this.publicMessage = publicMessage
+  }
+}
+
+class UpstreamError extends Error {}
 
 function corsHeaders(req: Request) {
   const origin = req.headers.get('origin') || ''
-  const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : 'https://vasilis1730-web.github.io'
-  return {
-    'Access-Control-Allow-Origin': allowOrigin,
-    'Access-Control-Allow-Headers': 'content-type, apikey, x-firebase-id-token',
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Headers': 'content-type, apikey, x-firebase-id-token, x-firebase-appcheck',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   }
+  if (ALLOWED_ORIGINS.has(origin)) headers['Access-Control-Allow-Origin'] = origin
+  return headers
 }
 
 function json(req: Request, status: number, payload: unknown) {
@@ -61,12 +100,26 @@ async function getFirebaseCerts(): Promise<Record<string, string>> {
   const now = Date.now()
   if (cachedCerts && now < certsExpireAt) return cachedCerts
   const res = await fetch(FIREBASE_CERTS_URL, { headers: { 'Accept': 'application/json' } })
-  if (!res.ok) throw new Error(`Firebase certificate endpoint returned ${res.status}`)
+  if (!res.ok) throw new UpstreamError(`Firebase certificate endpoint returned ${res.status}`)
   const certs = await res.json()
-  if (!certs || typeof certs !== 'object') throw new Error('Firebase certificate response is invalid')
+  if (!certs || typeof certs !== 'object') throw new UpstreamError('Firebase certificate response is invalid')
   cachedCerts = certs as Record<string, string>
   certsExpireAt = now + parseMaxAge(res.headers.get('cache-control')) * 1000
   return cachedCerts
+}
+
+async function getAppCheckJwks(): Promise<Array<Record<string, unknown>>> {
+  const now = Date.now()
+  if (cachedAppCheckJwks && now < appCheckJwksExpireAt) return cachedAppCheckJwks
+  const res = await fetch(APP_CHECK_JWKS_URL, { headers: { 'Accept': 'application/json' } })
+  if (!res.ok) throw new UpstreamError(`Firebase App Check JWKS endpoint returned ${res.status}`)
+  const body = await res.json()
+  const keys = Array.isArray(body?.keys) ? body.keys : []
+  if (!keys.length) throw new UpstreamError('Firebase App Check JWKS response is invalid')
+  cachedAppCheckJwks = keys as Array<Record<string, unknown>>
+  // Firebase states App Check public keys must not be cached for more than six hours.
+  appCheckJwksExpireAt = now + Math.min(parseMaxAge(res.headers.get('cache-control')), 6 * 60 * 60) * 1000
+  return cachedAppCheckJwks
 }
 
 type FirebasePayload = JWTPayload & {
@@ -99,6 +152,23 @@ async function verifyFirebaseIdToken(token: string): Promise<FirebasePayload> {
   return p
 }
 
+async function verifyAppCheckToken(token: string): Promise<JWTPayload> {
+  if (!token || token.length > 20000) throw new Error('Missing or malformed Firebase App Check token')
+  const header = decodeProtectedHeader(token)
+  if (header.alg !== 'RS256' || header.typ !== 'JWT' || !header.kid) throw new Error('Invalid Firebase App Check header')
+  const jwks = await getAppCheckJwks()
+  const jwk = jwks.find((x) => String(x?.kid || '') === String(header.kid))
+  if (!jwk) throw new Error('Firebase App Check signing key is unknown or expired')
+  const key = await importJWK(jwk as Parameters<typeof importJWK>[0], 'RS256')
+  const { payload } = await jwtVerify(token, key, {
+    algorithms: ['RS256'],
+    audience: APP_CHECK_AUDIENCE,
+    issuer: APP_CHECK_ISSUER,
+    subject: FIREBASE_WEB_APP_ID,
+  })
+  return payload
+}
+
 function normalizePhone(phone: string): string {
   return String(phone || '').replace(/\D/g, '')
 }
@@ -118,13 +188,49 @@ function extensionOf(name: string): string {
   return m ? m[1] : ''
 }
 
-function assertAllowedFile(file: File) {
-  if (!(file instanceof File)) throw new Error('Missing file')
-  if (file.size <= 0) throw new Error('Empty files are not allowed')
-  if (file.size > MAX_FILE_BYTES) throw new Error('File exceeds 50 MB limit')
+function assertAllowedFile(file: File): { ext: string, rule: FileRule } {
+  if (!(file instanceof File)) throw new HttpError(400, 'Δεν βρέθηκε αρχείο.')
+  if (file.size <= 0) throw new HttpError(400, 'Δεν επιτρέπονται κενά αρχεία.')
+  if (file.size > MAX_FILE_BYTES) throw new HttpError(413, 'Το αρχείο ξεπερνά το όριο των 50 MB.')
+
   const ext = extensionOf(file.name)
-  const imageType = String(file.type || '').toLowerCase().startsWith('image/')
-  if (!imageType && !ALLOWED_EXTENSIONS.has(ext)) throw new Error('File type is not allowed')
+  const rule = FILE_RULES[ext]
+  if (!rule) throw new HttpError(400, 'Ο τύπος αρχείου δεν επιτρέπεται.')
+
+  const declared = String(file.type || '').toLowerCase().trim()
+  if (declared && declared !== 'application/octet-stream' && !rule.acceptedMime.includes(declared)) {
+    throw new HttpError(400, 'Ο τύπος του αρχείου δεν συμφωνεί με την επέκτασή του.')
+  }
+  return { ext, rule }
+}
+
+function startsWith(bytes: Uint8Array, sig: number[]): boolean {
+  return bytes.length >= sig.length && sig.every((b, i) => bytes[i] === b)
+}
+
+function ascii(bytes: Uint8Array, start: number, length: number): string {
+  if (bytes.length < start + length) return ''
+  return String.fromCharCode(...bytes.slice(start, start + length))
+}
+
+function assertFileSignature(bytes: Uint8Array, ext: string) {
+  let ok = false
+  if (ext === 'jpg' || ext === 'jpeg') ok = startsWith(bytes, [0xff, 0xd8, 0xff])
+  else if (ext === 'png') ok = startsWith(bytes, [0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a])
+  else if (ext === 'gif') ok = ascii(bytes, 0, 6) === 'GIF87a' || ascii(bytes, 0, 6) === 'GIF89a'
+  else if (ext === 'webp') ok = ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 4) === 'WEBP'
+  else if (ext === 'bmp') ok = ascii(bytes, 0, 2) === 'BM'
+  else if (ext === 'tif' || ext === 'tiff') ok = startsWith(bytes, [0x49,0x49,0x2a,0x00]) || startsWith(bytes, [0x4d,0x4d,0x00,0x2a])
+  else if (ext === 'heic' || ext === 'heif') ok = ascii(bytes, 4, 4) === 'ftyp'
+  else if (ext === 'pdf') ok = ascii(bytes, 0, 5) === '%PDF-'
+  else if (ext === 'doc' || ext === 'xls') ok = startsWith(bytes, [0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1])
+  else if (ext === 'docx' || ext === 'xlsx' || ext === 'zip') {
+    ok = startsWith(bytes, [0x50,0x4b,0x03,0x04]) || startsWith(bytes, [0x50,0x4b,0x05,0x06]) || startsWith(bytes, [0x50,0x4b,0x07,0x08])
+  } else if (ext === 'txt') {
+    const sample = bytes.slice(0, Math.min(bytes.length, 8192))
+    ok = !sample.includes(0)
+  }
+  if (!ok) throw new HttpError(400, 'Το περιεχόμενο του αρχείου δεν συμφωνεί με τον δηλωμένο τύπο.')
 }
 
 function pathBelongsToPhone(path: string, phoneDigits: string): boolean {
@@ -132,12 +238,42 @@ function pathBelongsToPhone(path: string, phoneDigits: string): boolean {
   return normalized.startsWith(`citizen/${phoneDigits}/`) && !normalized.includes('..')
 }
 
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 async function authenticate(req: Request) {
-  const token = req.headers.get('x-firebase-id-token') || ''
-  const claims = await verifyFirebaseIdToken(token)
-  const phoneDigits = normalizePhone(claims.phone_number || '')
-  if (phoneDigits.length < 10 || phoneDigits.length > 15) throw new Error('Verified phone number is invalid')
-  return { claims, phoneDigits }
+  const idToken = req.headers.get('x-firebase-id-token') || ''
+  const appCheckToken = req.headers.get('x-firebase-appcheck') || ''
+  if (!idToken || !appCheckToken) throw new HttpError(401, 'Η ασφαλής ταυτοποίηση της εφαρμογής απέτυχε.')
+
+  try {
+    const [claims] = await Promise.all([
+      verifyFirebaseIdToken(idToken),
+      verifyAppCheckToken(appCheckToken),
+    ])
+    const phoneDigits = normalizePhone(claims.phone_number || '')
+    if (phoneDigits.length < 10 || phoneDigits.length > 15) throw new Error('Verified phone number is invalid')
+    const identityHash = await sha256Hex(claims.sub || '')
+    return { claims, phoneDigits, identityHash }
+  } catch (err) {
+    if (err instanceof UpstreamError) throw err
+    throw new HttpError(401, 'Η ασφαλής ταυτοποίηση της εφαρμογής απέτυχε.', err instanceof Error ? err.message : 'Authentication failed')
+  }
+}
+
+async function consumeUploadQuota(admin: ReturnType<typeof getAdminClient>, identityHash: string, bytes: number) {
+  const { data, error } = await admin.rpc('rodios_consume_citizen_upload_quota', {
+    p_identity_hash: identityHash,
+    p_bytes: bytes,
+    p_max_count: MAX_UPLOADS_PER_HOUR,
+    p_max_bytes: MAX_UPLOAD_BYTES_PER_HOUR,
+  })
+  if (error) throw new Error(`Citizen upload quota RPC failed: ${error.code || 'unknown'}`)
+  if (!data || data.allowed !== true) {
+    throw new HttpError(429, 'Έχει ξεπεραστεί προσωρινά το όριο μεταφόρτωσης αρχείων. Δοκιμάστε ξανά αργότερα.')
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -147,38 +283,48 @@ Deno.serve(async (req: Request) => {
   const origin = req.headers.get('origin') || ''
   if (origin && !ALLOWED_ORIGINS.has(origin)) return json(req, 403, { ok: false, error: 'Origin not allowed' })
 
+  const declaredLength = Number(req.headers.get('content-length') || '0')
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_MULTIPART_BYTES) {
+    return json(req, 413, { ok: false, error: 'Το αίτημα μεταφόρτωσης είναι υπερβολικά μεγάλο.' })
+  }
+
   try {
-    const { phoneDigits } = await authenticate(req)
+    const { phoneDigits, identityHash } = await authenticate(req)
     const admin = getAdminClient()
     const contentType = req.headers.get('content-type') || ''
 
     if (contentType.includes('multipart/form-data')) {
-      const form = await req.formData()
+      let form: FormData
+      try { form = await req.formData() } catch (_) { throw new HttpError(400, 'Μη έγκυρη μεταφόρτωση αρχείου.') }
       const action = String(form.get('action') || 'upload')
-      if (action !== 'upload') return json(req, 400, { ok: false, error: 'Invalid multipart action' })
+      if (action !== 'upload') throw new HttpError(400, 'Μη έγκυρη ενέργεια μεταφόρτωσης.')
       const file = form.get('file')
-      if (!(file instanceof File)) return json(req, 400, { ok: false, error: 'Missing file' })
-      assertAllowedFile(file)
+      if (!(file instanceof File)) throw new HttpError(400, 'Δεν βρέθηκε αρχείο.')
+      const { ext, rule } = assertAllowedFile(file)
+
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      assertFileSignature(bytes, ext)
+      await consumeUploadQuota(admin, identityHash, file.size)
 
       const safe = safeFileName(file.name)
       const random = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
       const path = `citizen/${phoneDigits}/${Date.now()}_${random}_${safe}`
-      const bytes = new Uint8Array(await file.arrayBuffer())
       const { error } = await admin.storage.from(BUCKET).upload(path, bytes, {
         upsert: false,
         cacheControl: '3600',
-        contentType: file.type || 'application/octet-stream',
+        contentType: rule.contentType,
       })
       if (error) throw new Error(`Storage upload failed: ${error.message}`)
 
       return json(req, 200, {
         ok: true,
-        attachment: { name: file.name, type: file.type || '', size: file.size, path },
+        attachment: { name: file.name, type: rule.contentType, size: file.size, path },
       })
     }
 
-    if (!contentType.includes('application/json')) return json(req, 415, { ok: false, error: 'Unsupported content type' })
-    const body = await req.json()
+    if (!contentType.includes('application/json')) throw new HttpError(415, 'Μη υποστηριζόμενος τύπος αιτήματος.')
+    let body: Record<string, unknown>
+    try { body = await req.json() } catch (_) { throw new HttpError(400, 'Μη έγκυρο αίτημα.') }
     const action = String(body?.action || '')
 
     if (action === 'sign') {
@@ -186,7 +332,7 @@ Deno.serve(async (req: Request) => {
       const paths = [...new Set(rawPaths.map((x: unknown) => String(x || '')).filter(Boolean))].slice(0, 50)
       if (!paths.length) return json(req, 200, { ok: true, urls: {} })
       for (const path of paths) {
-        if (!pathBelongsToPhone(path, phoneDigits)) return json(req, 403, { ok: false, error: 'Attachment path not authorized' })
+        if (!pathBelongsToPhone(path, phoneDigits)) throw new HttpError(403, 'Δεν επιτρέπεται πρόσβαση στο συγκεκριμένο συνημμένο.')
       }
       const urls: Record<string, string> = {}
       for (const path of paths) {
@@ -198,17 +344,23 @@ Deno.serve(async (req: Request) => {
 
     if (action === 'remove') {
       const path = String(body?.path || '')
-      if (!pathBelongsToPhone(path, phoneDigits)) return json(req, 403, { ok: false, error: 'Attachment path not authorized' })
+      if (!pathBelongsToPhone(path, phoneDigits)) throw new HttpError(403, 'Δεν επιτρέπεται διαγραφή του συγκεκριμένου συνημμένου.')
       const { error } = await admin.storage.from(BUCKET).remove([path])
       if (error) throw new Error(`Storage delete failed: ${error.message}`)
       return json(req, 200, { ok: true })
     }
 
-    return json(req, 400, { ok: false, error: 'Unknown action' })
+    throw new HttpError(400, 'Άγνωστη ενέργεια.')
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Request failed'
-    const authFailure = /Firebase|phone|token|subject|issued-at|authentication time/i.test(message)
-    console.warn('[citizen-attachments]', message)
-    return json(req, authFailure ? 401 : 400, { ok: false, error: message })
+    const internalMessage = err instanceof Error ? err.message : 'Request failed'
+    console.warn('[citizen-attachments]', internalMessage)
+
+    if (err instanceof HttpError) {
+      return json(req, err.status, { ok: false, error: err.publicMessage })
+    }
+    if (err instanceof UpstreamError) {
+      return json(req, 503, { ok: false, error: 'Η υπηρεσία ασφαλούς ταυτοποίησης δεν είναι προσωρινά διαθέσιμη.' })
+    }
+    return json(req, 500, { ok: false, error: 'Η μεταφόρτωση δεν ολοκληρώθηκε λόγω εσωτερικού σφάλματος.' })
   }
 })
