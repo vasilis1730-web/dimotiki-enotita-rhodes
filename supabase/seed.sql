@@ -92,52 +92,115 @@ begin
   if v_count <> 2 then raise exception 'GATE_A_FAIL: admin cannot read operational rows'; end if;
 end $$;
 
--- MANAGER: can read/update operational rows but cannot change settings or delete.
+-- MANAGER: can update operational rows only through the versioned bundle; cannot
+-- use direct writes, change settings or delete.
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000002',true);
 do $$
-declare v_role text; v_count integer;
+declare
+  v_role text;
+  v_count integer;
+  v_data jsonb;
+  v_updated timestamptz;
+  v_direct_denied boolean := false;
+  v_settings_denied boolean := false;
+  v_delete_denied boolean := false;
 begin
   select public.rodios_current_role() into v_role;
   if v_role <> 'manager' then raise exception 'GATE_A_FAIL: manager role resolved as %', v_role; end if;
   select count(*) into v_count from public.rodios_issues where id like 'stg_%';
   if v_count <> 2 then raise exception 'GATE_A_FAIL: manager cannot read operational rows'; end if;
-end $$;
-update public.rodios_issues
-set data = jsonb_set(data,'{stagingManagerUpdate}','true'::jsonb,true)
-where id='stg_issue_001';
-update public.rodios_settings
-set value = jsonb_set(value,'{managerMustNotWrite}','true'::jsonb,true)
-where key='main';
-do $$ begin
+
+  select data,updated_at into v_data,v_updated from public.rodios_issues where id='stg_issue_001';
+  perform public.rodios_save_bundle(jsonb_build_object(
+    'issues',jsonb_build_object(
+      'upserts',jsonb_build_array(jsonb_build_object(
+        'id','stg_issue_001',
+        'data',jsonb_set(v_data,'{stagingManagerUpdate}','true'::jsonb,true),
+        'expectedUpdatedAt',v_updated
+      )),
+      'deletes','[]'::jsonb
+    )
+  ));
+
   begin
-    delete from public.rodios_issues where id='stg_issue_002';
-  exception when insufficient_privilege then
-    null; -- stronger table-level denial is an acceptable/pass condition
+    update public.rodios_issues set data=data||'{"directManagerMustNotWrite":true}'::jsonb where id='stg_issue_001';
+  exception when insufficient_privilege then v_direct_denied := true;
   end;
+  begin
+    select updated_at into v_updated from public.rodios_settings where key='main';
+    perform public.rodios_save_bundle(jsonb_build_object(
+      'settings',jsonb_build_object(
+        'upserts',jsonb_build_array(jsonb_build_object('key','main','value','{"managerMustNotWrite":true}'::jsonb,'expectedUpdatedAt',v_updated)),
+        'deletes','[]'::jsonb
+      )
+    ));
+  exception when insufficient_privilege then v_settings_denied := true;
+  end;
+  begin
+    select updated_at into v_updated from public.rodios_issues where id='stg_issue_002';
+    perform public.rodios_save_bundle(jsonb_build_object(
+      'issues',jsonb_build_object('upserts','[]'::jsonb,'deletes',jsonb_build_array(jsonb_build_object('id','stg_issue_002','expectedUpdatedAt',v_updated)))
+    ));
+  exception when insufficient_privilege then v_delete_denied := true;
+  end;
+  if not v_direct_denied or not v_settings_denied or not v_delete_denied then
+    raise exception 'GATE_A_FAIL: manager write boundary failed (direct %, settings %, delete %)',v_direct_denied,v_settings_denied,v_delete_denied;
+  end if;
 end $$;
 
--- USER: can read/update operational rows, cannot change settings or delete.
+-- USER: same atomic operational-write contract and the same restricted boundaries.
 select set_config('request.jwt.claim.sub','10000000-0000-4000-8000-000000000003',true);
 do $$
-declare v_role text; v_count integer;
+declare
+  v_role text;
+  v_count integer;
+  v_data jsonb;
+  v_updated timestamptz;
+  v_direct_denied boolean := false;
+  v_settings_denied boolean := false;
+  v_delete_denied boolean := false;
 begin
   select public.rodios_current_role() into v_role;
   if v_role <> 'user' then raise exception 'GATE_A_FAIL: user role resolved as %', v_role; end if;
   select count(*) into v_count from public.rodios_issues where id like 'stg_%';
   if v_count <> 2 then raise exception 'GATE_A_FAIL: user cannot read operational rows'; end if;
-end $$;
-update public.rodios_issues
-set data = jsonb_set(data,'{stagingUserUpdate}','true'::jsonb,true)
-where id='stg_issue_001';
-update public.rodios_settings
-set value = jsonb_set(value,'{userMustNotWrite}','true'::jsonb,true)
-where key='main';
-do $$ begin
+
+  select data,updated_at into v_data,v_updated from public.rodios_issues where id='stg_issue_001';
+  perform public.rodios_save_bundle(jsonb_build_object(
+    'issues',jsonb_build_object(
+      'upserts',jsonb_build_array(jsonb_build_object(
+        'id','stg_issue_001',
+        'data',jsonb_set(v_data,'{stagingUserUpdate}','true'::jsonb,true),
+        'expectedUpdatedAt',v_updated
+      )),
+      'deletes','[]'::jsonb
+    )
+  ));
+
   begin
-    delete from public.rodios_issues where id='stg_issue_002';
-  exception when insufficient_privilege then
-    null; -- stronger table-level denial is an acceptable/pass condition
+    update public.rodios_issues set data=data||'{"directUserMustNotWrite":true}'::jsonb where id='stg_issue_001';
+  exception when insufficient_privilege then v_direct_denied := true;
   end;
+  begin
+    select updated_at into v_updated from public.rodios_settings where key='main';
+    perform public.rodios_save_bundle(jsonb_build_object(
+      'settings',jsonb_build_object(
+        'upserts',jsonb_build_array(jsonb_build_object('key','main','value','{"userMustNotWrite":true}'::jsonb,'expectedUpdatedAt',v_updated)),
+        'deletes','[]'::jsonb
+      )
+    ));
+  exception when insufficient_privilege then v_settings_denied := true;
+  end;
+  begin
+    select updated_at into v_updated from public.rodios_issues where id='stg_issue_002';
+    perform public.rodios_save_bundle(jsonb_build_object(
+      'issues',jsonb_build_object('upserts','[]'::jsonb,'deletes',jsonb_build_array(jsonb_build_object('id','stg_issue_002','expectedUpdatedAt',v_updated)))
+    ));
+  exception when insufficient_privilege then v_delete_denied := true;
+  end;
+  if not v_direct_denied or not v_settings_denied or not v_delete_denied then
+    raise exception 'GATE_A_FAIL: user write boundary failed (direct %, settings %, delete %)',v_direct_denied,v_settings_denied,v_delete_denied;
+  end if;
 end $$;
 
 -- ORPHAN AUTH: valid Auth UUID, no application profile => sees zero protected rows.
@@ -159,7 +222,7 @@ end $$;
 
 reset role;
 
--- Verify manager/user forbidden operations were truly denied.
+-- Verify manager/user allowed and forbidden operations were enforced.
 do $$
 declare v_count integer;
 begin
@@ -171,6 +234,9 @@ begin
   end if;
   select count(*) into v_count from public.rodios_issues where id='stg_issue_002';
   if v_count <> 1 then raise exception 'GATE_A_FAIL: non-admin deleted issue'; end if;
+  if not (select coalesce((data->>'stagingManagerUpdate')::boolean,false) and coalesce((data->>'stagingUserUpdate')::boolean,false) from public.rodios_issues where id='stg_issue_001') then
+    raise exception 'GATE_A_FAIL: atomic manager/user operational updates did not persist';
+  end if;
   if has_function_privilege('anon','public.rodios_next_sequence(text,integer)','EXECUTE') then
     raise exception 'GATE_A_FAIL: anon still has sequence EXECUTE';
   end if;

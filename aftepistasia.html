@@ -1461,36 +1461,70 @@ async function _v9FetchPaged(table, select='*', opts={}){
 // v9.19.3: true όταν ο συγχρονισμός ρυθμίσεων απορρίφθηκε λόγω δικαιωμάτων.
 let _settingsSyncBlocked = false;
 
-async function _v9UpsertChunks(table, rows, onConflict='id', chunkSize=100){
-  const sb = getSupabase();
-  if(!sb || !rows || !rows.length) return;
-  for(let i=0;i<rows.length;i+=chunkSize){
-    const part = rows.slice(i, i+chunkSize);
-    const {error} = await sb.from(table).upsert(part, {onConflict});
-    if(error) throw error;
-  }
+const _v9SyncKindsByTable = {
+  rodios_issues:'issues',
+  rodios_work_orders:'workOrders',
+  rodios_payments:'payments',
+  rodios_settings:'settings',
+  rodios_service_staff:'serviceStaff'
+};
+
+function _v9ExpectedRow(kind, row, idKey='id'){
+  const id=String(row && row[idKey] != null ? row[idKey] : '');
+  const expected=(_v9RowVersions[kind] && _v9RowVersions[kind].get(id)) || null;
+  return {...row, expectedUpdatedAt:expected};
 }
 
+function _v9SyncConflict(error){
+  const code=String(error && error.code || '');
+  const message=String(error && error.message || '');
+  if(code!=='40001' && !message.includes('RODIOS_SYNC_CONFLICT')) return error;
+  const detail=String(error && (error.details || error.detail) || '');
+  const parts=detail.split(':');
+  const err=new Error('Σύγκρουση συγχρονισμού: η εγγραφή άλλαξε από άλλη συνεδρία πριν ολοκληρωθεί η αποθήκευση.');
+  err.conflictIds=parts.length>1 ? [parts.slice(1).join(':')] : [];
+  err.entity=parts[0] || '';
+  err.code='RODIOS_SYNC_CONFLICT';
+  return err;
+}
 
-async function _v9DeleteRows(table, ids){
-  const sb = getSupabase && getSupabase();
-  const list = (Array.isArray(ids) ? ids : [ids]).filter(x => x !== undefined && x !== null && String(x).trim() !== '').map(String);
-  if(!sb || !list.length) return {ok:true, skipped:true};
-  const allowed = new Set(['rodios_issues','rodios_work_orders','rodios_payments','rodios_service_staff']);
-  if(!allowed.has(String(table||''))) throw new Error('Μη υποστηριζόμενη οντότητα αρχειοθέτησης.');
+async function _v9CommitBundle(bundle){
+  const sb=getSupabase && getSupabase();
+  if(!sb) return {ok:true,versions:{},deleted:{}};
+  const {data,error}=await sb.rpc('rodios_save_bundle',{p_bundle:bundle});
+  if(error) throw _v9SyncConflict(error);
+  if(!data || data.ok!==true || !data.versions) throw new Error('Μη έγκυρη απάντηση ατομικής αποθήκευσης.');
+  return data;
+}
 
-  // Release hardening: core rows are never physically deleted from the browser.
-  // Administrator-only server RPC sets deleted_at and the DB trigger writes audit metadata.
-  for(let i=0; i<list.length; i+=100){
-    const part = list.slice(i, i+100);
-    const { data, error } = await sb.rpc('rodios_soft_delete', {p_entity:String(table), p_ids:part});
-    if(error){
-      console.error('[v9 soft delete failed]', table, part, error);
-      throw error;
-    }
-    if(Number(data||0) < 0) throw new Error('Μη έγκυρη απάντηση αρχειοθέτησης.');
+async function _v9DeleteBundle(tableIds){
+  const sb=getSupabase && getSupabase();
+  if(!sb) return {ok:true,skipped:true};
+  const bundle={};
+  const committedIds={};
+  for(const [table,ids] of Object.entries(tableIds||{})){
+    const kind=_v9SyncKindsByTable[String(table||'')];
+    if(!kind || kind==='settings') throw new Error('Μη υποστηριζόμενη οντότητα αρχειοθέτησης.');
+    const list=(Array.isArray(ids)?ids:[ids]).filter(x=>x!==undefined&&x!==null&&String(x).trim()!=='').map(String);
+    if(!list.length) continue;
+    const deletes=list.map(id=>({id,expectedUpdatedAt:(_v9RowVersions[kind]&&_v9RowVersions[kind].get(id))||null}));
+    const missing=deletes.find(x=>!x.expectedUpdatedAt);
+    if(missing) throw _v9SyncConflict({code:'40001',details:kind+':'+missing.id});
+    bundle[kind]={upserts:[],deletes};
+    committedIds[kind]=list;
   }
+  if(!Object.keys(bundle).length) return {ok:true,skipped:true};
+  await _v9CommitBundle(bundle);
+  // Prevent the following generic save from attempting the same deletion twice.
+  Object.entries(committedIds).forEach(([kind,list])=>list.forEach(id=>{
+      if(_v9Baseline[kind]) _v9Baseline[kind].delete(id);
+      if(_v9RowVersions[kind]) _v9RowVersions[kind].delete(id);
+    }));
   return {ok:true};
+}
+
+async function _v9DeleteRows(table,ids){
+  return _v9DeleteBundle({[table]:ids});
 }
 
 
@@ -1536,18 +1570,21 @@ function _v9RememberBaselineFromRows(issueRows, orderRows, paymentRows, settingR
   _v9RowVersions.settings = new Map([['main', main && main.updated_at ? main.updated_at : '']]);
 }
 
-function _v9RememberBaselineFromCurrent(versionIso){
-  _v9SetMapFromItems('issues', issues, null);
-  _v9SetMapFromItems('workOrders', workOrders, null);
-  _v9SetMapFromItems('payments', payments, null);
-  _v9SetMapFromItems('users', (typeof getEffectiveUsers==='function' ? (getEffectiveUsers()||[]) : []), null);
-  _v9SetMapFromItems('serviceStaff', SERVICE_STAFF||[], null);
+function _v9RememberBaselineFromCurrent(committedVersions){
+  const committed=(committedVersions && typeof committedVersions==='object' && !Array.isArray(committedVersions)) ? committedVersions : {};
+  const mergedVersions=kind=>{
+    const out=Object.fromEntries(_v9RowVersions[kind]||[]);
+    Object.assign(out, committed[kind]||{});
+    return out;
+  };
+  _v9SetMapFromItems('issues', issues, mergedVersions('issues'));
+  _v9SetMapFromItems('workOrders', workOrders, mergedVersions('workOrders'));
+  _v9SetMapFromItems('payments', payments, mergedVersions('payments'));
+  _v9SetMapFromItems('users', (typeof getEffectiveUsers==='function' ? (getEffectiveUsers()||[]) : []), mergedVersions('users'));
+  _v9SetMapFromItems('serviceStaff', SERVICE_STAFF||[], mergedVersions('serviceStaff'));
   _v9Baseline.settings = new Map([['main', _v9Sig(settings||{})]]);
-  const v = versionIso || new Date().toISOString();
-  ['issues','workOrders','payments','users','serviceStaff'].forEach(kind=>{
-    _v9RowVersions[kind] = new Map(Array.from(_v9Baseline[kind].keys()).map(id=>[id, v]));
-  });
-  _v9RowVersions.settings = new Map([['main', v]]);
+  const settingsVersion=(committed.settings&&committed.settings.main)||(_v9RowVersions.settings&&_v9RowVersions.settings.get('main'))||'';
+  _v9RowVersions.settings = new Map(settingsVersion ? [['main',settingsVersion]] : []);
 }
 
 function _v9BuildUpsertDiff(kind, rows){
@@ -1562,31 +1599,6 @@ function _v9BuildDeleteDiff(kind, currentIds){
   const base = _v9Baseline[kind] || new Map();
   const cur = new Set((currentIds||[]).filter(Boolean).map(String));
   return Array.from(base.keys()).filter(id=>!cur.has(id));
-}
-
-async function _v9AssertNoConflicts(table, kind, ids){
-  const sb = getSupabase && getSupabase();
-  const list = (ids||[]).filter(Boolean).map(String).filter(id=>_v9RowVersions[kind] && _v9RowVersions[kind].get(id));
-  if(!sb || !list.length) return;
-  const idCol = table === 'rodios_settings' ? 'key' : 'id';
-  for(let i=0;i<list.length;i+=100){
-    const part = list.slice(i, i+100);
-    const {data, error} = await sb.from(table).select(idCol+',updated_at').in(idCol, part);
-    if(error) throw error;
-    const conflicts = [];
-    (data||[]).forEach(r=>{
-      const id=String(r[idCol]);
-      const baseTs = _v9RowVersions[kind].get(id);
-      const remoteTs = r.updated_at;
-      if(baseTs && remoteTs && (new Date(remoteTs).getTime() > new Date(baseTs).getTime() + 1000)) conflicts.push(id);
-    });
-    if(conflicts.length){
-      const err = new Error('Σύγκρουση συγχρονισμού: κάποιες εγγραφές έχουν αλλάξει από άλλον χρήστη. Κάντε ανανέωση από Supabase πριν ξανααποθηκεύσετε.');
-      err.conflictIds = conflicts;
-      err.table = table;
-      throw err;
-    }
-  }
 }
 
 async function saveNow(){
@@ -1859,55 +1871,45 @@ async function _saveToSupabase(){
     const orderUpserts = _v9BuildUpsertDiff('workOrders', orderRows);
     const paymentUpserts = _v9BuildUpsertDiff('payments', paymentRows);
     const staffUpserts = _v9BuildUpsertDiff('serviceStaff', staffRows);
-    const settingsUpserts = _v9BuildUpsertDiff('settings', settingsRows);
+    let settingsUpserts = _v9BuildUpsertDiff('settings', settingsRows);
 
     const issueDeletes = _v9BuildDeleteDiff('issues', issueRows.map(r=>r.id));
     const orderDeletes = _v9BuildDeleteDiff('workOrders', orderRows.map(r=>r.id));
     const paymentDeletes = _v9BuildDeleteDiff('payments', paymentRows.map(r=>r.id));
     const staffDeletes = _v9BuildDeleteDiff('serviceStaff', staffRows.map(r=>r.id));
 
-    await _v9AssertNoConflicts('rodios_issues', 'issues', [...issueUpserts.map(r=>r.id), ...issueDeletes]);
-    await _v9AssertNoConflicts('rodios_work_orders', 'workOrders', [...orderUpserts.map(r=>r.id), ...orderDeletes]);
-    await _v9AssertNoConflicts('rodios_payments', 'payments', [...paymentUpserts.map(r=>r.id), ...paymentDeletes]);
-    await _v9AssertNoConflicts('rodios_service_staff', 'serviceStaff', [...staffUpserts.map(r=>r.id), ...staffDeletes]);
-    try{
-      await _v9AssertNoConflicts('rodios_settings', 'settings', settingsUpserts.map(r=>r.key));
-    }catch(_setChk){
-      const _m=String(_setChk&&(_setChk.message||''));
-      if(!/row-level security|permission denied|violates row-level/i.test(_m) && String(_setChk&&_setChk.code)!=='42501') throw _setChk;
-      console.warn('[v9.19.3] Παράλειψη ελέγχου συγκρούσεων ρυθμίσεων (admin-only).');
+    // Settings are Administrator-only. A non-admin session must never let a
+    // cached/local settings difference roll back otherwise valid operational data.
+    const canWriteSettings=(typeof permSettings==='function') ? !!permSettings() : false;
+    if(settingsUpserts.length && !canWriteSettings){
+      settingsUpserts=[];
+      _settingsSyncBlocked=true;
+      console.warn('[v9 atomic sync] Οι ρυθμίσεις παραλείφθηκαν (admin-only).');
     }
 
-    if(paymentDeletes.length) await _v9DeleteRows('rodios_payments', paymentDeletes);
-    if(orderDeletes.length) await _v9DeleteRows('rodios_work_orders', orderDeletes);
-    if(issueDeletes.length) await _v9DeleteRows('rodios_issues', issueDeletes);
-    if(staffDeletes.length) await _v9DeleteRows('rodios_service_staff', staffDeletes);
-
-    await _v9UpsertChunks('rodios_issues', issueUpserts, 'id', 100);
-    await _v9UpsertChunks('rodios_work_orders', orderUpserts, 'id', 100);
-    await _v9UpsertChunks('rodios_payments', paymentUpserts, 'id', 100);
-    // v9.19.3: Ο πίνακας rodios_settings είναι γραμμή admin-only στο RLS.
-    // Για τα υπόλοιπα μέλη της Επιτροπής η άρνηση είναι ΑΝΑΜΕΝΟΜΕΝΗ και δεν
-    // πρέπει να ακυρώνει την αποθήκευση αιτημάτων/εντολών/πληρωμών.
-    try{
-      await _v9UpsertChunks('rodios_settings', settingsUpserts, 'key', 50);
-    }catch(_setErr){
-      const _code = String(_setErr && (_setErr.code || ''));
-      const _msg  = String(_setErr && (_setErr.message || ''));
-      const _isPerm = _code==='42501' || /row-level security|permission denied|violates row-level/i.test(_msg);
-      if(!_isPerm) throw _setErr;
-      console.warn('[v9.19.3] Οι ρυθμίσεις δεν συγχρονίστηκαν (admin-only). '
-                 + 'Τα δεδομένα αποθηκεύτηκαν κανονικά.', _msg);
-      _settingsSyncBlocked = true;
-    }
     // App-user lifecycle is intentionally excluded from the generic browser sync.
     // Creation, update and deletion must go only through manage-app-user so Auth and
     // profile rows cannot diverge and legacy password/PIN fields cannot be re-saved.
-    await _v9UpsertChunks('rodios_service_staff', staffUpserts, 'id', 100);
+    const versionedDeletes=(kind,ids)=>ids.map(id=>({
+      id:String(id),
+      expectedUpdatedAt:(_v9RowVersions[kind]&&_v9RowVersions[kind].get(String(id)))||null
+    }));
+    const bundle={
+      issues:{upserts:issueUpserts.map(r=>_v9ExpectedRow('issues',r)),deletes:versionedDeletes('issues',issueDeletes)},
+      workOrders:{upserts:orderUpserts.map(r=>_v9ExpectedRow('workOrders',r)),deletes:versionedDeletes('workOrders',orderDeletes)},
+      payments:{upserts:paymentUpserts.map(r=>_v9ExpectedRow('payments',r)),deletes:versionedDeletes('payments',paymentDeletes)},
+      settings:{upserts:settingsUpserts.map(r=>_v9ExpectedRow('settings',r,'key')),deletes:[]},
+      serviceStaff:{upserts:staffUpserts.map(r=>_v9ExpectedRow('serviceStaff',r)),deletes:versionedDeletes('serviceStaff',staffDeletes)}
+    };
+    const allDeletes=[...bundle.issues.deletes,...bundle.workOrders.deletes,...bundle.payments.deletes,...bundle.serviceStaff.deletes];
+    const missingDeleteVersion=allDeletes.find(x=>!x.expectedUpdatedAt);
+    if(missingDeleteVersion) throw _v9SyncConflict({code:'40001',details:'delete:'+missingDeleteVersion.id});
+    const writeCount=Object.values(bundle).reduce((n,s)=>n+s.upserts.length+s.deletes.length,0);
+    const committed=writeCount ? await _v9CommitBundle(bundle) : {versions:{}};
 
     _lastSyncTime = Date.now();
     _v9ConflictAlertShown = false;
-    _v9RememberBaselineFromCurrent(new Date().toISOString());
+    _v9RememberBaselineFromCurrent(committed.versions||{});
     _showSyncDot('green');
     _v9SetSnapshotCache(_v9MakeSnapshot()).catch(e=>console.warn('v9 snapshot cache save failed:', e));
   }catch(err){
@@ -5708,10 +5710,12 @@ async function delOrder(id){
     const payIds = relatedPayments.map(p=>p && p.id).filter(Boolean);
 
     // Πρώτα διαγράφουμε από τη βάση. Αν αποτύχει, δεν πειράζουμε την οθόνη.
-    if(payIds.length) await _v9DeleteRows('rodios_payments', payIds);
-    await _v9DeleteRows('rodios_work_orders', [id]);
+    await _v9DeleteBundle({
+      rodios_payments:payIds,
+      rodios_work_orders:[id],
+      rodios_issues:_alsoIssue?[_alsoIssue.id]:[]
+    });
     if(_alsoIssue){
-      await _v9DeleteRows('rodios_issues', [_alsoIssue.id]);
       _locallyDeleted.add(_alsoIssue.id);
       issues = issues.filter(x=>x.id!==_alsoIssue.id);
     }
@@ -8406,11 +8410,11 @@ async function clearAll(){
     const issueIds=(issues||[]).map(i=>i.id).filter(Boolean);
     const orderIds=(workOrders||[]).map(w=>w.id).filter(Boolean);
     const paymentIds=(payments||[]).map(p=>p.id).filter(Boolean);
-    if(isSupabaseConfigured()){
-      if(paymentIds.length) await _v9DeleteRows('rodios_payments', paymentIds);
-      if(orderIds.length) await _v9DeleteRows('rodios_work_orders', orderIds);
-      if(issueIds.length) await _v9DeleteRows('rodios_issues', issueIds);
-    }
+    if(isSupabaseConfigured()) await _v9DeleteBundle({
+      rodios_payments:paymentIds,
+      rodios_work_orders:orderIds,
+      rodios_issues:issueIds
+    });
     [...issueIds,...orderIds,...paymentIds].forEach(id=>_locallyDeleted.add(String(id)));
     issues=[];workOrders=[];payments=[];settings.orderSeq=1;settings.issueSeq=1;
     _v9ClearLightCachesAfterDelete();

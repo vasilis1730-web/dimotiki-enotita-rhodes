@@ -10,6 +10,7 @@ staff = (ROOT / "aftepistasia.html").read_text(encoding="utf-8")
 ack = (ROOT / "ack.html").read_text(encoding="utf-8")
 manage = (ROOT / "supabase/functions/manage-app-user/index.ts").read_text(encoding="utf-8")
 migration = (ROOT / "supabase/migrations/20260810150000_remove_legacy_profile_credentials.sql").read_text(encoding="utf-8")
+atomic_sync = (ROOT / "supabase/migrations/20260810170000_atomic_optimistic_sync.sql").read_text(encoding="utf-8")
 citizen = (ROOT / "index.html").read_text(encoding="utf-8")
 bridge = (ROOT / "supabase/functions/citizen-bridge/index.ts").read_text(encoding="utf-8")
 citizen_attachments = (ROOT / "supabase/functions/citizen-attachments/index.ts").read_text(encoding="utf-8")
@@ -66,6 +67,12 @@ required = {
     "referenced citizen attachments cannot be deleted": "assertAttachmentIsUnreferenced(admin, path)" in citizen_attachments,
     "existing attachment cleanup follows accepted update": "const cleanup=[...new Set(removedExistingPaths)]" in citizen,
     "fail-closed user deactivation": "deactivateError" in manage and "authDeleteError" in manage,
+    "atomic optimistic browser sync": "sb.rpc('rodios_save_bundle'" in staff and "expectedUpdatedAt" in staff,
+    "related deletes use one atomic bundle": "async function _v9DeleteBundle(tableIds)" in staff and "rodios_payments:payIds" in staff,
+    "exact server versions retained after save": "_v9RememberBaselineFromCurrent(committed.versions||{})" in staff,
+    "direct operational writes revoked": "revoke insert, update on table" in atomic_sync and "has_any_column_privilege" in atomic_sync,
+    "legacy non-versioned delete revoked": "revoke execute on function public.rodios_soft_delete(text,text[]) from authenticated" in atomic_sync,
+    "Realtime publication is migration-controlled": "alter publication supabase_realtime add table" in atomic_sync,
 }
 
 forbidden = {
@@ -84,6 +91,9 @@ forbidden = {
     "silent 500-row citizen list truncation": '.limit(500)' in bridge,
     "silent 1000-row legacy list truncation": '.limit(1000)' in bridge,
     "vulnerable Nodemailer 6.x pin": 'npm:nodemailer@6.' in send_email,
+    "legacy direct operational upsert helper": "async function _v9UpsertChunks" in staff,
+    "non-atomic preflight conflict window": "function _v9AssertNoConflicts" in staff or "+ 1000" in staff,
+    "legacy browser soft-delete RPC": "sb.rpc('rodios_soft_delete'" in staff,
 }
 
 failures = [name for name, ok in required.items() if not ok]
