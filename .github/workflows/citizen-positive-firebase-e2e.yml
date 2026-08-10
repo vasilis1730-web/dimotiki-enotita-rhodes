@@ -1,0 +1,81 @@
+name: Citizen positive Firebase E2E (disposable preview only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  positive-citizen-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging-real-integration
+
+      - name: Verify encrypted CI configuration exists
+        env:
+          TEST_PHONE: ${{ secrets.RODIOS_FIREBASE_TEST_PHONE }}
+          TEST_CODE: ${{ secrets.RODIOS_FIREBASE_TEST_CODE }}
+          APPCHECK_DEBUG_TOKEN: ${{ secrets.RODIOS_FIREBASE_APPCHECK_DEBUG_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$TEST_PHONE" || { echo 'Missing GitHub secret RODIOS_FIREBASE_TEST_PHONE'; exit 1; }
+          test -n "$TEST_CODE" || { echo 'Missing GitHub secret RODIOS_FIREBASE_TEST_CODE'; exit 1; }
+          test -n "$APPCHECK_DEBUG_TOKEN" || { echo 'Missing GitHub secret RODIOS_FIREBASE_APPCHECK_DEBUG_TOKEN'; exit 1; }
+          test "${#TEST_CODE}" -eq 6 || { echo 'Firebase fictional phone verification code must contain 6 characters.'; exit 1; }
+          echo 'Encrypted Firebase CI configuration is present.'
+
+      - name: Resolve current fully green disposable Supabase Preview from PR 6
+        id: preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          api='https://api.github.com/repos/${{ github.repository }}/issues/6/comments'
+          comments=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$api")
+          entry=$(printf '%s' "$comments" | jq -c '[.[] | select(.user.login=="supabase[bot]")] | last // {}')
+          body=$(printf '%s' "$entry" | jq -r '.body // ""')
+          ref=$(printf '%s\n' "$body" | sed -n 's/^\[supa\]:\([a-z]*\)$/\1/p' | head -n1)
+          test -n "$ref"
+          printf '%s' "$body" | grep -Eq 'Database[[:space:]]*\|[[:space:]]*✅'
+          printf '%s' "$body" | grep -Eq 'Migrations[[:space:]]*\|[[:space:]]*✅'
+          printf '%s' "$body" | grep -Eq 'Seeding[[:space:]]*\|[[:space:]]*✅'
+          printf '%s' "$body" | grep -Eq 'Edge Functions[[:space:]]*\|[[:space:]]*✅'
+          echo "preview_ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pinned Playwright
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Start localhost-only Firebase test shell
+        run: |
+          python3 -m http.server 4174 --bind 127.0.0.1 --directory scripts > /tmp/citizen-positive-http.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -fsS http://localhost:4174/citizen-positive.html >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/citizen-positive-http.log
+          exit 1
+
+      - name: Run real positive Firebase Auth + App Check + citizen backend E2E
+        env:
+          PREVIEW_REF: ${{ steps.preview.outputs.preview_ref }}
+          RODIOS_FIREBASE_TEST_PHONE: ${{ secrets.RODIOS_FIREBASE_TEST_PHONE }}
+          RODIOS_FIREBASE_TEST_CODE: ${{ secrets.RODIOS_FIREBASE_TEST_CODE }}
+          RODIOS_FIREBASE_APPCHECK_DEBUG_TOKEN: ${{ secrets.RODIOS_FIREBASE_APPCHECK_DEBUG_TOKEN }}
+        run: node scripts/citizen_positive_e2e.mjs
+
+      - name: Show localhost server log on failure
+        if: failure()
+        run: cat /tmp/citizen-positive-http.log || true
