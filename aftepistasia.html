@@ -8,7 +8,7 @@
   <meta name="description" content="ΡΟΔΙΟΣ - Εφαρμογή για υποβολή και διαχείριση αιτημάτων πολιτών προς υπηρεσίες αυτεπιστασίας στη Ρόδο.">
   <meta name="robots" content="index, follow">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.gstatic.com https://www.google.com https://www.recaptcha.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co https://*.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseappcheck.googleapis.com https://www.google.com https://www.recaptcha.net; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; frame-src 'self' data: blob: https://*.supabase.co https://www.google.com https://www.recaptcha.net; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.gstatic.com https://www.google.com https://www.recaptcha.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co https://*.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseappcheck.googleapis.com https://api.geoapify.com https://nominatim.openstreetmap.org https://www.google.com https://www.recaptcha.net; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; frame-src 'self' data: blob: https://*.supabase.co https://www.google.com https://www.recaptcha.net; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.9"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <title>ΡΟΔΙΟΣ - Αιτήματα Πολιτών</title>
@@ -376,7 +376,7 @@ tr:hover td{background:#faf9f7;}
   var K='6f466ee4363445e7a19cd6628b414b7b',drop=null,timer=null,si=-1;
   function rm(){if(drop){drop.remove();drop=null;}si=-1;}
   function pick(inp,item){var p=item.properties||{};var road=p.street||p.address_line1||p.name||'';var num=p.housenumber||'';var main=(road+(num?' '+num:'')).trim()||p.formatted.split(',')[0];inp.value=main;var t=document.getElementById('i_postcode');if(t&&p.postcode)t.value=p.postcode;var g=item.geometry;if(g&&g.coordinates){var la=g.coordinates[1],lo=g.coordinates[0];var l=document.getElementById('i_mapLat'),n=document.getElementById('i_mapLng'),d=document.getElementById('i_coordsDisplay');if(l)l.value=la;if(n)n.value=lo;if(d)d.textContent=la.toFixed(5)+', '+lo.toFixed(5);}rm();}
-  function show(inp,ff){rm();if(!ff||!ff.length)return;drop=document.createElement('div');drop.id='geo-drop';var r=inp.getBoundingClientRect();drop.style.cssText='left:'+r.left+'px;top:'+(r.bottom+window.scrollY)+'px;width:'+r.width+'px;';ff.forEach(function(item){var p=item.properties||{};var road=p.street||p.address_line1||p.name||'';var num=p.housenumber||'';var main=(road+(num?' '+num:'')).trim()||(p.formatted||'').split(',')[0];var city=p.city||p.town||p.village||'';var tk=p.postcode||'';var row=document.createElement('div');row.className='gi';row.innerHTML='<span class="gm">'+main+'</span><span class="gs">'+city+(tk?'<span class="gtk">ΤΚ '+tk+'</span>':'')+'</span>';(function(it){row.addEventListener('mousedown',function(e){e.preventDefault();pick(inp,it);})})(item);drop.appendChild(row);});document.body.appendChild(drop);}
+  function show(inp,ff){rm();if(!ff||!ff.length)return;drop=document.createElement('div');drop.id='geo-drop';var r=inp.getBoundingClientRect();drop.style.cssText='left:'+r.left+'px;top:'+(r.bottom+window.scrollY)+'px;width:'+r.width+'px;';ff.forEach(function(item){var p=item.properties||{};var road=p.street||p.address_line1||p.name||'';var num=p.housenumber||'';var main=(road+(num?' '+num:'')).trim()||(p.formatted||'').split(',')[0];var city=p.city||p.town||p.village||'';var tk=p.postcode||'';var row=document.createElement('div');row.className='gi';var mainEl=document.createElement('span');mainEl.className='gm';mainEl.textContent=main;var subEl=document.createElement('span');subEl.className='gs';subEl.textContent=city;if(tk){var tkEl=document.createElement('span');tkEl.className='gtk';tkEl.textContent='ΤΚ '+tk;subEl.appendChild(tkEl);}row.appendChild(mainEl);row.appendChild(subEl);(function(it){row.addEventListener('mousedown',function(e){e.preventDefault();pick(inp,it);})})(item);drop.appendChild(row);});document.body.appendChild(drop);}
   function search(inp,val){fetch('https://api.geoapify.com/v1/geocode/autocomplete?text='+encodeURIComponent(val)+'&filter=countrycode:gr&bias=proximity:28.2270,36.4341&lang=el&limit=7&apiKey='+K).then(function(r){return r.json();}).then(function(d){show(inp,d.features||[]);}).catch(function(){});}
   function setup(){var inp=document.getElementById('i_location');if(!inp||inp._go)return;inp._go=1;inp.setAttribute('autocomplete','off');inp.setAttribute('placeholder','Π.χ. Πίνδου 27...');inp.addEventListener('input',function(){var v=this.value.trim();clearTimeout(timer);si=-1;if(v.length<3){rm();return;}var el=this;timer=setTimeout(function(){search(el,v);},350);});inp.addEventListener('keydown',function(e){if(!drop)return;var rr=drop.querySelectorAll('.gi');if(e.key==='ArrowDown'){e.preventDefault();si=Math.min(si+1,rr.length-1);}else if(e.key==='ArrowUp'){e.preventDefault();si=Math.max(si-1,0);}else if(e.key==='Enter'&&si>=0){e.preventDefault();rr[si].dispatchEvent(new Event('mousedown'));return;}else if(e.key==='Escape'){rm();return;}rr.forEach(function(r,i){r.classList.toggle('gsel',i===si);});});inp.addEventListener('blur',function(){setTimeout(rm,200);});}
   window.addEventListener('load',function(){setup();if(typeof openAddIssue==='function'){var orig=openAddIssue;window.openAddIssue=function(){orig.apply(this,arguments);setTimeout(function(){var i=document.getElementById('i_location');if(i){i._go=0;setup();}},150);};}});
@@ -480,9 +480,9 @@ tr:hover td{background:#faf9f7;}
       </p>
       <p style="margin:0 0 8px 0;font-weight:600;color:#1a3a5c;">Για επίσημες πηγές:</p>
       <ul style="margin:0;padding-left:20px;color:#555;">
-        <li>Δήμος Ρόδου: <a href="https://www.rhodes.gr" target="_blank" style="color:#1a3a5c;">www.rhodes.gr</a></li>
-        <li>Κρατικές υπηρεσίες: <a href="https://www.gov.gr" target="_blank" style="color:#1a3a5c;">www.gov.gr</a></li>
-        <li>ΚΕΠ: <a href="https://www.kep.gov.gr" target="_blank" style="color:#1a3a5c;">www.kep.gov.gr</a></li>
+        <li>Δήμος Ρόδου: <a href="https://www.rhodes.gr" target="_blank" rel="noopener noreferrer" style="color:#1a3a5c;">www.rhodes.gr</a></li>
+        <li>Κρατικές υπηρεσίες: <a href="https://www.gov.gr" target="_blank" rel="noopener noreferrer" style="color:#1a3a5c;">www.gov.gr</a></li>
+        <li>ΚΕΠ: <a href="https://www.kep.gov.gr" target="_blank" rel="noopener noreferrer" style="color:#1a3a5c;">www.kep.gov.gr</a></li>
       </ul>
     </div>
     <button onclick="hideDisclaimerModal()" style="margin-top:18px;background:#1a3a5c;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-weight:700;cursor:pointer;width:100%;">Κατάλαβα</button>
@@ -1685,7 +1685,7 @@ function _v9MakeSnapshot(){
     workOrders: (workOrders||[]).map(w=>_safeCloneForDb(w)),
     payments: (payments||[]).map(p=>_safeCloneForDb(p)),
     settings: _safeCloneForDb(settings||{}),
-    users: (typeof getEffectiveUsers==='function' ? (getEffectiveUsers()||[]) : []).map(u=>_safeCloneForDb(u)),
+    users: (typeof getEffectiveUsers==='function' ? (getEffectiveUsers()||[]) : []).map(u=>_safeCloneForDb(normalizeUserProfile(u,u&&u.id))),
     serviceStaff: (SERVICE_STAFF||[]).map(s=>_safeCloneForDb(s))
   };
 }
@@ -1696,7 +1696,10 @@ function _v9ApplySnapshot(snap){
   workOrders = snap.workOrders || [];
   payments = snap.payments || [];
   if(snap.settings) settings = {...settings, ...snap.settings};
-  if(Array.isArray(snap.users) && snap.users.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(snap.users));
+  if(Array.isArray(snap.users) && snap.users.length){
+    const safeUsers=snap.users.map(u=>normalizeUserProfile(u,u&&u.id));
+    localStorage.setItem('rhodesAppUsers', JSON.stringify(safeUsers));
+  }
   if(Array.isArray(snap.serviceStaff)){ SERVICE_STAFF = snap.serviceStaff; localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
   _lastSyncTime = snap.at ? new Date(snap.at).getTime() : Date.now();
   return true;
@@ -1817,7 +1820,7 @@ function save(){
       payments: lightPayments,
       settings,
       serviceStaff: (SERVICE_STAFF||[]).map(s=>_safeCloneForDb(s)),
-      users: (typeof getEffectiveUsers==='function' ? (getEffectiveUsers()||[]) : []).map(u=>_safeCloneForDb(u))
+      users: (typeof getEffectiveUsers==='function' ? (getEffectiveUsers()||[]) : []).map(u=>_safeCloneForDb(normalizeUserProfile(u,u&&u.id)))
     }));
   }catch(e){ console.warn('[SAVE v9] localStorage light cache failed:', e); }
 
@@ -1848,10 +1851,6 @@ async function _saveToSupabase(){
       return {id:String(c.id), work_order_id:c.workOrderId||c.orderId||c.woId||c.work_order_id||null, data:c};
     });
     const settingsRows = [{key:'main', value:_safeCloneForDb(settings||{})}];
-    const userRows = (getEffectiveUsers()||[]).filter(Boolean).map(u=>{
-      const c = _ensureId(_safeCloneForDb(u), 'user');
-      return {id:String(c.id), data:c};
-    });
     const staffRows = (SERVICE_STAFF||[]).filter(Boolean).map((s,idx)=>_v9NormalizeStaffId(s, idx));
 
     // v9.11: upsert/delete only changed rows. This prevents an old browser from re-uploading
@@ -1859,20 +1858,17 @@ async function _saveToSupabase(){
     const issueUpserts = _v9BuildUpsertDiff('issues', issueRows);
     const orderUpserts = _v9BuildUpsertDiff('workOrders', orderRows);
     const paymentUpserts = _v9BuildUpsertDiff('payments', paymentRows);
-    const userUpserts = _v9BuildUpsertDiff('users', userRows);
     const staffUpserts = _v9BuildUpsertDiff('serviceStaff', staffRows);
     const settingsUpserts = _v9BuildUpsertDiff('settings', settingsRows);
 
     const issueDeletes = _v9BuildDeleteDiff('issues', issueRows.map(r=>r.id));
     const orderDeletes = _v9BuildDeleteDiff('workOrders', orderRows.map(r=>r.id));
     const paymentDeletes = _v9BuildDeleteDiff('payments', paymentRows.map(r=>r.id));
-    const userDeletes = _v9BuildDeleteDiff('users', userRows.map(r=>r.id));
     const staffDeletes = _v9BuildDeleteDiff('serviceStaff', staffRows.map(r=>r.id));
 
     await _v9AssertNoConflicts('rodios_issues', 'issues', [...issueUpserts.map(r=>r.id), ...issueDeletes]);
     await _v9AssertNoConflicts('rodios_work_orders', 'workOrders', [...orderUpserts.map(r=>r.id), ...orderDeletes]);
     await _v9AssertNoConflicts('rodios_payments', 'payments', [...paymentUpserts.map(r=>r.id), ...paymentDeletes]);
-    await _v9AssertNoConflicts('rodios_app_users', 'users', [...userUpserts.map(r=>r.id), ...userDeletes]);
     await _v9AssertNoConflicts('rodios_service_staff', 'serviceStaff', [...staffUpserts.map(r=>r.id), ...staffDeletes]);
     try{
       await _v9AssertNoConflicts('rodios_settings', 'settings', settingsUpserts.map(r=>r.key));
@@ -1885,7 +1881,6 @@ async function _saveToSupabase(){
     if(paymentDeletes.length) await _v9DeleteRows('rodios_payments', paymentDeletes);
     if(orderDeletes.length) await _v9DeleteRows('rodios_work_orders', orderDeletes);
     if(issueDeletes.length) await _v9DeleteRows('rodios_issues', issueDeletes);
-    if(userDeletes.length) console.warn('[v9] App-user deletion is managed only through manage-app-user; sync delete skipped.', userDeletes);
     if(staffDeletes.length) await _v9DeleteRows('rodios_service_staff', staffDeletes);
 
     await _v9UpsertChunks('rodios_issues', issueUpserts, 'id', 100);
@@ -1905,7 +1900,9 @@ async function _saveToSupabase(){
                  + 'Τα δεδομένα αποθηκεύτηκαν κανονικά.', _msg);
       _settingsSyncBlocked = true;
     }
-    await _v9UpsertChunks('rodios_app_users', userUpserts, 'id', 100);
+    // App-user lifecycle is intentionally excluded from the generic browser sync.
+    // Creation, update and deletion must go only through manage-app-user so Auth and
+    // profile rows cannot diverge and legacy password/PIN fields cannot be re-saved.
     await _v9UpsertChunks('rodios_service_staff', staffUpserts, 'id', 100);
 
     _lastSyncTime = Date.now();
@@ -1979,7 +1976,7 @@ async function forceRefreshFromSupabase(silent){
     await _v920RefreshPrivateAttachmentUrls();
     const mainSettings = (settingRows||[]).find(r=>r.key==='main');
     if(mainSettings && mainSettings.value) settings = {...settings, ...mainSettings.value};
-    if(userRows && userRows.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(userRows.map(r=>({...(r.data||{}), id:r.id}))));
+    if(userRows && userRows.length) localStorage.setItem('rhodesAppUsers', JSON.stringify(userRows.map(r=>normalizeUserProfile(r.data||{},r.id))));
     if(staffRows && staffRows.length){ SERVICE_STAFF = staffRows.map(r=>({...(r.data||{}), id:r.id})); localStorage.setItem('serviceStaff', JSON.stringify(SERVICE_STAFF)); }
     _v9RememberBaselineFromRows(issueRows, orderRows, paymentRows, settingRows, userRows, staffRows);
     _lastSyncTime = Date.now();
@@ -2105,7 +2102,68 @@ async function commitOrderNumAsync(){
 function fmt(n){return new Intl.NumberFormat('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n);}
 function fmtDate(d){if(!d)return '-';const p=d.split('-');return `${p[2]}/${p[1]}/${p[0]}`;}
 function fmtDateTime(iso){if(!iso)return '';const d=new Date(iso);const dd=String(d.getDate()).padStart(2,'0'),mm=String(d.getMonth()+1).padStart(2,'0'),yy=d.getFullYear(),hh=String(d.getHours()).padStart(2,'0'),min=String(d.getMinutes()).padStart(2,'0');return `${dd}/${mm}/${yy} ${hh}:${min}`;}
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+function _safeAttachmentUrl(value, allowInline){
+  const raw=String(value||'').trim();
+  if(!raw) return '';
+  if(allowInline && /^data:(?:image\/(?:png|jpe?g|gif|webp|bmp|tiff?|heic|heif)|video\/(?:mp4|webm|quicktime)|application\/pdf);base64,/i.test(raw)) return raw;
+  if(allowInline && raw.startsWith('blob:')) return raw;
+  try{
+    const u=new URL(raw, location.href);
+    if(u.protocol==='https:') return u.href;
+    if(u.protocol==='http:' && (u.hostname==='127.0.0.1'||u.hostname==='localhost')) return u.href;
+  }catch(_){ }
+  return '';
+}
+
+function _safePdfDataUrl(value){
+  const raw=String(value||'').trim();
+  return /^data:application\/pdf;base64,[a-z0-9+/=\r\n]+$/i.test(raw) ? raw : '';
+}
+
+function _safeServerAttachmentUrl(value){
+  const safe=_safeAttachmentUrl(value,false);
+  if(!safe) return '';
+  try{
+    const u=new URL(safe);
+    const project=new URL(String(SUPABASE_URL||''));
+    let path='';
+    try{ path=decodeURIComponent(u.pathname); }catch(_){ return ''; }
+    if(u.protocol!=='https:' || u.host!==project.host) return '';
+    return /^\/storage\/v1\/object\/(?:sign|authenticated|public)\/(?:attachments|protocols)\//.test(path) ? u.href : '';
+  }catch(_){ return ''; }
+}
+
+function _safeMailto(email, subject, body){
+  const recipients=String(email||'').split(',').map(x=>x.trim()).filter(Boolean);
+  if(!recipients.length || recipients.some(e=>!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))) return '';
+  return 'mailto:'+recipients.join(',')+'?subject='+encodeURIComponent(subject||'')+'&body='+encodeURIComponent(body||'');
+}
+
+function _safeESignUrl(value){
+  try{
+    const u=new URL(String(value||'https://webapp.mindigital-shde.gr/login').trim());
+    if(u.protocol==='https:' && u.hostname==='webapp.mindigital-shde.gr') return u.href;
+  }catch(_){ }
+  return 'https://webapp.mindigital-shde.gr/login';
+}
+
+function openESignPortal(){
+  const win=window.open(_safeESignUrl(settings&&settings.eSignUrl),'_blank','noopener,noreferrer');
+  if(win) win.opener=null;
+}
+
+function _safeCoordinates(latValue,lngValue){
+  const lat=Number(latValue), lng=Number(lngValue);
+  if(!Number.isFinite(lat)||!Number.isFinite(lng)||lat < -90||lat > 90||lng < -180||lng > 180) return null;
+  return {lat,lng};
+}
+
+function _safeVatRate(){
+  const value=Number(settings&&settings.vatRate);
+  return Number.isFinite(value)&&value>=0&&value<=100 ? value : 24;
+}
 
 function isActive(i){return i.status==='Προς ενέργεια'||i.status==='Συνεχιζόμενο';}
 
@@ -2343,7 +2401,10 @@ function getEffectiveOrderAttachments(wo){
   return fromIssue.length ? fromIssue : cloneAttachments(wo && wo.attachments);
 }
 function getSendableAttachments(wo){
-  return getEffectiveOrderAttachments(wo).filter(a=>a && a.url);
+  return getEffectiveOrderAttachments(wo).map(a=>{
+    const url=_safeServerAttachmentUrl(a&&a.url);
+    return url ? {...a,url} : null;
+  }).filter(Boolean);
 }
 function ensureIssueOption(sel, issueId){
   if(!sel || !issueId) return;
@@ -2368,8 +2429,9 @@ function renderOrderAttachments(){
     (missingUrl ? '<div style="font-size:11px;color:#a32020;margin:4px 0;">⚠ '+missingUrl+' αρχείο/α δεν έχουν δημόσιο URL και δεν μπορούν να σταλούν ως πραγματικά συνημμένα email. Ανεβάστε τα ξανά ώστε να αποθηκευτούν στο Supabase Storage.</div>' : '')+
     list.map(a=>{
       const t=(a.type||''); const ic = t.startsWith('image')?'🖼️':(t.includes('pdf')?'📄':(t.includes('sheet')||t.includes('excel')?'📊':(t.includes('word')||t.includes('document')?'📝':(t.includes('zip')?'🗜️':'📎'))));
-      if(a.url){
-        return '<a href="'+esc(a.url)+'" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--bdr,#e5e7eb);border-radius:8px;margin-bottom:4px;text-decoration:none;color:var(--ink,#1a2744);font-size:13px;">'
+      const safeUrl=_safeAttachmentUrl(a.url,false);
+      if(safeUrl){
+        return '<a href="'+esc(safeUrl)+'" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--bdr,#e5e7eb);border-radius:8px;margin-bottom:4px;text-decoration:none;color:var(--ink,#1a2744);font-size:13px;">'
           +ic+'<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(a.name||'αρχείο')+'</span></a>';
       }
       return '<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid #e8a0a0;border-radius:8px;margin-bottom:4px;color:#a32020;font-size:13px;background:#fce8e8;">'
@@ -2444,11 +2506,12 @@ function renderThumbs(slot){
   const container = document.getElementById(slot==='before'?'thumbsBefore':'thumbsAfter');
   if(!container) return;
   container.innerHTML = arr.map((m,idx)=>{
-    const src = m.url || m.data || '';
+    const src = _safeAttachmentUrl(m.url || m.data || '',true);
     const isVideo = m.type && m.type.startsWith('video');
-    const tag = isVideo
-      ? `<video src="${src}" muted playsinline style="width:100%;height:100%;object-fit:cover;"></video>`
-      : `<img src="${src}" alt="${esc(m.name||'')}">`;
+    const tag = !src ? '<div style="font-size:10px;color:var(--red);padding:6px;">Μη έγκυρη προεπισκόπηση</div>'
+      : isVideo
+      ? `<video src="${esc(src)}" muted playsinline style="width:100%;height:100%;object-fit:cover;"></video>`
+      : `<img src="${esc(src)}" alt="${esc(m.name||'')}">`;
     const badge = m.uploading ? `<div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;">⬆️…</div>`
       : m.upload_failed ? `<div style="position:absolute;left:2px;right:2px;bottom:2px;background:#842029;color:#fff;font-size:9px;padding:2px;border-radius:3px;text-align:center;">⚠ Αποτυχία <button type="button" onclick="event.stopPropagation();retryOrderMedia('${slot}',${idx})" style="font-size:9px;margin-left:3px;">Retry</button></div>` : '';
     return `<div class="photo-thumb">${tag}${badge}<button class="del-thumb" onclick="delMedia('${slot}',${idx})">✕</button></div>`;
@@ -2755,7 +2818,7 @@ function renderExistingPenalties(wo){
     + (p.surcharge>0?' <strong>(+Άρθρο 4.3: '+fmt(p.surcharge)+' €)</strong>':'')
     + '</div><div class="pdesc">'+fmtDate(p.date)+' · '+esc(p.stage||'')+'</div></div>'
     + '<div class="penalty-amt">-'+fmt(p.amount)+' €</div>'
-    + '<button class="penalty-del" title="Αφαίρεση ρήτρας" onclick="removePenalty(\''+wo.id+'\',\''+p.id+'\')">🗑</button>'
+    + '<button class="penalty-del" title="Αφαίρεση ρήτρας" data-wid="'+esc(wo.id)+'" data-pid="'+esc(p.id)+'" onclick="removePenalty(this.dataset.wid,this.dataset.pid)">🗑</button>'
     + '</div>').join('');
   if(!list.length && wo.penaltyAmount>0){
     rows = '<div class="penalty-row"><div><div class="pcategory">Ρήτρα προ v9.19</div>'
@@ -3102,9 +3165,9 @@ function mapLocateMe(){
 }
 
 function mapSave(){
-  const lat=parseFloat(document.getElementById('mLat').value);
-  const lng=parseFloat(document.getElementById('mLng').value);
-  if(isNaN(lat)||isNaN(lng)){return;}
+  const coords=_safeCoordinates(document.getElementById('mLat').value,document.getElementById('mLng').value);
+  if(!coords){return;}
+  const lat=coords.lat,lng=coords.lng;
   if(_mapTarget==='issue'){
     document.getElementById('i_mapLat').value=lat;
     document.getElementById('i_mapLng').value=lng;
@@ -3125,11 +3188,13 @@ function mapSave(){
 function updateCoordsDisplay(){
   const el=document.getElementById('wo_coords_display');
   if(!el)return;
-  if(woMapLat&&woMapLng){
-    const url='https://www.google.com/maps?q='+woMapLat+','+woMapLng;
+  const coords=_safeCoordinates(woMapLat,woMapLng);
+  if(coords){
+    woMapLat=coords.lat;woMapLng=coords.lng;
+    const url='https://www.google.com/maps?q='+coords.lat.toFixed(6)+','+coords.lng.toFixed(6);
     el.style.display='block';
-    el.innerHTML='📍 <a href="'+url+'" target="_blank" style="color:var(--blue);font-weight:600;">Άνοιγμα στο Google Maps ↗</a>'
-      +' <span style="color:var(--muted);font-size:11px;">('+woMapLat.toFixed(5)+', '+woMapLng.toFixed(5)+')</span>'
+    el.innerHTML='📍 <a href="'+url+'" target="_blank" rel="noopener noreferrer" style="color:var(--blue);font-weight:600;">Άνοιγμα στο Google Maps ↗</a>'
+      +' <span style="color:var(--muted);font-size:11px;">('+coords.lat.toFixed(5)+', '+coords.lng.toFixed(5)+')</span>'
       +' <button onclick="woMapLat=null;woMapLng=null;updateCoordsDisplay();" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:11px;">✕ Αφαίρεση</button>';
   } else {
     el.style.display='none';
@@ -3147,7 +3212,6 @@ const USERS = [
     id:'admin',
     name:'Διακολιός Βασίλειος',
     role:'Αναπλ. Προϊστάμενος Τμήματος',
-    pin:'',   // v9.19.4: PIN αφαιρέθηκε — η είσοδος γίνεται ΜΟΝΟ με Supabase Auth
     username:'diakolios',
     color:'#1a2744',
     initials:'ΔΒ',
@@ -3161,7 +3225,6 @@ const USERS = [
     id:'bekiaris',
     name:'Μπεκιάρης Αλέξανδρος',
     role:'Αναπλ. Προϊστάμενος Δ/νσης',
-    pin:'',
     username:'bekiaris',
     color:'#2d4a8a',
     initials:'ΜΑ',
@@ -3175,7 +3238,6 @@ const USERS = [
     id:'stergakis',
     name:'Στεργάκης Αγαπητός',
     role:'Υπάλληλος Τμήματος',
-    pin:'',
     username:'stergakis',
     color:'#0d7a5c',
     initials:'ΣΑ',
@@ -3189,7 +3251,6 @@ const USERS = [
     id:'viewer',
     name:'Λαμπριανός Ιωάννης',
     role:'Εξωτερικός Συνεργάτης',
-    pin:'',
     username:'lambrianos',
     color:'#7360f2',
     initials:'ΛΙ',
@@ -3210,6 +3271,12 @@ let currentUser = null;
 // application id, especially admin.
 function normalizeUserProfile(u, rowId){
   const out = {...(u||{})};
+  // Credentials belong exclusively to Supabase Auth. Never retain historical
+  // password/PIN material in profile JSON, localStorage or IndexedDB snapshots.
+  delete out.password;
+  delete out.pin;
+  delete out.pwd;
+  delete out.passwordHash;
   if(!out.id && rowId) out.id = rowId;
   const email = String(out.email||'').trim().toLowerCase();
   if(email === 'diakolios@rhodes.gr'){
@@ -3235,7 +3302,7 @@ function normalizeUserProfile(u, rowId){
   if(!out.initials && out.name){
     out.initials = out.name.split(' ').filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase();
   }
-  if(!out.color) out.color = '#2d4a8a';
+  if(!/^#[0-9a-f]{6}$/i.test(String(out.color||''))) out.color = '#2d4a8a';
   return out;
 }
 
@@ -3507,8 +3574,8 @@ function showLogout(){
   const pop = document.getElementById('logoutPop');
   if(pop.style.display==='none'||!pop.style.display){
     document.getElementById('logoutUserInfo').innerHTML =
-      '<div style="display:flex;align-items:center;gap:8px;"><div style="width:32px;height:32px;border-radius:50%;background:'+currentUser.color+';display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;">'+currentUser.initials+'</div>'
-      +'<div><div>'+currentUser.name+'</div><div style="font-size:10px;color:var(--muted);font-weight:400;">'+currentUser.role+'</div></div></div>';
+      '<div style="display:flex;align-items:center;gap:8px;"><div style="width:32px;height:32px;border-radius:50%;background:'+esc(currentUser.color)+';display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;">'+esc(currentUser.initials)+'</div>'
+      +'<div><div>'+esc(currentUser.name)+'</div><div style="font-size:10px;color:var(--muted);font-weight:400;">'+esc(currentUser.role)+'</div></div></div>';
     pop.style.display='block';
     setTimeout(()=>document.addEventListener('click', closeLogoutPop, {once:true}), 100);
   } else {
@@ -3572,10 +3639,8 @@ function getUsersData(){
   if(saved){
     try{
       const parsed = JSON.parse(saved);
-      // If users have no password/username at all (old format), ignore saved and use defaults
-      const hasCredentials = parsed.some(u=>u.password||u.username);
-      if(!hasCredentials) return null;
-      return parsed;
+      if(!Array.isArray(parsed)) return null;
+      return parsed.map(u=>normalizeUserProfile(u,u&&u.id));
     }catch(e){}
   }
   return null;
@@ -3583,27 +3648,21 @@ function getUsersData(){
 function getEffectiveUsers(){
   const saved = getUsersData();
   if(!saved) return USERS.map(u=>normalizeUserProfile(u, u.id));
-  // Merge: if saved users lack username/password, supplement from USERS defaults
+  // Profile metadata may use the built-in username as a compatibility fallback.
+  // Passwords/PINs are never loaded from either source.
   return saved.map(u=>{
     const base = normalizeUserProfile(u, u.id);
     const def = USERS.find(d=>d.id===base.id || (d.email||'').toLowerCase()===(base.email||'').toLowerCase());
     return normalizeUserProfile({
       ...base,
       username: base.username || (def&&def.username) || (base.name?base.name.split(' ').pop().toLowerCase():''),
-      password: base.password || (def&&def.password) || base.pin,
     }, base.id);
   });
 }
 function saveUsers(users){
-  localStorage.setItem('rhodesAppUsers',JSON.stringify(users));
-  // v9: sync users as individual rows
-  if(isSupabaseConfigured()){
-    const sb=getSupabase();
-    if(sb){
-      const rows=(users||[]).map(u=>{ const c=_safeCloneForDb(u); if(!c.id)c.id='user_'+genId(); return {id:String(c.id), data:c}; });
-      _v9UpsertChunks('rodios_app_users', rows, 'id', 100).catch(e=>console.warn('saveUsers v9 failed:', e));
-    }
-  }
+  const safe=(Array.isArray(users)?users:[]).map(u=>normalizeUserProfile(u,u&&u.id));
+  localStorage.setItem('rhodesAppUsers',JSON.stringify(safe));
+  // Database/Auth changes are performed only by manage-app-user.
 }
 
 
@@ -3611,22 +3670,41 @@ function saveUsers(users){
 // όταν δεν υπήρχε legacy localStorage 'app_users') και έγραφε τον κωδικό ΜΟΝΟ τοπικά,
 // εμφανίζοντας ψευδώς «Κωδικός Admin άλλαξε» ενώ το Supabase Auth έμενε αμετάβλητο.
 // Πλέον αλλάζει τον πραγματικό κωδικό της ενεργής συνεδρίας μέσω sb.auth.updateUser().
-async function changeAdminPass(){
+function changeAdminPass(){
   const isAdminSession = !!(currentUser && (currentUser.id==='admin'
     || String(currentUser.email||'').toLowerCase()==='diakolios@rhodes.gr'));
   if(!isAdminSession){
     alert('🚫 Η αλλαγή κωδικού Administrator γίνεται μόνο από τον συνδεδεμένο Administrator.');
     return;
   }
-  const p = prompt('Νέος κωδικός Administrator (τουλάχιστον 6 χαρακτήρες):');
-  if(p===null) return;
-  if(String(p).trim().length<6){
-    alert('⚠ Ο κωδικός πρέπει να έχει τουλάχιστον 6 χαρακτήρες — ΔΕΝ άλλαξε τίποτα.');
+  const p=document.getElementById('adminPassNew');
+  const p2=document.getElementById('adminPassConfirm');
+  if(p) p.value='';
+  if(p2) p2.value='';
+  document.getElementById('adminPassWrap').style.display='flex';
+  setTimeout(()=>p&&p.focus(),100);
+}
+
+function closeAdminPassModal(){
+  const wrap=document.getElementById('adminPassWrap');
+  if(wrap) wrap.style.display='none';
+  const p=document.getElementById('adminPassNew');
+  const p2=document.getElementById('adminPassConfirm');
+  if(p) p.value='';
+  if(p2) p2.value='';
+}
+
+async function submitAdminPassChange(){
+  const isAdminSession = !!(currentUser && (currentUser.id==='admin'
+    || String(currentUser.email||'').toLowerCase()==='diakolios@rhodes.gr'));
+  if(!isAdminSession){ closeAdminPassModal(); alert('🚫 Μη εξουσιοδοτημένη ενέργεια.'); return; }
+  const p=String(document.getElementById('adminPassNew')?.value||'');
+  const p2=String(document.getElementById('adminPassConfirm')?.value||'');
+  if(p.length<12){
+    alert('⚠ Ο κωδικός πρέπει να έχει τουλάχιστον 12 χαρακτήρες — ΔΕΝ άλλαξε τίποτα.');
     return;
   }
-  const p2 = prompt('Επιβεβαίωση νέου κωδικού:');
-  if(p2===null) return;
-  if(String(p2).trim()!==String(p).trim()){
+  if(p2!==p){
     alert('⚠ Οι δύο κωδικοί δεν ταιριάζουν — ΔΕΝ άλλαξε τίποτα.');
     return;
   }
@@ -3637,8 +3715,9 @@ async function changeAdminPass(){
   }
   toast('⏳ Αλλαγή κωδικού Administrator...');
   try{
-    const { error } = await sb.auth.updateUser({ password: String(p).trim() });
+    const { error } = await sb.auth.updateUser({ password: p });
     if(error) throw error;
+    closeAdminPassModal();
     toast('✅ Ο κωδικός Administrator άλλαξε.');
     alert('✅ Ο κωδικός άλλαξε στο Supabase Auth.\n\nΧρησιμοποιήστε τον νέο κωδικό στην επόμενη σύνδεση.');
   }catch(e){
@@ -3786,7 +3865,7 @@ async function reloadUsersFromV9(){
   try{
     const rows = await _v9FetchPaged('rodios_app_users', '*', {notDeleted:true, orderBy:'updated_at', ascending:false});
     if(rows){
-      const u = rows.map(r=>({...(r.data||{}), id:r.id}));
+      const u = rows.map(r=>normalizeUserProfile(r.data||{}, r.id));
       localStorage.setItem('rhodesAppUsers', JSON.stringify(u));
     }
   }catch(e){ console.warn('reloadUsersFromV9 failed:', e); }
@@ -3806,11 +3885,11 @@ async function saveUser(){
   if(!name || !role || !email || !email.includes('@')){
     alert('Συμπληρώστε Ονοματεπώνυμο, Ρόλο και έγκυρο Email σύνδεσης.'); return;
   }
-  if(isNew && (!password || password.length<6)){
-    alert('Για νέο χρήστη ο κωδικός σύνδεσης πρέπει να είναι τουλάχιστον 6 χαρακτήρες.'); return;
+  if(isNew && (!password || password.length<12)){
+    alert('Για νέο χρήστη ο κωδικός σύνδεσης πρέπει να είναι τουλάχιστον 12 χαρακτήρες.'); return;
   }
-  if(!isNew && password && password.length<6){
-    alert('Ο νέος κωδικός πρέπει να είναι τουλάχιστον 6 χαρακτήρες (ή αφήστε το πεδίο κενό για να μην αλλάξει).'); return;
+  if(!isNew && password && password.length<12){
+    alert('Ο νέος κωδικός πρέπει να είναι τουλάχιστον 12 χαρακτήρες (ή αφήστε το πεδίο κενό για να μην αλλάξει).'); return;
   }
 
   const users = [...getEffectiveUsers()];
@@ -4141,7 +4220,7 @@ function renderSigModal(){
     html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
     html += '<div style="background:#1a3a5c;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">1</div>';
     html += '<p style="font-weight:700;font-size:12px;color:var(--navy);margin:0;">Λήψη Πρωτοκόλλου ως PDF</p></div>';
-    html += '<p style="font-size:11px;color:var(--muted);margin:0 0 10px 30px;">Αρχείο: <strong>'+pdfName+'</strong></p>';
+    html += '<p style="font-size:11px;color:var(--muted);margin:0 0 10px 30px;">Αρχείο: <strong>'+esc(pdfName)+'</strong></p>';
     html += '<button class="btn btn-p" style="margin-left:30px;" onclick="sigDownloadProtocol()">⬇ Λήψη Πρωτοκόλλου</button>';
     html += '</div>';
     // Step 2: Sign
@@ -4150,7 +4229,7 @@ function renderSigModal(){
     html += '<div style="background:#1a3a5c;color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">2</div>';
     html += '<p style="font-weight:700;font-size:12px;color:var(--navy);margin:0;">Ψηφιακή Υπογραφή (Mindigital)</p></div>';
     html += '<p style="font-size:11px;color:var(--muted);margin:0 0 10px 30px;">Υπογράψτε το PDF στο Mindigital WebSign με τα 3 μέλη της Επιτροπής.</p>';
-    html += '<button class="btn" style="background:#1a3a5c;color:#fff;margin-left:30px;" onclick="window.open(settings.eSignUrl||\'https://webapp.mindigital-shde.gr/login\',\'_blank\')">🔏 Άνοιγμα Mindigital</button>';
+    html += '<button class="btn" style="background:#1a3a5c;color:#fff;margin-left:30px;" onclick="openESignPortal()">🔏 Άνοιγμα Mindigital</button>';
     html += '</div>';
     // Step 3: Upload
     html += '<div style="background:var(--sec);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">';
@@ -4229,7 +4308,7 @@ function continueSign(){
   if(wo && wo.signedPdfData){
     // First download current partially-signed PDF
     downloadSignedPdf(wo.id);
-    setTimeout(()=>{ window.open('https://webapp.mindigital-shde.gr/login','_blank'); }, 500);
+    setTimeout(()=>{ openESignPortal(); }, 500);
     toast('⬇ Κατέβηκε το μερικώς υπογεγραμμένο PDF — ανεβάστε το στο Mindigital για την επόμενη υπογραφή');
     // Re-enable file input
     const fi = document.getElementById('sigPdfInput');
@@ -4244,14 +4323,16 @@ function downloadProtocolPdf(id, filename){
   const html = buildWoHtml(wo);
   const fname = filename || ('ΠρωτοκολλοΤμηματικηςΠαραλαβης_'+wo.orderNum+'.pdf');
   const win = window.open('','_blank','width=800,height=900');
-  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+fname+'</title>'
+  if(!win){ toast('⚠ Το παράθυρο πρωτοκόλλου μπλοκαρίστηκε από τον browser.'); return; }
+  win.opener=null;
+  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(fname)+'</title>'
     + '<style>body{font-family:"Times New Roman",serif;font-size:12pt;color:#000;margin:0;padding:20px;}.wo-doc{max-width:700px;margin:0 auto;}.wo-header{text-align:center;border-bottom:2px solid #1a3a5c;padding-bottom:8px;margin-bottom:12px;}.wo-title{font-size:14pt;font-weight:700;text-align:center;text-transform:uppercase;letter-spacing:1px;color:#1a3a5c;margin:10px 0;}.wo-meta{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:10pt;border:1px solid #ccc;padding:8px;margin-bottom:10px;}.wo-meta div{padding:2px 0;}.wo-meta span{font-weight:600;color:#555;}.prio-label{font-weight:700;padding:2px 6px;border-radius:3px;}.p1{background:#ffe4e4;color:#a00;}.p2{background:#fff3cd;color:#856404;}.p3{background:#cfe2ff;color:#084298;}.p4{background:#e2e3e5;color:#41464b;}.wo-items{width:100%;border-collapse:collapse;font-size:10pt;}.wo-items th,.wo-items td{border:1px solid #ccc;padding:4px 6px;}.wo-items th{background:#f0f0f0;font-weight:600;}.right{text-align:right;}.wo-total{font-weight:700;background:#f5f5f5;}.wo-signs{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;}.wo-sign{border-top:1px solid #ccc;padding-top:8px;font-size:10pt;}.wo-footer{margin-top:16px;padding-top:8px;border-top:1px solid #ccc;font-size:9pt;color:#666;text-align:center;}'
     + '@media print{@page{size:A4;margin:15mm;}body{padding:0;}}</style>'
     + '</head><body onload="window.print()">'
     + html
     + '<div style="text-align:center;margin-top:20px;padding:10px;background:#fffbe6;border:1px solid #ffc107;font-size:10pt;font-weight:600;">'
-    + '📌 Αποθήκευση ως PDF: Εκτύπωση → Αποθήκευση ως PDF → Όνομα αρχείου: <strong>'+fname+'</strong></div>'
-    + '');  
+    + '📌 Αποθήκευση ως PDF: Εκτύπωση → Αποθήκευση ως PDF → Όνομα αρχείου: <strong>'+esc(fname)+'</strong></div>'
+    + '</body></html>');
   win.document.close();
   toast('📄 Πρωτόκολλο ανοίχτηκε για εκτύπωση/αποθήκευση ως PDF');
 }
@@ -4459,20 +4540,27 @@ async function downloadSignedPdf(id){
       const sb=getSupabase();
       const {data,error}=await sb.storage.from('protocols').createSignedUrl(wo.signedPdfPath, 3600);
       if(error||!data||!data.signedUrl) throw (error||new Error('Δεν δημιουργήθηκε σύνδεσμος'));
-      window.open(data.signedUrl,'_blank');
+      const safeUrl=_safeServerAttachmentUrl(data.signedUrl);
+      if(!safeUrl) throw new Error('Ο σύνδεσμος πρωτοκόλλου δεν πέρασε τον έλεγχο ασφαλείας.');
+      const win=window.open(safeUrl,'_blank','noopener,noreferrer'); if(win)win.opener=null;
       return;
     }catch(e){
-      if(wo.signedPdfData){ const a=document.createElement('a'); a.href=wo.signedPdfData; a.download=fname; a.click(); return; }
+      const safeData=_safePdfDataUrl(wo.signedPdfData);
+      if(safeData){ const a=document.createElement('a'); a.href=safeData; a.download=fname; a.click(); return; }
       alert('Δεν μπόρεσα να ανοίξω το πρωτόκολλο: '+(e.message||e));
       return;
     }
   }
   if(wo.signedPdfUrl){
     // Legacy: μόνιμος σύνδεσμος Supabase Storage (public bucket)
-    window.open(wo.signedPdfUrl, '_blank');
+    const safeUrl=_safeServerAttachmentUrl(wo.signedPdfUrl);
+    if(!safeUrl){ alert('Ο παλαιός σύνδεσμος πρωτοκόλλου δεν ανήκει στο ασφαλές Storage της εφαρμογής.'); return; }
+    const win=window.open(safeUrl,'_blank','noopener,noreferrer'); if(win)win.opener=null;
   } else {
+    const safeData=_safePdfDataUrl(wo.signedPdfData);
+    if(!safeData){ alert('Το τοπικό PDF δεν έχει έγκυρη μορφή.'); return; }
     const a = document.createElement('a');
-    a.href = wo.signedPdfData; a.download = fname; a.click();
+    a.href = safeData; a.download = fname; a.click();
   }
 }
 
@@ -4685,10 +4773,10 @@ function renderDash(){
     document.getElementById('dashUrgent').innerHTML='<div class="tbl-wrap"><table><thead><tr><th>Τίτλος</th><th>Κατηγ.</th><th>Κατ/ση</th><th>Εντολή</th></tr></thead><tbody>'+
     urgList.map(i=>{
       const hasOrder=workOrders.find(w=>w.issueId===i.id);
-      return `<tr><td><span class="prio ${prioClass(i.priority)}">${i.priority.split(' ').slice(0,2).join(' ')}</span> ${esc(i.title)}<br><span style="font-size:10px;color:var(--muted)">📍${esc(i.location)}</span></td>
+      return `<tr><td><span class="prio ${prioClass(i.priority)}">${esc(String(i.priority||'').split(' ').slice(0,2).join(' '))}</span> ${esc(i.title)}<br><span style="font-size:10px;color:var(--muted)">📍${esc(i.location)}</span></td>
       <td><span class="cat-tag">${esc(i.category)}</span></td>
-      <td><span class="sbadge ${statusClass(i.status)}">${i.status}</span></td>
-      <td>${hasOrder?`<span class="sbadge s-sent">✓ ${hasOrder.orderNum}</span>`:(currentUser&&currentUser.canOrders===false ? '' : `<div style="display:flex;flex-direction:column;gap:2px;"><button class="btn btn-sm ab-order" style="font-size:9px;padding:2px 6px;" onclick="openNewOrderForIssue('${i.id}','contractor')">📄 Αναδόχου</button><button class="btn btn-sm" style="font-size:9px;padding:2px 6px;background:#0d7a5c;color:#fff;border-color:#0d7a5c;" onclick="openNewOrderForIssue('${i.id}','service')">🔧 Υπηρεσίας</button></div>`)}</td>
+      <td><span class="sbadge ${statusClass(i.status)}">${esc(i.status)}</span></td>
+      <td>${hasOrder?`<span class="sbadge s-sent">✓ ${esc(hasOrder.orderNum)}</span>`:(currentUser&&currentUser.canOrders===false ? '' : `<div style="display:flex;flex-direction:column;gap:2px;"><button class="btn btn-sm ab-order" data-iid="${esc(i.id)}" style="font-size:9px;padding:2px 6px;" onclick="openNewOrderForIssue(this.dataset.iid,'contractor')">📄 Αναδόχου</button><button class="btn btn-sm" data-iid="${esc(i.id)}" style="font-size:9px;padding:2px 6px;background:#0d7a5c;color:#fff;border-color:#0d7a5c;" onclick="openNewOrderForIssue(this.dataset.iid,'service')">🔧 Υπηρεσίας</button></div>`)}</td>
       </tr>`;
     }).join('')+'</tbody></table></div>';
   }
@@ -4702,7 +4790,7 @@ function renderDash(){
       <td><strong>${esc(w.orderNum)}</strong><br><span style="font-size:10px;color:var(--muted)">${fmtDate(w.date)}</span></td>
       <td>${esc(w.location)}</td>
       <td><strong>${fmt(woTotal(w))}</strong></td>
-      <td><span class="sbadge ${statusClass(w.status)}">${w.status}</span></td>
+      <td><span class="sbadge ${statusClass(w.status)}">${esc(w.status)}</span></td>
     </tr>`).join('')+'</tbody></table></div>';
   }
 }
@@ -4811,27 +4899,27 @@ function renderIssues(){
       const days=daysOpen(i);
       const dangerTag=i.danger==='Ναι'?'<span class="danger-tag">⚠ ΚΙΝΔΥΝΟΣ</span>':'';
       return `<tr>
-        <td style="font-size:10px;font-weight:700;color:var(--navy);">${i.issueNum||i.id.slice(-4).toUpperCase()}${i.municipalNum?'<br><span style="font-size:9px;color:#2d5a8a;font-weight:600;">🏛'+esc(i.municipalNum)+'</span>':''}</td>
+        <td style="font-size:10px;font-weight:700;color:var(--navy);">${esc(i.issueNum||String(i.id||'').slice(-4).toUpperCase())}${i.municipalNum?'<br><span style="font-size:9px;color:#2d5a8a;font-weight:600;">🏛'+esc(i.municipalNum)+'</span>':''}</td>
         <td style="white-space:nowrap">
           ${fmtDate(i.date)}
-          ${i.time?'<br><span style="font-size:10px;color:var(--muted);">🕐 '+i.time+'</span>':''}
+          ${i.time?'<br><span style="font-size:10px;color:var(--muted);">🕐 '+esc(i.time)+'</span>':''}
           ${i.municipalNum&&i.municipalDate&&i.municipalDate!==i.date
             ?'<br><span style="font-size:10px;font-weight:600;color:#2d5a8a;" title="Ημ. αιτήματος Δήμου">🏛 '+fmtDate(i.municipalDate)+'</span>'
             :''}
         </td>
         <td>${i.source==='citizen'?'<span style="background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:700;margin-right:3px;">👤 ΠΟΛΙΤΗΣ</span>':''}<strong>${esc(i.title)}</strong> ${dangerTag}${i.attachments&&i.attachments.length?'<span style="font-size:10px;color:var(--navy);font-weight:600;"> 📎'+i.attachments.length+'</span>':''}<br><span style="font-size:10px;color:var(--muted)">📍${esc(i.location)}</span>${i.source==='citizen'&&i.contactInfo?'<br><span style="font-size:10px;color:#16a34a;font-weight:600;">'+esc(i.contactInfo)+'</span>':''}</td>
         <td><span class="cat-tag">${esc(i.category)}</span></td>
-        <td><span class="prio ${prioClass(i.priority)}" title="${prioResp(i.priority)}">${i.priority.slice(0,6)}</span></td>
-        <td><span class="sbadge ${statusClass(i.status)}">${i.status}</span></td>
-        <td>${wo?`<button class="btn btn-sm" onclick="viewOrder('${wo.id}')">${esc(wo.orderNum)}</button>`:(currentUser&&currentUser.canOrders===false ? '' : `<div style="display:flex;flex-direction:column;gap:2px;"><button class="btn btn-sm ab-order" style="font-size:9px;padding:2px 6px;" onclick="openNewOrderForIssue('${i.id}','contractor')">📄 Αναδόχου</button><button class="btn btn-sm" style="font-size:9px;padding:2px 6px;background:#0d7a5c;color:#fff;border-color:#0d7a5c;" onclick="openNewOrderForIssue('${i.id}','service')">🔧 Υπηρεσίας</button></div>`)}</td>
+        <td><span class="prio ${prioClass(i.priority)}" title="${esc(prioResp(i.priority))}">${esc(String(i.priority||'').slice(0,6))}</span></td>
+        <td><span class="sbadge ${statusClass(i.status)}">${esc(i.status)}</span></td>
+        <td>${wo?`<button class="btn btn-sm" data-wid="${esc(wo.id)}" onclick="viewOrder(this.dataset.wid)">${esc(wo.orderNum)}</button>`:(currentUser&&currentUser.canOrders===false ? '' : `<div style="display:flex;flex-direction:column;gap:2px;"><button class="btn btn-sm ab-order" data-iid="${esc(i.id)}" style="font-size:9px;padding:2px 6px;" onclick="openNewOrderForIssue(this.dataset.iid,'contractor')">📄 Αναδόχου</button><button class="btn btn-sm" data-iid="${esc(i.id)}" style="font-size:9px;padding:2px 6px;background:#0d7a5c;color:#fff;border-color:#0d7a5c;" onclick="openNewOrderForIssue(this.dataset.iid,'service')">🔧 Υπηρεσίας</button></div>`)}</td>
         <td style="font-size:11px">${days}η</td>
         <td><div class="abtns">
-          <button class="btn btn-sm" onclick="viewIssueDetail('${i.id}')" style="font-size:10px;padding:3px 8px;" title="Προβολή πλήρων στοιχείων">👁</button>
+          <button class="btn btn-sm" data-iid="${esc(i.id)}" onclick="viewIssueDetail(this.dataset.iid)" style="font-size:10px;padding:3px 8px;" title="Προβολή πλήρων στοιχείων">👁</button>
           ${wo ? '<span style="font-size:10px;color:var(--amber);font-weight:600;">🔒 Κλειδωμένο</span>' : `
-          ${i.status!=='Ολοκληρωμένο'?`<button class="ab-done" onclick="chStatus('${i.id}','Ολοκληρωμένο')">✓ Τέλος</button>`:''}
-          ${i.status==='Προς ενέργεια'?`<button class="ab-order" onclick="chStatus('${i.id}','Συνεχιζόμενο')">↻ Συνεχίζεται</button>`:''}
-          <button class="ab-edit" onclick="editIssue('${i.id}')">✎</button>
-          ${permDelete()?`<button class="ab-del" onclick="delIssue('${i.id}')">🗑</button>`:''}
+          ${i.status!=='Ολοκληρωμένο'?`<button class="ab-done" data-iid="${esc(i.id)}" onclick="chStatus(this.dataset.iid,'Ολοκληρωμένο')">✓ Τέλος</button>`:''}
+          ${i.status==='Προς ενέργεια'?`<button class="ab-order" data-iid="${esc(i.id)}" onclick="chStatus(this.dataset.iid,'Συνεχιζόμενο')">↻ Συνεχίζεται</button>`:''}
+          <button class="ab-edit" data-iid="${esc(i.id)}" onclick="editIssue(this.dataset.iid)">✎</button>
+          ${permDelete()?`<button class="ab-del" data-iid="${esc(i.id)}" onclick="delIssue(this.dataset.iid)">🗑</button>`:''}
           `}
         </div></td>
       </tr>`;
@@ -4940,7 +5028,7 @@ function buildAckIndicator(wo) {
   html += state.label;
   html += '</span>';
   if(state.color === 'red') {
-    html += '<br><button class="btn-manual-ack" onclick="manualAckOrder(\'' + wo.id + '\')" title="Χειροκίνητη δήλωση ολοκλήρωσης">';
+    html += '<br><button class="btn-manual-ack" data-wid="'+esc(wo.id)+'" onclick="manualAckOrder(this.dataset.wid)" title="Χειροκίνητη δήλωση ολοκλήρωσης">';
     html += '✓ Χειροκίνητη Δήλωση';
     html += '</button>';
   }
@@ -5377,15 +5465,16 @@ function renderOrders(){
     const pen=woPenaltiesTotal(w);
     const issue=w.issueId?issues.find(i=>i.id===w.issueId):null;
     const timerStartIso=getOrderTimerStartIso(w);
+    const widAttr=esc(w.id);
     // Cost cell
     let costHtml = w.orderType==='service'
-      ? '<span style="font-size:11px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:12px;font-weight:600;">'+(w.serviceMaterials||'—')+'</span>'
-        +(w.serviceDuration?'<br><span style="font-size:10px;color:var(--muted);">⏱ '+w.serviceDuration+'</span>':'')
+      ? '<span style="font-size:11px;background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:12px;font-weight:600;">'+esc(w.serviceMaterials||'—')+'</span>'
+        +(w.serviceDuration?'<br><span style="font-size:10px;color:var(--muted);">⏱ '+esc(w.serviceDuration)+'</span>':'')
       : '<strong style="color:var(--navy)">'+fmt(tot)+' €</strong>'
         +(woDiscountPct(w)>0?'<br><span style="font-size:10px;color:var(--muted)">Τιμολ. μελέτης: '+fmt(woListTotal(w))+' € − έκπτ. '+fmt(woDiscountPct(w))+'%</span>':'')
         +(isCommittedOrder(w)&&tot>0?'<br><span style="font-size:10px;color:var(--navy);font-weight:600">📊 '+budgetPct(tot).toFixed(3)+'% της σύμβασης</span>':'')
         +(w.municipalMaterials==='Ναι'?'<br><span style="font-size:10px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-weight:600;">🏛 Υλικά Δήμου</span>':'')
-      +'<br><span style="font-size:10px;color:var(--muted)">+ΦΠΑ: '+fmt(tot*(settings.vatRate||24)/100)+' €</span>';
+      +'<br><span style="font-size:10px;color:var(--muted)">+ΦΠΑ: '+fmt(tot*_safeVatRate()/100)+' €</span>';
     if(pen>0) costHtml+='<br><span style="font-size:10px;color:var(--red);font-weight:600;">Ρήτρες: -'+fmt(pen)+' €</span>';
     if(w.status==='Παραλήφθηκε'&&pen>0) costHtml+='<br><span style="font-size:10px;color:var(--green);">Καθαρό: '+fmt(woNetPayable(w))+' €</span>';
     // Action buttons (NO nested template literals)
@@ -5394,12 +5483,12 @@ function renderOrders(){
       // ── SERVICE ORDER: no penalty, no cost, notify + complete ──
       const svcDone = w.status==='Ολοκληρώθηκε'||w.status==='Δεν ολοκληρώθηκε';
       if(!svcDone){
-        btnHtml+='<button class="btn btn-sm" style="background:#0d7a5c;color:#fff;border-color:#0d7a5c;font-size:10px;padding:3px 8px;" onclick="completeSvcOrderBtn(this)" data-wid="'+w.id+'">✓ Ολοκλήρωση</button>';
-        btnHtml+='<button class="ab-done" onclick="notifySvcOrderTeam(\''+w.id+'\')">📢 Κοινοποίηση</button>';
-        btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
+        btnHtml+='<button class="btn btn-sm" style="background:#0d7a5c;color:#fff;border-color:#0d7a5c;font-size:10px;padding:3px 8px;" onclick="completeSvcOrderBtn(this)" data-wid="'+esc(w.id)+'">✓ Ολοκλήρωση</button>';
+        btnHtml+='<button class="ab-done" data-wid="'+widAttr+'" onclick="notifySvcOrderTeam(this.dataset.wid)">📢 Κοινοποίηση</button>';
+        btnHtml+='<button class="ab-edit" data-wid="'+widAttr+'" onclick="editOrder(this.dataset.wid)">✎</button>';
       } else {
         btnHtml+='<span style="font-size:10px;color:var(--green);font-weight:600;">✅ '+esc(w.status)+'</span>';
-        btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
+        btnHtml+='<button class="ab-edit" data-wid="'+widAttr+'" onclick="editOrder(this.dataset.wid)">✎</button>';
       }
     } else {
       // ── CONTRACTOR ORDER ──
@@ -5414,86 +5503,86 @@ function renderOrders(){
       if(st==='Εκδόθηκε'){
         btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">⚠ Ρήτρα</button>';
         btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">✍ Υπογραφή</button>';
-        btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
-        btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
-        btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
+        btnHtml+='<button class="ab-order" data-wid="'+widAttr+'" onclick="printOrder(this.dataset.wid)">🖨 Εκτύπωση</button>';
+        btnHtml+='<button class="ab-done" data-wid="'+widAttr+'" onclick="emailOrder(this.dataset.wid)">✉ Email</button>';
+        btnHtml+='<button class="ab-edit" data-wid="'+widAttr+'" onclick="editOrder(this.dataset.wid)">✎</button>';
 
       } else if(st==='Εστάλη'){
         // Penalty button always active in Εστάλη
-        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(woPenaltiesTotal(w)>0?' ('+fmt(woPenaltiesTotal(w))+'€)':'')+'</button>';
+        btnHtml+='<button data-wid="'+widAttr+'" style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(this.dataset.wid)">⚠ Ρήτρα'+(woPenaltiesTotal(w)>0?' ('+fmt(woPenaltiesTotal(w))+'€)':'')+'</button>';
         btnHtml+='<button disabled style="opacity:.3;cursor:not-allowed;background:#ccc;color:#555;border:none;border-radius:3px;padding:4px 10px;font-size:11px;">✍ Υπογραφή</button>';
-        btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
-        btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
+        btnHtml+='<button class="ab-order" data-wid="'+widAttr+'" onclick="printOrder(this.dataset.wid)">🖨 Εκτύπωση</button>';
+        btnHtml+='<button class="ab-done" data-wid="'+widAttr+'" onclick="emailOrder(this.dataset.wid)">✉ Email</button>';
         // v9.19.2 — Διακοπή χρονομέτρησης
         if(!w.verifiedAt){
-          btnHtml+='<button style="background:#0d7a5c;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" title="Η υπηρεσία διαπίστωσε ολοκλήρωση εργασιών" onclick="stopOrderTimer(\''+w.id+'\')">⏹ Διακοπή Χρόνου</button>';
+          btnHtml+='<button data-wid="'+widAttr+'" style="background:#0d7a5c;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" title="Η υπηρεσία διαπίστωσε ολοκλήρωση εργασιών" onclick="stopOrderTimer(this.dataset.wid)">⏹ Διακοπή Χρόνου</button>';
           if(w.contractorAck && w.contractorAck.timestamp)
-            btnHtml+='<button style="background:#6b21a8;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" title="Κλείδωμα στη δήλωση ολοκλήρωσης του αναδόχου" onclick="stopOrderTimer(\''+w.id+'\',true)">🔒 Κλείδωμα στη δήλωση αναδόχου</button>';
+            btnHtml+='<button data-wid="'+widAttr+'" style="background:#6b21a8;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" title="Κλείδωμα στη δήλωση ολοκλήρωσης του αναδόχου" onclick="stopOrderTimer(this.dataset.wid,true)">🔒 Κλείδωμα στη δήλωση αναδόχου</button>';
         }
-        btnHtml+='<button style="background:none;border:1px solid var(--borderS);border-radius:3px;padding:4px 8px;font-size:11px;cursor:pointer;" title="Ώρα άφιξης συνεργείου (Άρθρο 2.1)" onclick="setArrivalTime(\''+w.id+'\')">🚚 Άφιξη</button>';
-        if(!w.penaltyApplied || isAdmin) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
+        btnHtml+='<button data-wid="'+widAttr+'" style="background:none;border:1px solid var(--borderS);border-radius:3px;padding:4px 8px;font-size:11px;cursor:pointer;" title="Ώρα άφιξης συνεργείου (Άρθρο 2.1)" onclick="setArrivalTime(this.dataset.wid)">🚚 Άφιξη</button>';
+        if(!w.penaltyApplied || isAdmin) btnHtml+='<button class="ab-edit" data-wid="'+widAttr+'" onclick="editOrder(this.dataset.wid)">✎</button>';
 
       } else if(st==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές'){
         // v9.19.2 — Αν δεν έχει σταματήσει ο χρόνος, εξακολουθεί να τρέχει
         if(!w.verifiedAt){
-          btnHtml+='<button style="background:#0d7a5c;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="stopOrderTimer(\''+w.id+'\')">⏹ Διακοπή Χρόνου</button>';
+          btnHtml+='<button data-wid="'+widAttr+'" style="background:#0d7a5c;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="stopOrderTimer(this.dataset.wid)">⏹ Διακοπή Χρόνου</button>';
           if(w.contractorAck && w.contractorAck.timestamp)
-            btnHtml+='<button style="background:#6b21a8;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="stopOrderTimer(\''+w.id+'\',true)">🔒 Κλείδωμα στη δήλωση αναδόχου</button>';
+            btnHtml+='<button data-wid="'+widAttr+'" style="background:#6b21a8;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="stopOrderTimer(this.dataset.wid,true)">🔒 Κλείδωμα στη δήλωση αναδόχου</button>';
         }
-        btnHtml+='<button style="background:none;border:1px solid var(--borderS);border-radius:3px;padding:4px 8px;font-size:11px;cursor:pointer;" onclick="setArrivalTime(\''+w.id+'\')">🚚 Άφιξη</button>';
+        btnHtml+='<button data-wid="'+widAttr+'" style="background:none;border:1px solid var(--borderS);border-radius:3px;padding:4px 8px;font-size:11px;cursor:pointer;" onclick="setArrivalTime(this.dataset.wid)">🚚 Άφιξη</button>';
         // v9.19: Η Επιτροπή Παραλαβής επιβάλλει ρήτρες σε ΑΥΤΟ το στάδιο (Άρθρο 4.1α, Πίνακας 4 ΒΗΜΑ 9)
-        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(woPenaltiesTotal(w)>0?' ('+fmt(woPenaltiesTotal(w))+'€)':'')+'</button>';
+        btnHtml+='<button data-wid="'+widAttr+'" style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(this.dataset.wid)">⚠ Ρήτρα'+(woPenaltiesTotal(w)>0?' ('+fmt(woPenaltiesTotal(w))+'€)':'')+'</button>';
         if(hasProtocol){
-          btnHtml+='<button style="background:#198754;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="downloadSignedPdf(\''+w.id+'\')">📄 Πρωτόκολλο</button>';
-          btnHtml+='<button class="ab-done" onclick="emailProtocol(\''+w.id+'\')">✉ Αποστολή</button>';
+          btnHtml+='<button data-wid="'+widAttr+'" style="background:#198754;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="downloadSignedPdf(this.dataset.wid)">📄 Πρωτόκολλο</button>';
+          btnHtml+='<button class="ab-done" data-wid="'+widAttr+'" onclick="emailProtocol(this.dataset.wid)">✉ Αποστολή</button>';
         } else {
-          btnHtml+='<button style="background:#ffc107;color:#000;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:700;" onclick="openSigModal(\''+w.id+'\')">✍ Υπογραφή</button>';
-          btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
-          btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
+          btnHtml+='<button data-wid="'+widAttr+'" style="background:#ffc107;color:#000;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:700;" onclick="openSigModal(this.dataset.wid)">✍ Υπογραφή</button>';
+          btnHtml+='<button class="ab-order" data-wid="'+widAttr+'" onclick="printOrder(this.dataset.wid)">🖨 Εκτύπωση</button>';
+          btnHtml+='<button class="ab-done" data-wid="'+widAttr+'" onclick="emailOrder(this.dataset.wid)">✉ Email</button>';
         }
-        if(isAdmin) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN">✎</button>';
+        if(isAdmin) btnHtml+='<button class="ab-edit" data-wid="'+widAttr+'" onclick="editOrder(this.dataset.wid)" title="ADMIN">✎</button>';
 
       } else if(st==='Παραλήφθηκε'){
         // v9.19: Επιτρέπεται με έκδοση συμπληρωματικού πρωτοκόλλου
-        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(woPenaltiesTotal(w)>0?' ('+fmt(woPenaltiesTotal(w))+'€)':'')+'</button>';
+        btnHtml+='<button data-wid="'+widAttr+'" style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(this.dataset.wid)">⚠ Ρήτρα'+(woPenaltiesTotal(w)>0?' ('+fmt(woPenaltiesTotal(w))+'€)':'')+'</button>';
         if(hasProtocol){
-          btnHtml+='<button style="background:#198754;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="downloadSignedPdf(\''+w.id+'\')">📄 Πρωτόκολλο</button>';
-          btnHtml+='<button class="ab-done" onclick="emailProtocol(\''+w.id+'\')">✉ Αποστολή</button>';
+          btnHtml+='<button data-wid="'+widAttr+'" style="background:#198754;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="downloadSignedPdf(this.dataset.wid)">📄 Πρωτόκολλο</button>';
+          btnHtml+='<button class="ab-done" data-wid="'+widAttr+'" onclick="emailProtocol(this.dataset.wid)">✉ Αποστολή</button>';
         }
-        if(isAdmin) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')" title="ADMIN">✎</button>';
+        if(isAdmin) btnHtml+='<button class="ab-edit" data-wid="'+widAttr+'" onclick="editOrder(this.dataset.wid)" title="ADMIN">✎</button>';
 
       } else if(st==='Δεν ολοκληρώθηκε'){
         // Penalty button always active
-        btnHtml+='<button style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(\''+w.id+'\')">⚠ Ρήτρα'+(woPenaltiesTotal(w)>0?' ('+fmt(woPenaltiesTotal(w))+'€)':'')+'</button>';
-        btnHtml+='<button class="ab-order" onclick="printOrder(\''+w.id+'\')">🖨 Εκτύπωση</button>';
-        btnHtml+='<button class="ab-done" onclick="emailOrder(\''+w.id+'\')">✉ Email</button>';
-        if(isAdmin || !w.penaltyApplied) btnHtml+='<button class="ab-edit" onclick="editOrder(\''+w.id+'\')">✎</button>';
+        btnHtml+='<button data-wid="'+widAttr+'" style="background:var(--red);color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" onclick="openPenaltyModal(this.dataset.wid)">⚠ Ρήτρα'+(woPenaltiesTotal(w)>0?' ('+fmt(woPenaltiesTotal(w))+'€)':'')+'</button>';
+        btnHtml+='<button class="ab-order" data-wid="'+widAttr+'" onclick="printOrder(this.dataset.wid)">🖨 Εκτύπωση</button>';
+        btnHtml+='<button class="ab-done" data-wid="'+widAttr+'" onclick="emailOrder(this.dataset.wid)">✉ Email</button>';
+        if(isAdmin || !w.penaltyApplied) btnHtml+='<button class="ab-edit" data-wid="'+widAttr+'" onclick="editOrder(this.dataset.wid)">✎</button>';
       }
     } // end contractor block
     // v9.19.4 (#2): ΡΗΤΗ επαναφορά κλειδωμένης εντολής — ΜΟΝΟ admin
     if(permDelete() && w.orderType!=='service' && (w.penaltyApplied || w.status==='Παραλήφθηκε')){
-      btnHtml+='<button style="background:#b45309;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" title="ADMIN: Πλήρης επαναφορά — διαγράφει ρήτρες/πληρωμές, μηδενίζει χρονόμετρο/υπέρβαση" onclick="adminResetOrder(\''+w.id+'\')">🔄 Επαναφορά</button>';
+      btnHtml+='<button data-wid="'+widAttr+'" style="background:#b45309;color:#fff;border:none;border-radius:3px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;" title="ADMIN: Πλήρης επαναφορά — διαγράφει ρήτρες/πληρωμές, μηδενίζει χρονόμετρο/υπέρβαση" onclick="adminResetOrder(this.dataset.wid)">🔄 Επαναφορά</button>';
     }
     // v9.19.5: Διαγραφή ΜΟΝΟ Administrator — πλήρες cascade, σε ΚΑΘΕ κατάσταση
     if(permDelete()){
-      btnHtml+='<button class="ab-del" onclick="adminDelOrder(this)" data-wid="'+w.id+'" style="background:#dc2626;color:#fff;border-color:#dc2626;" title="ADMIN: Πλήρης διαγραφή εντολής (cascade πληρωμών/ρητρών)">🗑</button>';
+      btnHtml+='<button class="ab-del" onclick="adminDelOrder(this)" data-wid="'+widAttr+'" style="background:#dc2626;color:#fff;border-color:#dc2626;" title="ADMIN: Πλήρης διαγραφή εντολής (cascade πληρωμών/ρητρών)">🗑</button>';
     }
     btnHtml+='</div>';
     // Status badge
     const _isOverdue = w._overdue && w.status==='Εστάλη' && !w.penaltyApplied;
-    const statusBadge='<span class="sbadge '+statusClass(w.status)+(_isOverdue?' overdue':'')+'">'+w.status+(_isOverdue?' ⚠':'')+'</span>'
+    const statusBadge='<span class="sbadge '+statusClass(w.status)+(_isOverdue?' overdue':'')+'">'+esc(w.status)+(_isOverdue?' ⚠':'')+'</span>'
       +(_isOverdue?'<div style="font-size:9px;color:#dc2626;font-weight:700;margin-top:2px;">🔴 ΕΚΤΟΣ ΧΡΟΝΟΥ</div>':'');
     // Penalty lock indicator
     const lockBadge = w.penaltyApplied ? ' <span style="font-size:10px;background:var(--rbg);color:var(--red);padding:1px 5px;border-radius:3px;font-weight:600;">🔒 ΚΛΕΙΔΩΜΑ</span>' : '';
     const _isEligibleBulk = w.orderType!=='service' && w.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές' && !w.signedPdfData && !w.signedPdfUrl;
     const _isChecked = _bulkSelected.has(w.id);
-    const _chk = _isEligibleBulk ? '<input type="checkbox" data-oid="'+w.id+'" '+(_isChecked?'checked':'')+' onchange="toggleBulkSelect(this.dataset.oid)" style="width:16px;height:16px;cursor:pointer;accent-color:#1a2744;">' : '';
+    const _chk = _isEligibleBulk ? '<input type="checkbox" data-oid="'+widAttr+'" '+(_isChecked?'checked':'')+' onchange="toggleBulkSelect(this.dataset.oid)" style="width:16px;height:16px;cursor:pointer;accent-color:#1a2744;">' : '';
     rows+='<tr style="'+(_isChecked?'background:#eff6ff;outline:2px solid #3b82f6;':'')+'">'
       +'<td style="width:30px;text-align:center;">'+_chk+'</td>'
-      +'<td><strong>'+esc(w.orderNum)+'</strong>'+(w.orderType==='service'?'<br><span style="font-size:10px;background:#d1fae5;color:#065f46;padding:1px 5px;border-radius:3px;font-weight:600;">🔧 Υπηρεσίας</span>':'<br><span style="font-size:10px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:3px;font-weight:600;">📄 Αναδόχου</span>')+(issue?'<br><span style="font-size:10px;font-weight:700;color:var(--amber);">📋 '+(issue.issueNum||issue.id.slice(-4).toUpperCase())+'</span><br><span style="font-size:10px;color:var(--muted)">'+esc(issue.title.slice(0,28))+'</span>':'')+'</td>'
-      +'<td style="white-space:nowrap">'+fmtDate(w.date)+'<br><span style="font-size:10px;color:var(--muted)">🕐 '+(w.issuedTime||'—')+'</span>'+'</td>'
+      +'<td><strong>'+esc(w.orderNum)+'</strong>'+(w.orderType==='service'?'<br><span style="font-size:10px;background:#d1fae5;color:#065f46;padding:1px 5px;border-radius:3px;font-weight:600;">🔧 Υπηρεσίας</span>':'<br><span style="font-size:10px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:3px;font-weight:600;">📄 Αναδόχου</span>')+(issue?'<br><span style="font-size:10px;font-weight:700;color:var(--amber);">📋 '+esc(issue.issueNum||issue.id.slice(-4).toUpperCase())+'</span><br><span style="font-size:10px;color:var(--muted)">'+esc(String(issue.title||'').slice(0,28))+'</span>':'')+'</td>'
+      +'<td style="white-space:nowrap">'+fmtDate(w.date)+'<br><span style="font-size:10px;color:var(--muted)">🕐 '+esc(w.issuedTime||'—')+'</span>'+'</td>'
       +'<td>'+esc(w.location)+'</td>'
-      +'<td><span class="prio '+prioClass(w.priority)+'">'+(w.priority||'').slice(0,6)+'</span></td>'
+      +'<td><span class="prio '+prioClass(w.priority)+'">'+esc(String(w.priority||'').slice(0,6))+'</span></td>'
       +'<td style="font-size:11px">'+
         (function(){
           var its=w.items||[];
@@ -5502,7 +5591,7 @@ function renderOrders(){
             var cd=it.etepCode||it.code||'';
             var q=parseFloat(it.qty)||0;
             var u=it.unit||'';
-            return cd?(cd+(q?' × '+q+(u?' '+u:''):'')):(q?q+' '+u:'');
+            return cd?(esc(cd)+(q?' × '+q+(u?' '+esc(u):''):'')):(q?q+' '+esc(u):'');
           }).filter(Boolean);
           return lines.join('<br>');
         })()
@@ -5538,7 +5627,7 @@ function notifySvcStaff(channel){
     if(channel==='viber') url='viber://chat?number='+encodeURIComponent('+30'+phone.replace(/^0/,''))+'&text='+encodeURIComponent(msg);
     else if(channel==='whatsapp'){ const p='30'+phone.replace(/^0/,'').replace(/^\+30/,''); url='https://wa.me/'+p+'?text='+encodeURIComponent(msg); }
     else url='sms:'+phone+'?body='+encodeURIComponent(msg);
-    window.open(url,'_blank');
+    window.open(url,'_blank','noopener,noreferrer');
   });
   toast('📢 Αποστολή σε '+staff.length+' υπαλλήλους μέσω '+(channel==='viber'?'Viber':channel==='whatsapp'?'WhatsApp':'SMS'));
 }
@@ -5554,7 +5643,7 @@ function notifySvcOrderTeam(id){
     const mobile = ((s.mobile||s).replace ? (s.mobile||'') : '').replace(/[^0-9]/g,'');
     if(!mobile) return;
     const url = 'viber://chat?number=%2B30'+mobile.replace(/^0/,'')+'&text='+encodeURIComponent(msg);
-    window.open(url,'_blank');
+    window.open(url,'_blank','noopener,noreferrer');
   });
   toast('📢 Κοινοποίηση σε '+staff.length+' υπαλλήλους μέσω Viber');
 }
@@ -5659,7 +5748,7 @@ function renderFinance(){
   const paid=totalPaid();
   const unpaid=payable-paid;
   const rem=remaining();
-  const vatRate=settings.vatRate||24;
+  const vatRate=_safeVatRate();
   const penaltyPct = settings.contractValue>0 ? (penalties/settings.contractValue*100) : 0;
   const acceptedOrders = workOrders.filter(w=>w.status==='Παραλήφθηκε');
   document.getElementById('finCards').innerHTML=`
@@ -5739,7 +5828,7 @@ function renderFinance(){
           const _locked = _wo && (_wo.signedPdfData || _wo.signedPdfUrl || _wo.signedPdfPath);
           return _locked
             ? '<button class="ab-del" disabled title="Κλειδωμένο — υπάρχει ψηφιακά υπογεγραμμένο πρωτόκολλο" style="opacity:.35;cursor:not-allowed;">🗑</button>'
-            : (permDelete() ? '<button class=\"ab-del\" onclick=\"delPayment(\''+p.id+'\')\">🗑</button>' : '');
+            : (permDelete() ? '<button class="ab-del" data-pid="'+esc(p.id)+'" onclick="delPayment(this.dataset.pid)">🗑</button>' : '');
         })()}</td>
       </tr>`;
     }).join('')}
@@ -5868,7 +5957,7 @@ function renderHolidays(){
       +'color:var(--red);border-radius:var(--rs);padding:4px 8px;font-size:11px;font-weight:600;">'
       +d.toLocaleDateString('el-GR')+' ('+dn+')'
       +(lbl[h]?'<span style="font-weight:400;opacity:.8">'+esc(lbl[h])+'</span>':'')
-      +'<button onclick="removeHoliday(\''+h+'\')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:13px;padding:0;line-height:1;">✕</button></span>';
+      +'<button data-date="'+esc(h)+'" onclick="removeHoliday(this.dataset.date)" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:13px;padding:0;line-height:1;">✕</button></span>';
   }).join('') : '<span style="font-size:11px;color:var(--muted);">Καμία αργία καταχωρημένη.</span>';
 }
 function addHoliday(){
@@ -6139,12 +6228,12 @@ let _mapTarget = 'order'; // 'order' or 'issue'
 function clearIssueMap(){document.getElementById("i_mapLat").value="";document.getElementById("i_mapLng").value="";updateIssueCoordsDisplay();}
 
 function updateIssueCoordsDisplay(){
-  const lat = document.getElementById('i_mapLat').value;
-  const lng = document.getElementById('i_mapLng').value;
+  const coords = _safeCoordinates(document.getElementById('i_mapLat').value,document.getElementById('i_mapLng').value);
   const d = document.getElementById('i_coordsDisplay');
   if(!d) return;
-  if(lat&&lng){
-    d.innerHTML = '<a href="https://www.google.com/maps?q='+lat+','+lng+'" target="_blank" style="color:var(--navy);font-weight:600;">📍 '+parseFloat(lat).toFixed(5)+', '+parseFloat(lng).toFixed(5)+'</a>'
+  if(coords){
+    const lat=coords.lat.toFixed(6),lng=coords.lng.toFixed(6);
+    d.innerHTML = '<a href="https://www.google.com/maps?q='+lat+','+lng+'" target="_blank" rel="noopener noreferrer" style="color:var(--navy);font-weight:600;">📍 '+coords.lat.toFixed(5)+', '+coords.lng.toFixed(5)+'</a>'
       +' <button onclick="clearIssueMap()" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:11px;">✕</button>';
   } else {
     d.textContent='Δεν έχει οριστεί';
@@ -6236,18 +6325,10 @@ function viewIssueAttachment(idx){
   const a = _issueAttachments[idx];
   if(!a) return;
   // Use Supabase public URL if available, else base64 data
-  const src = a.url || a.data;
+  const src = _safeAttachmentUrl(a.url || a.data,true);
   if(!src){ toast('Δεν υπάρχει πηγή αρχείου.'); return; }
-  const win = window.open('','_blank','width=900,height=700');
-  if(a.type && a.type.startsWith('image/')){
-    win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;">'
-      +'<img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;" crossorigin="anonymous"></body></html>');
-  } else {
-    // For PDFs and other files — direct link opens better
-    win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;">'
-      +'<iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe></body></html>');
-  }
-  win.document.close();
+  const win = window.open(src,'_blank','noopener,noreferrer');
+  if(win) win.opener=null;
 }
 
 // ── MUNICIPAL ISSUE IMPORTER ─────────────────────────────────────
@@ -6361,7 +6442,7 @@ async function munLoadFile(input){
       st.innerHTML='<span style="color:var(--green);">✅ AI: '+n+' πεδία. Ελέγξτε και πατήστε Εισαγωγή.</span>';
       toast('AI: '+n+' πεδία');
     }catch(err){
-      st.innerHTML='<span style="color:var(--amber);">⚠ '+err.message+'</span>';
+      st.innerHTML='<span style="color:var(--amber);">⚠ '+esc((err&&err.message)||String(err))+'</span>';
       toast('Σφάλμα: '+err.message.substring(0,60));
     }
   };
@@ -6369,7 +6450,8 @@ async function munLoadFile(input){
 }
 
 function munParseHtml(html){
-  var tmp=document.createElement('div');tmp.innerHTML=html;
+  var parsed=new DOMParser().parseFromString(String(html||''),'text/html');
+  var tmp=parsed.body;
   var texts=[];
   var walk=document.createTreeWalker(tmp,NodeFilter.SHOW_TEXT,null);
   var node;
@@ -6473,7 +6555,7 @@ function viewIssueDetail(id){
     html += '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
     i.attachments.forEach((a,idx)=>{
       const icon = (a.type||'').startsWith('image/')?'🖼':(a.type||'').includes('pdf')?'📄':'📎';
-      html += '<button onclick="viewSavedAttachment(this)" data-iid="'+id+'" data-idx="'+idx+'" style="border:1px solid var(--border);background:var(--sec);border-radius:4px;padding:4px 8px;cursor:pointer;font-size:11px;">'+icon+' '+esc(a.name)+'</button>';
+      html += '<button onclick="viewSavedAttachment(this)" data-iid="'+esc(id)+'" data-idx="'+idx+'" style="border:1px solid var(--border);background:var(--sec);border-radius:4px;padding:4px 8px;cursor:pointer;font-size:11px;">'+icon+' '+esc(a.name)+'</button>';
     });
     html += '</div>';
   }
@@ -6491,15 +6573,10 @@ function viewSavedAttachment(btn){
   if(!i||!i.attachments) return;
   const a = i.attachments[idx];
   if(!a) return;
-  const src = a.url || a.data;
+  const src = _safeAttachmentUrl(a.url || a.data,true);
   if(!src){ toast('Δεν υπάρχει αρχείο.'); return; }
-  const win = window.open('','_blank','width=900,height=700');
-  if((a.type||'').startsWith('image/')){
-    win.document.write('<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img src="'+src+'" style="max-width:100%;max-height:100vh;object-fit:contain;"></body></html>');
-  } else {
-    win.document.write('<html><head><title>'+esc(a.name)+'</title></head><body style="margin:0;"><iframe src="'+src+'" style="width:100%;height:100vh;border:none;"></iframe></body></html>');
-  }
-  win.document.close();
+  const win = window.open(src,'_blank','noopener,noreferrer');
+  if(win) win.opener=null;
 }
 
 function closeIssueDetail(){
@@ -6587,6 +6664,7 @@ async function saveIssue(){
   const _existingIssue = id ? issues.find(x=>x.id===id) : null;
   const _issueNum = id ? (_existingIssue?.issueNum || await nextIssueNumAsync()) : await nextIssueNumAsync();
   if(!_issueNum) return; // v9.19.4 (#13): αποτυχία αρίθμησης = ακύρωση αποθήκευσης
+  const _issueCoords=_safeCoordinates(document.getElementById('i_mapLat').value,document.getElementById('i_mapLng').value);
   const data={
     id:id||genId(),
     issueNum: _issueNum,
@@ -6621,8 +6699,8 @@ async function saveIssue(){
     status:document.getElementById('i_status').value,
     notes:document.getElementById('i_notes').value,
     municipalNum:document.getElementById('i_municipalNum').value.trim(),
-    mapLat:document.getElementById('i_mapLat').value||null,
-    mapLng:document.getElementById('i_mapLng').value||null,
+    mapLat:_issueCoords?_issueCoords.lat:null,
+    mapLng:_issueCoords?_issueCoords.lng:null,
     attachments:_issueAttachments||[],
     municipalDate:document.getElementById('i_municipalDate')?.value||'',
     completionDate:''
@@ -6696,9 +6774,9 @@ function renderServiceStaff(selected){
     const mobile = s.mobile||'';
     const checked = sel.some(x=>(x.name||x)===name);
     return '<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#fff;border-radius:5px;border:1px solid var(--border);cursor:pointer;font-size:12px;">'
-      +'<input type="checkbox" class="svc-staff-cb" value="'+name+'" data-mobile="'+mobile+'" '+(checked?'checked':'')+' style="width:15px;height:15px;">'
-      +'<span style="flex:1;">'+name+'</span>'
-      +'<span style="font-size:10px;color:var(--muted);">📱 '+mobile+'</span>'
+      +'<input type="checkbox" class="svc-staff-cb" value="'+esc(name)+'" data-mobile="'+esc(mobile)+'" '+(checked?'checked':'')+' style="width:15px;height:15px;">'
+      +'<span style="flex:1;">'+esc(name)+'</span>'
+      +'<span style="font-size:10px;color:var(--muted);">📱 '+esc(mobile)+'</span>'
       +'</label>';
   }).join('');
 }
@@ -6730,7 +6808,7 @@ function openNewOrder(orderType){
   // Populate issue dropdown
   const sel=document.getElementById('wo_issue');
   sel.innerHTML='<option value="">— Ανεξάρτητη εντολή —</option>'+
-    issues.filter(isActive).map(i=>`<option value="${i.id}">${i.issueNum||i.id.slice(-4).toUpperCase()} – ${esc(i.title.slice(0,50))}</option>`).join('');
+    issues.filter(isActive).map(i=>`<option value="${esc(i.id)}">${esc(i.issueNum||String(i.id||'').slice(-4).toUpperCase())} – ${esc(String(i.title||'').slice(0,50))}</option>`).join('');
   // Clear items
   document.getElementById('woItemsBody').innerHTML='';
   document.getElementById('woTotal').textContent='0,00 €';
@@ -6798,7 +6876,7 @@ function editOrder(id){
   updateDeadline();
   const sel=document.getElementById('wo_issue');
   sel.innerHTML='<option value="">— Ανεξάρτητη εντολή —</option>'+
-    issues.map(i=>`<option value="${i.id}" ${i.id===wo.issueId?'selected':''}>${i.issueNum||i.id.slice(-4).toUpperCase()} – ${esc(i.title.slice(0,50))}</option>`).join('');
+    issues.map(i=>`<option value="${esc(i.id)}" ${i.id===wo.issueId?'selected':''}>${esc(i.issueNum||String(i.id||'').slice(-4).toUpperCase())} – ${esc(String(i.title||'').slice(0,50))}</option>`).join('');
   // Rebuild items
   const tbody=document.getElementById('woItemsBody');
   tbody.innerHTML='';
@@ -6833,7 +6911,7 @@ function updateDeadline(){
     const c=workCfg();
     const startsAt = pd.mode==='working' ? nextWorkingMoment(now) : now;
     const shifted = pd.mode==='working' && startsAt.getTime()>now.getTime()+60000;
-    box.innerHTML = 'Ωράριο: <strong>'+c.start+'–'+c.end+'</strong>, '
+    box.innerHTML = 'Ωράριο: <strong>'+esc(c.start)+'–'+esc(c.end)+'</strong>, '
       + c.days.map(d=>['Κυρ','Δευ','Τρι','Τετ','Πεμ','Παρ','Σαβ'][d]).join(' ')
       + (c.holidays.length?' · '+c.holidays.length+' αργίες':'')
       + '<br>Αν σταλεί τώρα: έναρξη <strong>'+fmtDT(startsAt.toISOString())+'</strong>'
@@ -6846,15 +6924,15 @@ function addItemRow(existing){
   const tbody=document.getElementById('woItemsBody');
   const rowId='row_'+genId();
   // Build options
-  const opts=ALL_ITEMS.map(i=>`<option value="${i.code}" data-price="${i.price}" data-unit="${i.unit}" data-desc="${esc(i.desc)}">${i.code} – ${i.desc.slice(0,60)}</option>`).join('');
+  const opts=ALL_ITEMS.map(i=>`<option value="${esc(i.code)}" data-price="${Number(i.price)||0}" data-unit="${esc(i.unit)}" data-desc="${esc(i.desc)}">${esc(i.code)} – ${esc(String(i.desc||'').slice(0,60))}</option>`).join('');
   const tr=document.createElement('tr');
   tr.id=rowId;
   tr.innerHTML=`
     <td><input type="text" style="width:60px" id="${rowId}_code" value="${existing?esc(existing.code||''):''}" placeholder="Κωδ." onblur="fillFromCode('${rowId}')"></td>
     <td><select id="${rowId}_sel" onchange="fillFromSel('${rowId}')" style="min-width:260px"><option value="">— Επιλογή από τιμολόγιο —</option>${opts}</select></td>
     <td><input type="text" id="${rowId}_unit" style="width:50px" value="${existing?esc(existing.unit||''):''}" placeholder="Μ.Μ."></td>
-    <td><input type="number" id="${rowId}_price" style="width:65px" step="0.01" value="${existing?existing.unitPrice||'':''}" placeholder="0.00" oninput="recalcTotal()"></td>
-    <td><input type="number" id="${rowId}_qty" style="width:60px" step="0.01" value="${existing?existing.qty||'':''}" placeholder="0" oninput="recalcTotal()"></td>
+    <td><input type="number" id="${rowId}_price" style="width:65px" step="0.01" value="${existing?(Number(existing.unitPrice)||''):''}" placeholder="0.00" oninput="recalcTotal()"></td>
+    <td><input type="number" id="${rowId}_qty" style="width:60px" step="0.01" value="${existing?(Number(existing.qty)||''):''}" placeholder="0" oninput="recalcTotal()"></td>
     <td id="${rowId}_bal" style="font-size:11px;min-width:96px;color:var(--muted)">—</td>
     <td id="${rowId}_tot" style="font-weight:600;min-width:70px">0,00 €</td>
     <td><button onclick="removeRow('${rowId}')" style="border:none;background:none;cursor:pointer;color:var(--red);font-size:14px;">✕</button></td>
@@ -6929,8 +7007,8 @@ function recalcTotal(){
         const col = after<0?'var(--red)':after<b.contract*0.1?'var(--amber)':'var(--green)';
         balEl.style.color=col;
         balEl.style.fontWeight = after<0?'700':'600';
-        balEl.innerHTML = (after<0?'⚠ ':'') + after.toFixed(1) + ' ' + b.item.unit
-          + `<div style="font-size:9px;color:var(--muted);font-weight:400">από ${b.contract} ${b.item.unit}</div>`;
+        balEl.innerHTML = (after<0?'⚠ ':'') + after.toFixed(1) + ' ' + esc(b.item.unit)
+          + `<div style="font-size:9px;color:var(--muted);font-weight:400">από ${b.contract} ${esc(b.item.unit)}</div>`;
         balEl.title = 'Συμβατική: '+b.contract+' · Δεσμευμένη: '+b.committed+' · Διαθέσιμο πριν από αυτή τη γραμμή: '+b.remaining;
       }
     }
@@ -7015,6 +7093,7 @@ async function saveOrder(andPrint){
   // This prevents stale attachments from a previous request/order being reused.
   const effectiveWoAttachments = selectedIssueId ? getIssueAttachments(selectedIssueId) : cloneAttachments(woAttachments);
   woAttachments = cloneAttachments(effectiveWoAttachments);
+  const _orderCoords=_safeCoordinates(woMapLat,woMapLng);
   let data={
     id:id||genId(),
     orderNum:document.getElementById('wo_num').value,
@@ -7036,8 +7115,8 @@ async function saveOrder(andPrint){
     mediaBefore:woMediaBefore,
     mediaAfter:woMediaAfter,
     attachments:cloneAttachments(effectiveWoAttachments),
-    lat:woMapLat,
-    lng:woMapLng
+    lat:_orderCoords?_orderCoords.lat:null,
+    lng:_orderCoords?_orderCoords.lng:null
   };
   // Validation
   const errs=[];
@@ -7141,7 +7220,7 @@ function buildWoHtml(wo){
   const issue=wo.issueId?issues.find(i=>i.id===wo.issueId):null;
   const atts = getEffectiveOrderAttachments(wo);
   const attRows = atts.length ? ('<div style="margin:8px 0;font-size:10pt;"><strong>Συνημμένα αιτήματος:</strong><ol style="margin:4px 0 0 18px;">'+atts.map(a=>'<li>'+esc(a.name||'αρχείο')+(a.url?' — '+esc(a.url):'')+'</li>').join('')+'</ol></div>') : '';
-  const vatRate=settings.vatRate||24;
+  const vatRate=_safeVatRate();
   const listTotal=woListTotal(wo);
   const discPct=woDiscountPct(wo);
   const discAmount=woDiscountAmount(wo);
@@ -7151,14 +7230,19 @@ function buildWoHtml(wo){
   const penTotal=woPenaltiesTotal(wo);
   const penList=Array.isArray(wo.penalties)?wo.penalties:[];
   const pd=PRIO_DATA[wo.priority]||{resp:'—',cls:'p4'};
+  const contractorMailHref=_safeMailto(
+    settings.contractorEmail,
+    'Πρωτόκολλο Παραλαβής – Εντολή '+String(wo.orderNum||''),
+    'Αγαπητέ Ανάδοχε,\n\nΣας διαβιβάζουμε το Πρωτόκολλο Οριστικής Τμηματικής Παραλαβής για την Εντολή Εργασίας '+String(wo.orderNum||'')+'.\n\nΜε εκτίμηση,\nΔιακολιός Βασίλειος\ndiakolios@rhodes.gr'
+  );
   const itemRows=(wo.items||[]).map((it,idx)=>`
     <tr>
       <td>${idx+1}</td>
       <td><strong>${esc(it.code)}</strong></td>
       <td>${esc(it.desc)}</td>
-      <td class="right">${it.unit}</td>
+      <td class="right">${esc(it.unit)}</td>
       <td class="right">${fmt(it.unitPrice)}</td>
-      <td class="right">${it.qty}</td>
+      <td class="right">${Number(it.qty)||0}</td>
       <td class="right"><strong>${fmt(it.unitPrice*it.qty)}</strong></td>
     </tr>
   `).join('');
@@ -7172,13 +7256,13 @@ function buildWoHtml(wo){
     <div class="wo-title">${(wo.status==='Παραλήφθηκε'||wo.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') ? 'ΠΡΩΤΟΚΟΛΛΟ ΟΡΙΣΤΙΚΗΣ ΤΜΗΜΑΤΙΚΗΣ ΠΑΡΑΛΑΒΗΣ' : 'ΕΝΤΟΛΗ ΕΡΓΑΣΙΑΣ ΑΝΑΔΟΧΟΥ'}</div>
     <div class="wo-meta">
       <div><span>Αρ. Εντολής: </span>${esc(wo.orderNum)}</div>
-      <div><span>${(wo.status==='Παραλήφθηκε'||wo.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') ? 'Ημ. Παραλαβής: ' : 'Ημ. Έκδοσης: '}</span>${fmtDate((wo.status==='Παραλήφθηκε'||wo.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') ? (wo.completionDate||wo.date) : wo.date)}${wo.issuedTime&&wo.status!=='Παραλήφθηκε' ? ' &nbsp;🕐 '+wo.issuedTime : ''}</div>
+      <div><span>${(wo.status==='Παραλήφθηκε'||wo.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') ? 'Ημ. Παραλαβής: ' : 'Ημ. Έκδοσης: '}</span>${fmtDate((wo.status==='Παραλήφθηκε'||wo.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') ? (wo.completionDate||wo.date) : wo.date)}${wo.issuedTime&&wo.status!=='Παραλήφθηκε' ? ' &nbsp;🕐 '+esc(wo.issuedTime) : ''}</div>
       <div><span>Ανάδοχος: </span>${esc(settings.contractor||'—')}</div>
       <div><span>Υπεύθυνος: </span>${esc(settings.contractorContact||'—')}</div>
       <div><span>Τοποθεσία: </span>${esc(wo.location)}</div>
       <div><span>Κατηγορία: </span><span class="prio-label ${pd.cls}">${esc(wo.priority||'—')}</span></div>
-      <div><span>Χρόνος Απόκρισης: </span><strong>${pd.resp}</strong></div>
-      ${issue?`<div><span>Αίτημα: </span>${issue.issueNum||issue.id.slice(-4).toUpperCase()} – ${esc(issue.title)}</div>`:''}
+      <div><span>Χρόνος Απόκρισης: </span><strong>${esc(pd.resp)}</strong></div>
+      ${issue?`<div><span>Αίτημα: </span>${esc(issue.issueNum||String(issue.id||'').slice(-4).toUpperCase())} – ${esc(issue.title)}</div>`:''}
     </div>
     <p style="margin:8px 0;font-size:10pt;"><strong>${(wo.status==='Παραλήφθηκε'||wo.status==='Ολοκληρώθηκε - Εκκρεμούν Υπογραφές') ? 'Περιγραφή Εργασιών που Παραλήφθηκαν:' : 'Περιγραφή Εντολής:'}</strong> ${esc(wo.description||'—')}</p>
     ${wo.notes?`<p style="margin:4px 0;font-size:10pt;"><strong>Ειδικές Οδηγίες:</strong> ${esc(wo.notes)}</p>`:''}
@@ -7206,7 +7290,7 @@ function buildWoHtml(wo){
     ${wo.status==='Παραλήφθηκε' && wo.signedPdfName ? `
     <div style="margin:14px 0;padding:10px;border:2px solid #198754;border-radius:6px;background:#f0fff4;">
       <p style="font-weight:700;font-size:10pt;color:#155724;margin:0 0 6px;">✅ ΨΗΦΙΑΚΑ ΥΠΟΓΕΓΡΑΜΜΕΝΟ ΠΡΩΤΟΚΟΛΛΟ</p>
-      <p style="font-size:9pt;color:#155724;margin:0;">📄 Αρχείο: <strong>${wo.signedPdfName}</strong></p>
+      <p style="font-size:9pt;color:#155724;margin:0;">📄 Αρχείο: <strong>${esc(wo.signedPdfName)}</strong></p>
       ${wo.signedAt ? `<p style="font-size:9pt;color:#155724;margin:2px 0;">🕐 Υπογράφηκε: ${fmtDateTime(wo.signedAt)}</p>` : ''}
       <p style="font-size:9pt;color:#155724;margin:4px 0;">Υπογεγραμμένο με εγκεκριμένη ψηφιακή υπογραφή ΚΣΗΔΕ (webapp.mindigital-shde.gr)</p>
     </div>` : ''}
@@ -7224,11 +7308,11 @@ function buildWoHtml(wo){
         <br>
       </div>
     </div>
-    ${wo.status==='Παραλήφθηκε' && (settings.contractorEmail||'') ? `
+    ${wo.status==='Παραλήφθηκε' && contractorMailHref ? `
     <div style="margin:12px 0;text-align:center;">
-      <a href="mailto:${settings.contractorEmail}?subject=Πρωτόκολλο Παραλαβής – Εντολή ${wo.orderNum}&body=Αγαπητέ Ανάδοχε,%0A%0AΣας διαβιβάζουμε το Πρωτόκολλο Οριστικής Τμηματικής Παραλαβής για την Εντολή Εργασίας ${wo.orderNum}.%0A%0AΜε εκτίμηση,%0AΔιακολιός Βασίλειος%0Adiakolios@rhodes.gr"
+      <a href="${esc(contractorMailHref)}"
          style="display:inline-block;background:#1a3a5c;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-size:11pt;font-weight:bold;font-family:Arial,sans-serif;">
-        ✉ Αποστολή Πρωτοκόλλου στον Ανάδοχο (${settings.contractorEmail})
+        ✉ Αποστολή Πρωτοκόλλου στον Ανάδοχο (${esc(settings.contractorEmail)})
       </a>
     </div>` : ''}
     <div class="wo-footer">
@@ -7248,7 +7332,9 @@ function printOrder(id){
   }
   const html=buildWoHtml(wo);
   const win=window.open('','_blank','width=800,height=900');
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Εντολή ${wo.orderNum}</title>
+  if(!win){ toast('⚠ Το παράθυρο εκτύπωσης μπλοκαρίστηκε από τον browser.'); return; }
+  win.opener=null;
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Εντολή ${esc(wo.orderNum)}</title>
   <style>
   body{font-family:'Times New Roman',serif;font-size:12pt;color:#000;margin:0;padding:20px;}
   .wo-doc{max-width:700px;margin:0 auto;}
@@ -7282,13 +7368,17 @@ function printOrder(id){
 
 let _emailOrderId = null;
 
-function openEmail(email,subject,body){var url='mailto:'+String(email||'')+'?subject='+encodeURIComponent(subject||'')+'&body='+encodeURIComponent(body||'');window.location.href=url;}
+function openEmail(email,subject,body){
+  const url=_safeMailto(email,subject,body);
+  if(!url){ toast('⚠ Μη έγκυρη διεύθυνση email.'); return; }
+  window.location.href=url;
+}
 
 
 
 function buildEmailBody(wo){
   const netTotal=woTotal(wo);
-  const vatRate=settings.vatRate||24;
+  const vatRate=_safeVatRate();
   const pd=PRIO_DATA[wo.priority]||{resp:'—'};
   const itemLines=(wo.items||[]).map(it=>'  '+it.code+' – '+it.desc+' | '+it.qty+' '+it.unit+' × '+fmt(it.unitPrice)+'€ = '+fmt(it.unitPrice*it.qty)+'€').join('\n');
   const penaltyLine = wo.penaltyAmount>0 ? '\nΠΟΙΝΙΚΗ ΡΗΤΡΑ: -'+fmt(wo.penaltyAmount)+' €\n' : '';
@@ -7319,7 +7409,10 @@ function buildEmailBody(wo){
 // Text block listing request-attachment download links (for mailto bodies)
 function attachmentLinksBlock(wo){
   const allAtts = getEffectiveOrderAttachments(wo);
-  const atts = allAtts.filter(a=>a&&a.url);
+  const atts = allAtts.map(a=>{
+    const url=_safeServerAttachmentUrl(a&&a.url);
+    return url ? {...a,url} : null;
+  }).filter(Boolean);
   if(!allAtts.length) return '';
   let txt = '\n\n'+'─'.repeat(55)
     +'\nΣΥΝΗΜΜΕΝΑ ΑΡΧΕΙΑ ΑΙΤΗΜΑΤΟΣ (σύνδεσμοι λήψης):\n';
@@ -7328,7 +7421,7 @@ function attachmentLinksBlock(wo){
   } else {
     txt += 'Δεν υπάρχουν διαθέσιμοι δημόσιοι σύνδεσμοι λήψης για τα συνημμένα.';
   }
-  const missing = allAtts.filter(a=>!a.url);
+  const missing = allAtts.filter(a=>!_safeServerAttachmentUrl(a&&a.url));
   if(missing.length){
     txt += '\n\nΠΡΟΣΟΧΗ: '+missing.length+' συνημμένο/α δεν στάλθηκαν ως αρχεία επειδή δεν έχουν αποθηκευμένο δημόσιο URL στο Supabase Storage.';
   }
@@ -7389,7 +7482,9 @@ async function ensureSignedProtocolAttachmentUrl(wo, fname){
     return {name: wo.signedPdfName || fname, url: sd.signedUrl, type: 'application/pdf'};
   }
   if(wo.signedPdfUrl){
-    return {name: wo.signedPdfName || fname, url: wo.signedPdfUrl, type: 'application/pdf'};
+    const safeUrl=_safeServerAttachmentUrl(wo.signedPdfUrl);
+    if(!safeUrl) throw new Error('Ο αποθηκευμένος σύνδεσμος πρωτοκόλλου δεν ανήκει στο ασφαλές Storage της εφαρμογής.');
+    return {name: wo.signedPdfName || fname, url: safeUrl, type: 'application/pdf'};
   }
   if(!wo.signedPdfData){
     throw new Error('Δεν υπάρχει υπογεγραμμένο πρωτόκολλο. Ανεβάστε πρώτα το υπογεγραμμένο PDF.');
@@ -7437,7 +7532,7 @@ async function emailProtocol(id){
 
   const fname = wo.signedPdfName || ('Πρωτοκολλο_Προσωρινης_Οριστικης_Παραλαβης_'+(wo.orderNum||wo.id)+'.pdf');
   const netAmt = Math.max(0, woTotal(wo)-(wo.penaltyAmount||0));
-  const vatRate = settings.vatRate||24;
+  const vatRate = _safeVatRate();
   const grossAmt = netAmt*(1+vatRate/100);
   const subject = 'Πρωτόκολλο Προσωρινής/Οριστικής Παραλαβής – Εντολή ' + (wo.orderNum||'');
 
@@ -7492,7 +7587,7 @@ function emailOrder(id){
   const email=settings.contractorEmail||'(δεν έχει οριστεί)';
   const contractor=settings.contractor||'(δεν έχει οριστεί)';
   const netTotal=woTotal(wo);
-  const vatRate=settings.vatRate||24;
+  const vatRate=_safeVatRate();
   document.getElementById('econfToAddr').textContent=email;
   document.getElementById('econfInfo').innerHTML=
     '<div class="econf-row"><span class="ek">Εντολή</span><span class="ev">'+esc(wo.orderNum)+'</span></div>'
@@ -7554,8 +7649,11 @@ async function prepareContractorEmailPayload(wo){
   const mediaAtts = []
     .concat(Array.isArray(wo.mediaBefore)?wo.mediaBefore:[])
     .concat(Array.isArray(wo.mediaAfter)?wo.mediaAfter:[])
-    .filter(m=>m && m.url)
-    .map(m=>({name:m.name||'photo', url:m.url, type:m.type||''}));
+    .map(m=>{
+      const url=_safeServerAttachmentUrl(m&&m.url);
+      return url ? {name:m.name||'photo', url, type:m.type||''} : null;
+    })
+    .filter(Boolean);
   // Body: also list the photo links as a safety net.
   if(mediaAtts.length){
     body += '\n\nΦωτογραφίες/Βίντεο εντολής:';
@@ -7687,7 +7785,7 @@ function cleanPhone(phone){
 function buildMsgBody(wo){
   const pd=PRIO_DATA[wo.priority]||{resp:'—'};
   const netTotal=woTotal(wo);
-  const vatRate=settings.vatRate||24;
+  const vatRate=_safeVatRate();
   const itemLines=(wo.items||[]).map(it=>'• '+it.code+' '+it.desc+' ('+it.qty+' '+it.unit+' × '+fmt(it.unitPrice)+'€ = '+fmt(it.unitPrice*it.qty)+'€)').join('\n');
   return '📋 *ΕΝΤΟΛΗ ΕΡΓΑΣΙΑΣ ' + wo.orderNum + '*'
     +'\nΡΟΔΙΟΣ'
@@ -7716,7 +7814,7 @@ function doSendViber(){
   const msg=buildMsgBody(wo);
   // Viber deep link: works on mobile with Viber installed
   const url='viber://chat?number='+encodeURIComponent(phone)+'&text='+encodeURIComponent(msg);
-  window.open(url,'_blank');
+  window.open(url,'_blank','noopener,noreferrer');
   closeEconf();
   // v9.19.4: ΚΑΜΙΑ αυτόματη εκκίνηση ρολογιού από Viber/WhatsApp (το άνοιγμα
   // εφαρμογής ΔΕΝ τεκμηριώνει αποστολή) — μόνο με ρητή επιβεβαίωση του χρήστη.
@@ -7738,7 +7836,7 @@ function doSendWhatsApp(){
   // WhatsApp works on both mobile and desktop (web.whatsapp.com)
   const phoneNum=phone.replace('+','');
   const url='https://wa.me/'+phoneNum+'?text='+encodeURIComponent(msg);
-  window.open(url,'_blank');
+  window.open(url,'_blank','noopener,noreferrer');
   closeEconf();
   // v9.19.4: ΚΑΜΙΑ αυτόματη εκκίνηση ρολογιού από Viber/WhatsApp (το άνοιγμα
   // εφαρμογής ΔΕΝ τεκμηριώνει αποστολή) — μόνο με ρητή επιβεβαίωση του χρήστη.
@@ -7825,7 +7923,7 @@ function svcNotifyViber(btn){ const idx=parseInt(btn.getAttribute('data-idx'));
   const u = staffUsers[idx];
   const phone = cleanPhone(u.phone||u.mobile||u.citizenPhone||'');
   if(!phone){ toast('⚠ Δεν υπάρχει τηλέφωνο για '+u.name+'. Προσθέστε κινητό στις Ρυθμίσεις χρήστη.'); return; }
-  window.open('viber://chat?number='+encodeURIComponent(phone)+'&text='+encodeURIComponent(msg),'_blank');
+  window.open('viber://chat?number='+encodeURIComponent(phone)+'&text='+encodeURIComponent(msg),'_blank','noopener,noreferrer');
   toast('📱 Viber ανοίχτηκε για '+u.name);
 }
 
@@ -7834,7 +7932,7 @@ function svcNotifyWhatsApp(btn){ const idx=parseInt(btn.getAttribute('data-idx')
   const u = staffUsers[idx];
   const phone = cleanPhone(u.phone||u.mobile||'').replace(/[^0-9+]/g,'');
   if(!phone){ toast('⚠ Δεν υπάρχει τηλέφωνο για '+u.name+'. Προσθέστε κινητό στις Ρυθμίσεις χρήστη.'); return; }
-  window.open('https://wa.me/'+phone+'?text='+encodeURIComponent(msg),'_blank');
+  window.open('https://wa.me/'+phone+'?text='+encodeURIComponent(msg),'_blank','noopener,noreferrer');
   toast('💬 WhatsApp ανοίχτηκε για '+u.name);
 }
 
@@ -7885,7 +7983,7 @@ function openAddPayment(){
   document.getElementById('p_notes').value='';
   const sel=document.getElementById('p_order');
   sel.innerHTML='<option value="">— Γενική πληρωμή —</option>'+
-    workOrders.map(w=>`<option value="${w.id}">${w.orderNum} – ${esc(w.location.slice(0,40))} (${fmt(woTotal(w))} €)</option>`).join('');
+    workOrders.map(w=>`<option value="${esc(w.id)}">${esc(w.orderNum)} – ${esc(String(w.location||'').slice(0,40))} (${fmt(woTotal(w))} €)</option>`).join('');
   document.getElementById('payModal').style.display='flex';
 }
 
@@ -8045,7 +8143,7 @@ function renderStaffList(){
     const email = s.email||'';
     return '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--rs);margin-bottom:6px;background:var(--sec);">'
       +'<div style="width:36px;height:36px;border-radius:50%;background:#0d7a5c;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px;flex-shrink:0;">'
-      +(name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase())+'</div>'
+      +esc(name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase())+'</div>'
       +'<div style="flex:1;">'
         +'<div style="font-size:12px;font-weight:700;">'+esc(name)+'</div>'
         +'<div style="font-size:10px;color:var(--muted);">'
@@ -8153,7 +8251,7 @@ function loadSettings(){
   document.getElementById('sEmail').value=settings.contractorEmail||'';
   document.getElementById('sPhone').value=settings.contractorPhone||'';
   document.getElementById('sContact').value=settings.contractorContact||'';
-  document.getElementById('sVat').value=settings.vatRate||24;
+  document.getElementById('sVat').value=_safeVatRate();
   // v9.19.2 — Ωράριο & αργίες
   const _c=workCfg();
   const _ws=document.getElementById('sWorkStart'); if(_ws) _ws.value=_c.start;
@@ -8399,7 +8497,7 @@ function renderBulkSigModal(orders){
   html+='</div><div style="margin-top:8px;font-weight:700;font-size:12px;color:var(--navy);">Σύνολο: '+fmt(total)+' €</div></div>';
   const steps=[
     {n:1,title:'Εκτύπωση Μαζικού Πρωτοκόλλου',btn:'<button class="btn btn-p" style="margin-left:30px;" onclick="printBulkProtocol()">🖨 Εκτύπωση</button>'},
-    {n:2,title:'Ψηφιακή Υπογραφή (Mindigital)',btn:'<button class="btn" style="background:#1a3a5c;color:#fff;margin-left:30px;" onclick="window.open(settings.eSignUrl||\'https://webapp.mindigital-shde.gr/login\',\'_blank\')">🔏 Mindigital</button>'},
+    {n:2,title:'Ψηφιακή Υπογραφή (Mindigital)',btn:'<button class="btn" style="background:#1a3a5c;color:#fff;margin-left:30px;" onclick="openESignPortal()">🔏 Mindigital</button>'},
     {n:3,title:'Ανέβασμα Υπογεγραμμένου PDF',btn:'<input type="file" id="bulkPdfInput" accept=".pdf" style="display:none" onchange="importBulkSignedPdf(this)"><button class="btn" style="background:#198754;color:#fff;border-color:#198754;margin-left:30px;" onclick="document.getElementById(\'bulkPdfInput\').click()">📎 Επιλογή PDF</button>'},
   ];
   steps.forEach(s=>{
@@ -8511,7 +8609,7 @@ async function finalizeBulkAcceptance(){
 function printBulkProtocol(){
   const orders=workOrders.filter(w=>_bulkSelected.has(w.id));
   if(!orders.length){toast('Δεν υπάρχουν επιλεγμένες εντολές');return;}
-  const today=todayStr(),vatR=settings.vatRate||24;
+  const today=todayStr(),vatR=_safeVatRate();
   const committee=(settings.eSignUsers||[]).filter(u=>u.name);
   const totalGross=orders.reduce((s,w)=>s+woTotal(w),0);
   const totalPen=orders.reduce((s,w)=>s+(w.penaltyAmount||0),0);
@@ -8543,6 +8641,8 @@ function printBulkProtocol(){
     +'<p style="margin-top:20px;"><strong>Η Επιτροπή Παραλαβής:</strong></p>'
     +'<table><tr>'+sigCells+'</tr></table></body></html>';
   const win=window.open('','_blank','width=900,height=1000');
+  if(!win){toast('⚠ Το παράθυρο εκτύπωσης μπλοκαρίστηκε από τον browser.');return;}
+  win.opener=null;
   win.document.write(html); win.document.close();
   setTimeout(()=>win.print(),600);
 }
@@ -8559,7 +8659,7 @@ function printBulkProtocol(){
         <div class="fg full"><label>Ρόλος / Θέση <span class="req-star">*</span></label><input type="text" id="u_role" placeholder="π.χ. Υπάλληλος Τμήματος"></div>
         <div class="fg full"><label>Email σύνδεσης <span class="req-star">*</span></label><input type="email" id="u_email" placeholder="π.χ. onoma@rhodes.gr"></div>
         <div class="fg"><label>Username <span class="req-star">*</span></label><input type="text" id="u_username" placeholder="π.χ. papadopoulos"></div>
-        <div class="fg"><label>Κωδικός σύνδεσης (min 6)</label><input type="text" id="u_pin" maxlength="60" placeholder="κενό = δεν αλλάζει"></div>
+        <div class="fg"><label>Κωδικός σύνδεσης (min 12)</label><input type="password" id="u_pin" minlength="12" maxlength="128" autocomplete="new-password" placeholder="κενό = δεν αλλάζει"></div>
         <div class="fg"><label>Αρχικά</label><input type="text" id="u_initials" maxlength="2" placeholder="ΠΓ"></div>
         <div class="fg"><label>Χρώμα</label><input type="color" id="u_color" value="#2d4a8a" style="height:36px;padding:2px;"></div>
         <div class="fg full" style="margin-top:6px;">
@@ -8581,6 +8681,17 @@ function printBulkProtocol(){
   </div>
 </div>
 
+<div class="overlay" id="adminPassWrap" style="display:none" onclick="if(event.target===this)closeAdminPassModal()">
+  <div class="modal sm">
+    <div class="mhdr"><h2>🔑 Αλλαγή Κωδικού Administrator</h2><button class="mclose" onclick="closeAdminPassModal()">✕</button></div>
+    <div class="mbody">
+      <div class="fg"><label>Νέος κωδικός (τουλάχιστον 12 χαρακτήρες)</label><input type="password" id="adminPassNew" minlength="12" maxlength="128" autocomplete="new-password"></div>
+      <div class="fg" style="margin-top:10px;"><label>Επιβεβαίωση νέου κωδικού</label><input type="password" id="adminPassConfirm" minlength="12" maxlength="128" autocomplete="new-password" onkeydown="if(event.key==='Enter')submitAdminPassChange()"></div>
+    </div>
+    <div class="mfoot"><button class="btn" onclick="closeAdminPassModal()">Ακύρωση</button><button class="btn btn-p" onclick="submitAdminPassChange()">Αλλαγή κωδικού</button></div>
+  </div>
+</div>
+
 
 
 <div id="mapWrap" class="map-wrap" style="display:none" onclick="if(event.target===this)closeMap()">
@@ -8589,14 +8700,14 @@ function printBulkProtocol(){
     <div class="map-box-body">
       <div id="mapCanvas" style="height:clamp(170px,32vh,260px);border-radius:10px;margin-bottom:5px;display:none;border:1px solid #e2e8f0;"></div>
       <div id="mapTapStatus" style="font-size:12px;color:var(--muted);margin-bottom:9px;line-height:1.45;">⏳ Φόρτωση χάρτη…</div>
-      <div class="map-step"><strong>Εναλλακτικά:</strong> Ανοίξτε το Google Maps (δεξί κλικ → «Τι υπάρχει εδώ;» για συντεταγμένες) ή χρησιμοποιήστε το GPS της συσκευής — το στίγμα θα μπει στον χάρτη.<br><button type="button" class="btn btn-p btn-sm" style="margin-top:8px" onclick="window.open('https://www.google.com/maps/@36.4341,28.2176,14z','_blank')">🗺 Άνοιγμα Google Maps</button> <button type="button" class="btn btn-sm" style="margin-top:8px" onclick="mapLocateMe()">📡 Χρήση GPS</button></div>
+      <div class="map-step"><strong>Εναλλακτικά:</strong> Ανοίξτε το Google Maps (δεξί κλικ → «Τι υπάρχει εδώ;» για συντεταγμένες) ή χρησιμοποιήστε το GPS της συσκευής — το στίγμα θα μπει στον χάρτη.<br><button type="button" class="btn btn-p btn-sm" style="margin-top:8px" onclick="window.open('https://www.google.com/maps/@36.4341,28.2176,14z','_blank','noopener,noreferrer')">🗺 Άνοιγμα Google Maps</button> <button type="button" class="btn btn-sm" style="margin-top:8px" onclick="mapLocateMe()">📡 Χρήση GPS</button></div>
       <div class="map-step"><strong>Ή επικολλήστε:</strong> συντεταγμένες <em>ή σύνδεσμο Google Maps</em> στο πεδίο παρακάτω<br><em style="font-size:11px;color:var(--muted)">(π.χ. 36.4341, 28.2176 — ή https://maps.app.goo.gl/…)</em></div>
       <div class="map-fields">
         <div class="map-field"><label>Γεωγρ. Πλάτος (Lat)</label><input type="number" id="mLat" step="0.000001" placeholder="36.4341" oninput="mapPreview()"></div>
         <div class="map-field"><label>Γεωγρ. Μήκος (Lng)</label><input type="number" id="mLng" step="0.000001" placeholder="28.2176" oninput="mapPreview()"></div>
       </div>
       <div class="map-field" style="margin-bottom:9px"><label>Ή επικολλήστε συντεταγμένες / σύνδεσμο Google Maps</label><input type="text" id="mPaste" placeholder="36.4341, 28.2176  ή  https://maps.app.goo.gl/..." oninput="mapParsePaste(this.value)"><div id="mPasteStatus" style="font-size:11px;color:var(--muted);margin-top:4px;"></div></div>
-      <div class="map-preview" id="mapPreview">🔗 Προεπισκόπηση: <a id="mapPreviewLink" href="#" target="_blank">Άνοιγμα στο Google Maps</a><br><span id="mapPreviewCoords" style="font-size:11px;color:var(--muted)"></span></div>
+      <div class="map-preview" id="mapPreview">🔗 Προεπισκόπηση: <a id="mapPreviewLink" href="#" target="_blank" rel="noopener noreferrer">Άνοιγμα στο Google Maps</a><br><span id="mapPreviewCoords" style="font-size:11px;color:var(--muted)"></span></div>
     </div>
     <div class="map-box-footer"><button type="button" class="btn" onclick="closeMap()">Ακύρωση</button><button type="button" class="btn btn-p" id="mapSaveBtn" onclick="mapSave()" disabled>✓ Αποθήκευση τοποθεσίας</button></div>
   </div>

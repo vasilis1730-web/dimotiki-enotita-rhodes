@@ -1,0 +1,70 @@
+# Gate H browser suite — localhost only; production-network attempts fail the run.
+name: Browser smoke (pre-production)
+
+on:
+  pull_request:
+    paths:
+      - 'index.html'
+      - 'aftepistasia.html'
+      - 'ack.html'
+      - 'manifest*.json'
+      - 'sw.js'
+      - 'scripts/browser_smoke.mjs'
+      - 'scripts/mobile_offline_smoke.mjs'
+      - 'scripts/failure_path_smoke.mjs'
+      - 'scripts/positive_logout_smoke.mjs'
+      - '.github/workflows/browser-smoke.yml'
+  push:
+    branches:
+      - staging-production-hardening
+    paths:
+      - 'index.html'
+      - 'aftepistasia.html'
+      - 'ack.html'
+      - 'manifest*.json'
+      - 'sw.js'
+      - 'scripts/browser_smoke.mjs'
+      - 'scripts/mobile_offline_smoke.mjs'
+      - 'scripts/failure_path_smoke.mjs'
+      - 'scripts/positive_logout_smoke.mjs'
+      - '.github/workflows/browser-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chromium-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned Playwright
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.62.1
+          npx playwright install --with-deps chromium
+      - name: Start isolated localhost server
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 > /tmp/rodios-http.log 2>&1 &
+          echo $! > /tmp/rodios-http.pid
+          for i in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:4173/index.html >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/rodios-http.log
+          exit 1
+      - name: Run desktop and role smoke with production-network guard
+        run: node scripts/browser_smoke.mjs
+      - name: Run mobile and offline/reconnect smoke
+        run: node scripts/mobile_offline_smoke.mjs
+      - name: Run fail-closed functional paths
+        run: node scripts/failure_path_smoke.mjs
+      - name: Run positive PDF and full logout paths
+        run: node scripts/positive_logout_smoke.mjs
+      - name: Show local server log on failure
+        if: failure()
+        run: cat /tmp/rodios-http.log || true

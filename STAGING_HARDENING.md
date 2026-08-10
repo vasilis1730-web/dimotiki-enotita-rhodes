@@ -20,10 +20,11 @@ Production `main`, official GitHub Pages and production Supabase remain unchange
 
 - Working hardening branch: `staging-production-hardening` — Draft PR #2.
 - Supabase Preview trigger branch: `staging-supabase-gates-ab` — PR #5.
-- Browser test-only branch: `staging-browser-e2e` — **never merge to `main`**.
+- Historical browser test-only branch: `staging-browser-e2e` — **never merge to `main`**; its four production-network-guarded suites are now included in the local hardening batch.
 - Production branch: `main`.
 
 The browser test-only branch may contain localhost-only manifests, test scripts and workflow files that are not release artifacts.
+The additional hardening batch described below is restricted to the `staging-production-hardening` branch and Draft PR #2. It has not been applied to production Supabase or `main`.
 
 ## 3. Current gate status
 
@@ -40,11 +41,13 @@ The browser test-only branch may contain localhost-only manifests, test scripts 
 | H.2 | Mobile + offline/reconnect | ✅ Chromium PASS |
 | H.3 | Fail-closed functional paths | ✅ Chromium PASS |
 | H.4 | Positive PDF client path + full logout | ✅ Chromium PASS |
-| H.5 | Real authenticated integration / concurrency / rollback | ⏳ PENDING |
+| H.5 | Real-network authenticated backend security matrix | ✅ PASS — run `31389744331`, job `93458363885`, 10/10 |
+| H.6 | Real citizen OTP/upload, email and signed-PDF artifact E2E | ⏳ PENDING — requires authorized test artifacts/side effects |
+| H.7 | Two-session concurrency and rollback rehearsal | ⏳ PENDING |
 
 ## 4. Clean Supabase Preview result
 
-Latest complete isolated rebuild used Preview project `dtvmwhiujwmxszbhraup` and completed:
+Latest complete isolated rebuild used Preview project `enymhfhequixpquhiecg` and completed:
 
 - Database ✅
 - Services ✅
@@ -56,6 +59,8 @@ Latest complete isolated rebuild used Preview project `dtvmwhiujwmxszbhraup` and
 - Deno Edge Function CI ✅
 
 The clean rebuild validated active-profile RLS, role assertions, sequences, canonical-number uniqueness, foreign keys, private Storage foundations, quotas, ACK expiry/replay behavior, server timestamps, audited admin-only soft deletion, precise upsert permissions and all seven version-controlled Edge Functions.
+
+The real-network Gate H matrix subsequently passed all 10 assertions, including real password sessions, active-profile RLS, settings deny/allow behavior, sequence RPC authorization, private Storage, Administrator/Manager user-management authorization, acceptance-bypass denial and ACK first-use/replay behavior.
 
 ## 5. Backend authorization contract
 
@@ -84,6 +89,11 @@ Staging target state:
 - failed issue attachment exposes Retry;
 - no direct `getPublicUrl()` attachment flow;
 - no silent durable fallback to Base64.
+- citizen attachment metadata returned to the browser is allowlisted and signed URLs are accepted only from the same Supabase project and `attachments` bucket;
+- cancelled or abandoned in-flight uploads are cleaned when possible;
+- deletion is rejected while an attachment path remains referenced by a non-deleted issue;
+- legacy pathless URL attachments are preserved on citizen edits only when the stored URL is a same-project Storage attachment URL;
+- citizen signed-URL and removal actions are rate-limited.
 
 **Production compatibility blocker:** the existing 565 production attachment objects must be checked before changing production bucket visibility.
 
@@ -168,18 +178,38 @@ Implemented on staging:
 - immutable row IDs with precise upsert column permissions;
 - privacy notice aligned to Municipality of Rhodes as controller and municipal DPO contact;
 - Supabase browser SDK pinned to `2.110.9`;
+- Nodemailer upgraded from vulnerable `6.9.16` to patched `9.0.5` after a production-dependency audit;
+- Firebase browser SDK upgraded from affected `10.8.0` to current stable `12.17.1`; the used modular Auth/App Check APIs are unchanged, but the v12 ES2020 baseline requires a staging browser-runtime rerun;
 - baseline CSP on citizen/staff/ACK pages;
+- reduced ACK CSP and explicit geocoder CSP origins for the citizen/staff pages;
+- stored-content DOM/XSS hardening, including single-quote escaping, data-attribute record IDs, validated map coordinates, safe external-link handling and allowlisted attachment/e-signature destinations;
+- citizen responses reduced to an explicit public field allowlist rather than returning internal issue JSON;
+- citizen Firebase ID tokens accepted only by header, with production fail-closed behavior if Firebase/App Check is unavailable;
+- exact verified Greek-mobile enforcement and server-side allowlists for municipality/category/title;
+- server-generated high-entropy citizen references and ownership validation for modification references;
+- identical server-side required-field validation for both new citizen submissions and in-place citizen updates;
+- bounded, explicit pagination for current and legacy citizen issue retrieval instead of silent 500/1000-row truncation;
+- removal of legacy `password`/`pin`/`pwd`/`passwordHash` profile keys, plus a database constraint preventing their return;
+- Administrator-managed user passwords masked in the UI and enforced at 12–128 characters;
+- browser app-user writes removed; lifecycle changes go through the authorized Edge Function;
+- fail-closed app-user deactivation and cleanup of recreated orphan Auth accounts on database failure;
 - explicit Firebase auth-helper CSP compatibility on citizen page;
 - separate citizen/staff PWA manifests;
+- relative manifest identity/start/scope URLs that resolve identically on production GitHub Pages while remaining isolated in localhost and Preview builds;
 - service-worker API/third-party non-caching behavior;
 - CSV spreadsheet-formula neutralization without changing stored values;
 - external AI PDF parser server-side **OFF by default** unless `RODIOS_AI_PARSER_ENABLED=true`;
 - permanent Edge Function `deno check` CI;
-- permanent inline JavaScript syntax CI.
+- permanent inline JavaScript syntax CI;
+- permanent source-level security-invariant CI for the release boundaries above;
+- permanent browser/Edge parity check for citizen municipalities, categories and titles;
+- permanent moderate-or-higher dependency-audit CI covering browser CDN and Deno npm release packages.
 
-## 11. GitHub-only Chromium Gate H results
+## 11. Chromium Gate H results
 
-The test-only branch `staging-browser-e2e` runs Playwright/Chromium against an ephemeral `127.0.0.1` server. A network guard fails the test if any request targets production Supabase project `nzrdcgmrsfdmocyhfrod`.
+The test-only branch `staging-browser-e2e` and the ported hardening workflow run Playwright/Chromium against an ephemeral `127.0.0.1` server. A network guard fails the test if any request targets production Supabase project `nzrdcgmrsfdmocyhfrod`.
+
+The complete ported suite was rerun locally from the `staging-production-hardening` worktree after the Firebase 12 upgrade. It passed Firebase Auth, Phone Auth and App Check browser initialization, desktop/staff/ACK shells, both relative PWA manifests, mobile/offline paths, fail-closed attachment/email/PDF paths, the authoritative PDF transaction success path and full logout purge. No production Supabase request was made. The same suite must still pass in GitHub Actions after staging publication.
 
 Latest complete Chromium suite reported:
 
@@ -225,14 +255,18 @@ The following must **not** be represented as validated by mocks or localhost she
 3. Exact legacy-phone ownership compatibility on representative migrated data.
 4. Real private attachment upload/download and signed-URL reload.
 5. Real interrupted upload / Retry / reload durability against Storage.
-6. Real staff login sessions with Admin / Manager / User and backend writes.
-7. Work-order creation + real email delivery + real ACK link lifecycle.
-8. Known-good municipal signed PDF, tampered PDF, marker-only fake and verifier-unavailable tests.
-9. Required certificate/eIDAS trust policy decision.
-10. Two authenticated staff sessions for realtime/concurrency behavior.
-11. Legacy production attachment compatibility review.
-12. Production rollback rehearsal.
-13. Final read-only production preflight immediately before release.
+6. Work-order creation + real email delivery + real ACK link lifecycle.
+7. Known-good municipal signed PDF, tampered PDF, marker-only fake and verifier-unavailable tests.
+8. Required certificate/eIDAS trust policy decision.
+9. Two authenticated staff sessions for realtime/concurrency behavior.
+10. Legacy production attachment metadata compatibility review, including the existing 565 objects and any pathless records.
+11. Production rollback rehearsal.
+12. Final read-only production preflight immediately before release, including counts and credential-key presence checks without exposing values or PII. This requires separate explicit approval before any production read.
+13. Convert PR #5 to Draft or otherwise remove its accidental-merge risk before further staging publication.
+14. Restrict the public Geoapify browser key by allowed origin and quota in the provider dashboard.
+15. Repeat the already-passing ported Chromium suite in GitHub Actions after staging publication, including Firebase 12 runtime initialization.
+
+Residual technical risk: the legacy single-file frontend still requires CSP `'unsafe-inline'`. Removing it safely requires a separate HTML/JavaScript extraction and event-handler refactor, not a last-minute release patch.
 
 ## 13. Production merge rule
 

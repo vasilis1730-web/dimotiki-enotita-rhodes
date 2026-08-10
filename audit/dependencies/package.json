@@ -1,0 +1,14 @@
+{
+  "name": "rodios-release-dependency-audit",
+  "private": true,
+  "description": "Audit-only manifest for browser CDN and Deno npm release dependencies.",
+  "dependencies": {
+    "@supabase/supabase-js": "2.110.9",
+    "chart.js": "4.4.0",
+    "firebase": "12.17.1",
+    "jose": "6.2.3",
+    "leaflet": "1.9.4",
+    "nodemailer": "9.0.5",
+    "pkijs": "3.4.0"
+  }
+}
