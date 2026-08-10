@@ -1,3 +1,4 @@
+# Permanent release guard: every inline script in the three public HTML entry points must parse.
 from pathlib import Path
 import re
 import subprocess
