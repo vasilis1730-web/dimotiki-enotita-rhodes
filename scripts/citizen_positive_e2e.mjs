@@ -30,7 +30,7 @@ let submittedId='';
 try{
   browser=await chromium.launch({headless:true});
   const page=await browser.newPage();
-  await page.goto('http://127.0.0.1:4174/citizen-positive.html',{waitUntil:'domcontentloaded'});
+  await page.goto('http://localhost:4174/citizen-positive.html',{waitUntil:'domcontentloaded'});
   const tokens=await page.evaluate(async({phone,code,debugToken})=>{
     self.FIREBASE_APPCHECK_DEBUG_TOKEN=debugToken;
     const {initializeApp}=await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js');
@@ -49,8 +49,6 @@ try{
   assert(tokens.idToken&&tokens.appCheckToken&&tokens.uid,'Firebase positive tokens missing');
 
   const authHeaders={'origin':origin,'x-firebase-id-token':tokens.idToken,'x-firebase-appcheck':tokens.appCheckToken};
-
-  // Real citizen attachment upload first, then use its private path in submit.
   const payload=`RODIOS citizen positive E2E ${Date.now()}`;
   const form=new FormData(); form.set('action','upload'); form.set('file',new Blob([payload],{type:'text/plain'}),'citizen-e2e.txt');
   const upload=await fetch(attachmentsUrl,{method:'POST',headers:authHeaders,body:form});
@@ -70,7 +68,6 @@ try{
   assert(ids.includes(seeded.data.matchingId),'matching legacy-phone issue missing from list');
   assert(!ids.includes(seeded.data.otherId),'different-phone legacy issue leaked into list');
 
-  // Legacy matching phone can be updated and becomes UID-owned.
   const legacyUpdate=await postJson(bridgeUrl,{action:'update',issue:{id:seeded.data.matchingId,title:'STAGING legacy claimed by Firebase UID'}},authHeaders);
   assert.equal(legacyUpdate.r.status,200,'matching legacy issue update failed');
   const inspect=await postJson(fixtureUrl,{action:'inspect',ids:[seeded.data.matchingId,seeded.data.otherId]});
