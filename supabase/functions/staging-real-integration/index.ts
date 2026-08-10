@@ -72,7 +72,7 @@ Deno.serve(async (req: Request) => {
     const issueIds: string[] = [];
     const workOrderIds: string[] = [];
     const ackIds: string[] = [];
-    const seqYear = 2099;
+    const seqYear = new Date().getUTCFullYear() + 1;
 
     const emails = {
       admin: `it-admin-${run}@example.invalid`,
@@ -188,7 +188,7 @@ Deno.serve(async (req: Request) => {
         const orphan = await clients.orphan.rpc("rodios_next_sequence", { p_kind: "issue", p_year: seqYear });
         assert(!!orphan.error, "orphan Auth user could call sequence RPC");
         await admin.from("rodios_sequences").delete().eq("kind", "issue").eq("year", seqYear);
-        return { activeValue: active.data, orphanDenied: true };
+        return { testYear: seqYear, activeValue: active.data, orphanDenied: true };
       });
 
       const storagePath = `integration/${run}/payload.txt`; storagePaths.push(storagePath);
