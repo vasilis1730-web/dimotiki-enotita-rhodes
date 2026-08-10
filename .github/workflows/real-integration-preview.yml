@@ -16,29 +16,38 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Resolve fully deployed Supabase Preview from PR 6
+      - name: Resolve fully deployed Supabase Preview from PR 6 for this commit
         id: preview
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          api='https://api.github.com/repos/${{ github.repository }}/issues/6/comments'
+          comments_api='https://api.github.com/repos/${{ github.repository }}/issues/6/comments'
+          commit_api='https://api.github.com/repos/${{ github.repository }}/commits/${{ github.sha }}'
+          commit_date=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$commit_api" | jq -r '.commit.committer.date')
+          commit_epoch=$(date -u -d "$commit_date" +%s)
           ref=''
           for i in $(seq 1 120); do
-            body=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$api" \
-              | jq -r '[.[] | select(.user.login=="supabase[bot]") | .body] | last // ""')
+            comments=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$comments_api")
+            entry=$(printf '%s' "$comments" | jq -c '[.[] | select(.user.login=="supabase[bot]")] | last // {}')
+            body=$(printf '%s' "$entry" | jq -r '.body // ""')
+            updated_at=$(printf '%s' "$entry" | jq -r '.updated_at // ""')
+            updated_epoch=0
+            if [ -n "$updated_at" ]; then updated_epoch=$(date -u -d "$updated_at" +%s); fi
             ref=$(printf '%s\n' "$body" | sed -n 's/^\[supa\]:\([a-z]*\)$/\1/p' | head -n1)
             if [ -n "$ref" ] \
+              && [ "$updated_epoch" -ge "$commit_epoch" ] \
               && printf '%s' "$body" | grep -Eq 'Database[[:space:]]*\|[[:space:]]*✅' \
               && printf '%s' "$body" | grep -Eq 'Migrations[[:space:]]*\|[[:space:]]*✅' \
               && printf '%s' "$body" | grep -Eq 'Seeding[[:space:]]*\|[[:space:]]*✅' \
               && printf '%s' "$body" | grep -Eq 'Edge Functions[[:space:]]*\|[[:space:]]*✅'; then
               echo "preview_ref=$ref" >> "$GITHUB_OUTPUT"
+              echo "Supabase Preview $ref is green for commit ${{ github.sha }} (bot updated $updated_at)."
               exit 0
             fi
             sleep 5
           done
-          echo 'Supabase Preview did not reach a fully green state.' >&2
+          echo 'Supabase Preview did not reach a fully green state for the current commit.' >&2
           exit 1
 
       - name: Verify disposable test runner guard is live
