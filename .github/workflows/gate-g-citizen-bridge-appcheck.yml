@@ -1,0 +1,64 @@
+name: Gate G citizen bridge App Check patch
+
+on:
+  push:
+    branches: [staging-production-hardening]
+    paths: [.github/workflows/gate-g-citizen-bridge-appcheck.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging-production-hardening
+          fetch-depth: 0
+      - name: Apply guarded client patch
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          old="""  const idToken = await getIdToken();
+  if(!idToken) return { ok:false, noAuth:true };
+  try{
+    const res = await fetch(BRIDGE_URL, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY },
+      body: JSON.stringify(Object.assign({ action, idToken }, payload||{}))
+    });"""
+          new="""  const idToken = await getIdToken();
+  if(!idToken) return { ok:false, noAuth:true };
+  let appCheckToken='';
+  try{ appCheckToken = window._getAppCheckToken ? await window._getAppCheckToken() : ''; }catch(_){ appCheckToken=''; }
+  if(!appCheckToken) return { ok:false, status:401, error:'Η ασφαλής επαλήθευση της εφαρμογής δεν είναι διαθέσιμη.' };
+  try{
+    const res = await fetch(BRIDGE_URL, {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'apikey':SUPABASE_KEY,
+        'x-firebase-id-token':idToken,
+        'x-firebase-appcheck':appCheckToken
+      },
+      body: JSON.stringify(Object.assign({ action, idToken }, payload||{}))
+    });"""
+          n=s.count(old)
+          if n!=1: raise SystemExit(f'expected one citizen bridge block, found {n}')
+          s=s.replace(old,new,1)
+          for required in ["'x-firebase-id-token':idToken","'x-firebase-appcheck':appCheckToken","if(!appCheckToken)"]:
+              if required not in s: raise SystemExit('missing invariant: '+required)
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit patched citizen client
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'security(staging): require App Check on citizen bridge calls'
+          git push origin HEAD:staging-production-hardening
