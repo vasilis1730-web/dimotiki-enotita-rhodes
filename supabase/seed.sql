@@ -318,7 +318,7 @@ begin
   if coalesce((r->>'ok')::boolean,false) is not true then raise exception 'GATE_H5_FAIL: RPC did not return ok'; end if;
   if (select status from public.rodios_work_orders where id='stg_accept_wo') <> 'Παραλήφθηκε' then raise exception 'GATE_H5_FAIL: work order not accepted'; end if;
   if (select status from public.rodios_issues where id='stg_accept_issue') <> 'Ολοκληρωμένο' then raise exception 'GATE_H5_FAIL: linked issue not completed'; end if;
-  select public.rodios_jsonb_numeric(data->'amount',-1) into amt
+  select case when coalesce(data->>'amount','') ~ '^-?[0-9]+([.][0-9]+)?$' then (data->>'amount')::numeric else -1 end into amt
   from public.rodios_payments where work_order_id='stg_accept_wo' and deleted_at is null and coalesce(data->>'isPenalty','false')<>'true';
   if amt <> 175 then raise exception 'GATE_H5_FAIL: expected atomic payment 175, got %',amt; end if;
   select used_at into used from public.rodios_pdf_verification_proofs where id='20000000-0000-4000-8000-000000000001'::uuid;
