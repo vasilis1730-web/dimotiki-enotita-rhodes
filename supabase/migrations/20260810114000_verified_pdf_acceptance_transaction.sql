@@ -35,8 +35,6 @@ create index if not exists rodios_pdf_verification_proofs_expiry_idx
 create index if not exists rodios_pdf_verification_proofs_user_idx
   on public.rodios_pdf_verification_proofs(verified_by, created_at desc);
 
--- Canonical subset of work-order state that must not change between verification
--- and acceptance. Verification/UI-only fields are intentionally excluded.
 create or replace function public.rodios_acceptance_snapshot(
   p_id text,
   p_issue_id text,
@@ -60,7 +58,6 @@ $$;
 revoke all on function public.rodios_acceptance_snapshot(text,text,jsonb) from public, anon, authenticated;
 grant execute on function public.rodios_acceptance_snapshot(text,text,jsonb) to service_role;
 
--- Safe numeric conversion for server-side payment calculation.
 create or replace function public.rodios_jsonb_numeric(p_value jsonb, p_default numeric default 0)
 returns numeric
 language plpgsql
@@ -83,8 +80,8 @@ end;
 $$;
 revoke all on function public.rodios_jsonb_numeric(jsonb,numeric) from public, anon, authenticated;
 
--- Block any direct INSERT/UPDATE that attempts to enter the accepted state.
--- Only rodios_finalize_verified_acceptance() sets the transaction-local capability.
+-- Browser/PostgREST cannot enter, leave, or materially alter an accepted state.
+-- Only the trusted transactional RPC sets the transaction-local capability.
 create or replace function public.rodios_guard_verified_acceptance()
 returns trigger
 language plpgsql
@@ -92,16 +89,46 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_authorized text := current_setting('rodios.verified_acceptance', true);
+  v_authorized text := coalesce(current_setting('rodios.verified_acceptance', true),'');
   v_new_accepted boolean := (new.status = 'Παραλήφθηκε' or coalesce(new.data->>'status','') = 'Παραλήφθηκε');
   v_old_accepted boolean := false;
+  v_old_protocol jsonb;
+  v_new_protocol jsonb;
 begin
   if tg_op = 'UPDATE' then
     v_old_accepted := (old.status = 'Παραλήφθηκε' or coalesce(old.data->>'status','') = 'Παραλήφθηκε');
   end if;
 
-  if v_new_accepted and not v_old_accepted and v_authorized <> 'on' then
-    raise exception using errcode='42501', message='Verified acceptance must use rodios_finalize_verified_acceptance';
+  if v_authorized <> 'on' then
+    if v_new_accepted and not v_old_accepted then
+      raise exception using errcode='42501', message='Verified acceptance must use rodios_finalize_verified_acceptance';
+    end if;
+    if v_old_accepted and not v_new_accepted then
+      raise exception using errcode='42501', message='Accepted work order status is server-controlled';
+    end if;
+    if tg_op='UPDATE' and v_old_accepted and v_new_accepted then
+      if public.rodios_acceptance_snapshot(old.id,old.issue_id,old.data)
+         is distinct from public.rodios_acceptance_snapshot(new.id,new.issue_id,new.data) then
+        raise exception using errcode='42501', message='Accepted work order financial/source fields are immutable';
+      end if;
+      v_old_protocol:=jsonb_build_object(
+        'completionDate',old.data->'completionDate','_protocolReady',old.data->'_protocolReady',
+        'signedPdfBucket',old.data->'signedPdfBucket','signedPdfPath',old.data->'signedPdfPath',
+        'signedPdfName',old.data->'signedPdfName','signedAt',old.data->'signedAt',
+        'verificationProofId',old.data->'verificationProofId','pdfSha256',old.data->'pdfSha256',
+        '_edgeResult',old.data->'_edgeResult'
+      );
+      v_new_protocol:=jsonb_build_object(
+        'completionDate',new.data->'completionDate','_protocolReady',new.data->'_protocolReady',
+        'signedPdfBucket',new.data->'signedPdfBucket','signedPdfPath',new.data->'signedPdfPath',
+        'signedPdfName',new.data->'signedPdfName','signedAt',new.data->'signedAt',
+        'verificationProofId',new.data->'verificationProofId','pdfSha256',new.data->'pdfSha256',
+        '_edgeResult',new.data->'_edgeResult'
+      );
+      if v_old_protocol is distinct from v_new_protocol then
+        raise exception using errcode='42501', message='Accepted work order protocol fields are immutable';
+      end if;
+    end if;
   end if;
   return new;
 end;
@@ -134,6 +161,7 @@ declare
   v_discount numeric;
   v_penalty numeric;
   v_net numeric;
+  v_order_id text;
   v_payment_id text;
   v_today text := to_char(current_date,'YYYY-MM-DD');
   v_month text := to_char(current_date,'YYYY-MM');
@@ -163,7 +191,8 @@ begin
   if p_proof_id is null or p_expected_order_ids is null or cardinality(p_expected_order_ids)=0 then
     raise exception using errcode='22023', message='Verification proof and order IDs are required';
   end if;
-  select array_agg(distinct x order by x) into v_expected from unnest(p_expected_order_ids) x where nullif(trim(x),'') is not null;
+  select array_agg(distinct x order by x) into v_expected
+  from unnest(p_expected_order_ids) x where nullif(trim(x),'') is not null;
   if v_expected is null or cardinality(v_expected)<>cardinality(p_expected_order_ids) then
     raise exception using errcode='22023', message='Order IDs must be unique and non-empty';
   end if;
@@ -187,11 +216,9 @@ begin
     raise exception using errcode='22023', message='Verification proof has insufficient signatures';
   end if;
 
-  -- Lock every target work order and validate that critical state has not changed
-  -- since the server cryptographically verified the PDF.
-  foreach v_payment_id in array v_expected loop
+  foreach v_order_id in array v_expected loop
     select * into v_wo from public.rodios_work_orders w
-    where w.id=v_payment_id and w.deleted_at is null
+    where w.id=v_order_id and w.deleted_at is null
     for update;
     if not found then raise exception using errcode='22023', message='Work order not found'; end if;
     if v_wo.status='Παραλήφθηκε' or coalesce(v_wo.data->>'status','')='Παραλήφθηκε' then
@@ -205,8 +232,8 @@ begin
 
   perform set_config('rodios.verified_acceptance','on',true);
 
-  foreach v_payment_id in array v_expected loop
-    select * into v_wo from public.rodios_work_orders w where w.id=v_payment_id for update;
+  foreach v_order_id in array v_expected loop
+    select * into v_wo from public.rodios_work_orders w where w.id=v_order_id for update;
 
     v_order_data := v_wo.data || jsonb_build_object(
       'status','Παραλήφθηκε',
