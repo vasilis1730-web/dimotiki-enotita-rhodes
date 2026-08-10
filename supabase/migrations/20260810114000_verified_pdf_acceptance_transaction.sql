@@ -292,6 +292,8 @@ begin
   end loop;
 
   update public.rodios_pdf_verification_proofs set used_at=now() where id=v_proof.id;
+  -- Do not leave the transaction-local trigger capability enabled after the trusted writes.
+  perform set_config('rodios.verified_acceptance','',true);
 
   return jsonb_build_object(
     'ok',true,
