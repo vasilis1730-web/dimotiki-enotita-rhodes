@@ -1,86 +1,158 @@
 # RODIOS — Production Hardening Staging Workflow
 
-Status: STAGING ONLY — do not merge to `main` until all gates pass.
+**Status: STAGING ONLY — DO NOT MERGE TO `main`.**
 
-Integration trigger: 2026-08-10 00:10 EEST — GitHub ↔ Supabase connection confirmed by user; this staging-only commit is intended to trigger/retrigger the Supabase preview-branch integration for Draft PR #2.
+Last updated: 2026-08-10.
 
 ## Isolation model
 
-- Git branch: `staging-production-hardening`
-- Production Git branch: `main` (must remain untouched during validation)
-- Supabase: use an isolated persistent/preview branch, not the production database.
-- Production citizen data must not be copied into the staging branch. Use `supabase/seeds/staging_seed.sql`.
+- Working branch: `staging-production-hardening` — Draft PR #2.
+- Supabase Preview trigger branch: `staging-supabase-gates-ab` — PR #5.
+- Production Git branch: `main` — must remain untouched during validation.
+- Production Supabase project must remain untouched until final production preflight and explicit release approval.
+- Supabase Preview project is isolated and uses synthetic seed data only.
 
-## Supabase staging creation
+The Preview branch is fast-forwarded from the working branch after guarded changes are verified. Never force-update either staging branch.
 
-1. In the production Supabase project, enable Dashboard Branching if required.
-2. Create a persistent/preview branch named `staging-production-hardening` (or `staging`).
-3. Switch the Dashboard branch selector to the new branch and verify that it has a different Project URL/API key from production.
-4. Do not paste production service-role keys into GitHub or the browser application.
+## Current database bootstrap
 
-Supabase branches are isolated environments and, by default, do not copy production data.
+Preview initialization is version-controlled under:
 
-## Database setup order
+1. `supabase/migrations/20260809230000_core_schema_bootstrap.sql`
+2. `supabase/migrations/20260809232000_authz_sequences_integrity.sql`
+3. `supabase/migrations/20260810003000_private_attachments_storage.sql`
+4. `supabase/seed.sql`
 
-1. On the STAGING Supabase branch run:
-   `supabase/migrations/20260809232000_authz_sequences_integrity.sql`
-2. In STAGING Authentication > Users create and auto-confirm three temporary accounts:
-   - `rodios-admin-staging@rhodes.gr`
-   - `rodios-manager-staging@rhodes.gr`
-   - `rodios-user-staging@rhodes.gr`
-3. Give each a temporary staging-only password.
-4. Run:
-   `supabase/seeds/staging_seed.sql`
-5. Verify the seed output shows three application profiles with non-null `auth_user_id` values.
+The canonical seed creates synthetic Auth identities without passwords and executes authorization/integrity assertions automatically. Production citizen data is not copied into Preview.
 
-## Gate A — authorization tests
+## Gate status
 
-Expected results:
+| Gate | Scope | Status |
+|---|---|---|
+| A | Backend RLS / active-user authorization | ✅ PASS in Supabase Preview |
+| B | Atomic numbering / UNIQUE / FK integrity | ✅ PASS in Supabase Preview |
+| C | Citizen attachments through authenticated Edge Function + private bucket | ✅ DEPLOYABLE / Preview PASS; browser E2E still required |
+| D | Durable upload state / retry / no silent Base64 loss | ✅ Static hardening complete; browser network-failure E2E pending |
+| E | Digital signatures fail closed | ✅ Static hardening complete; real verifier E2E pending |
+| F | Settings admin-only / locked Supabase config / logout cache purge | ✅ Static hardening complete |
+| G | Edge Function + public ACK security review | 🟡 IN PROGRESS — client hardened; deployed legacy function source still missing from Git |
+| H | Full regression / concurrency / offline / rollback | ⏳ NOT STARTED |
+
+Latest verified Supabase Preview run after Gates A–F reported:
+
+- Database ✅
+- Services ✅
+- APIs ✅
+- Configurations ✅
+- Migrations ✅
+- Seeding ✅
+- Edge Functions ✅
+
+## Gate A — authorization contract
+
+Target backend authorization is based on the authenticated Supabase user UUID and an active `rodios_app_users` profile. Frontend role labels are not a security boundary.
 
 | Test | Admin | Manager | User | Auth-only orphan |
 |---|---:|---:|---:|---:|
-| Read operational data | PASS | PASS | PASS | DENY |
-| Insert/update issue | PASS | PASS | PASS | DENY |
-| Delete issue | PASS | DENY | DENY | DENY |
-| Read settings | PASS | PASS | PASS | DENY |
-| Change settings | PASS | DENY | DENY | DENY |
+| Read permitted operational data | PASS | PASS | PASS | DENY |
+| Insert/update permitted operational data | PASS | PASS | PASS | DENY |
+| Delete operational data | PASS | DENY | DENY | DENY |
+| Read/change Settings | PASS | DENY | DENY | DENY |
 | Manage app users | PASS | DENY | DENY | DENY |
 | Call `rodios_next_sequence` | PASS | PASS | PASS | DENY |
 | Call sequence as anon | DENY | — | — | — |
 
-Do not proceed to Storage hardening until Gate A passes completely.
+## Gate B — numbering / relational integrity
 
-## Gate B — atomic numbering / relational integrity
+Required invariants:
 
-1. Create two issues nearly simultaneously from two authenticated sessions.
-2. Numbers must be unique and consecutive.
-3. Try a direct duplicate canonical `issueNum`; database must reject it.
-4. Try invalid `rodios_next_sequence('other', 2026)`; RPC must reject it.
-5. Try the sequence RPC without an active application profile; it must reject it.
-6. FK tests must reject a work order referencing a nonexistent issue and a payment referencing a nonexistent work order.
+- canonical issue/order numbers are database-unique;
+- the next 2026 issue number is seeded ahead of existing canonical production numbers before release;
+- invalid sequence kinds/years are rejected;
+- inactive/orphan Auth accounts cannot call the sequence RPC;
+- work-order/payment FK foundations reject nonexistent parents.
 
-## Storage hardening prerequisite
+## Gate C — private attachments
 
-Current citizen UI uploads directly to `storage.attachments` with the anon client. Therefore the existing `Anon upload attachments` policy cannot simply be removed before the citizen upload path is moved behind the authenticated `citizen-bridge` Edge Function (Firebase ID token verification + service-side Storage upload).
+Target state implemented on staging:
 
-The Storage migration will only be added after that bridge path is audited/implemented. Target state:
+- `attachments` bucket private;
+- no anonymous direct Storage upload/read;
+- citizen uploads go through `citizen-attachments` using a cryptographically verified Firebase ID token;
+- citizen object paths are restricted to the verified phone identity;
+- staff uses private Storage paths and short-lived signed URLs;
+- direct `getPublicUrl()` attachment flow removed from staging clients.
 
-- `attachments` bucket PRIVATE.
-- no anonymous direct Storage read.
-- no anonymous direct Storage upload after bridge migration.
-- staff access restricted to active application users.
-- stored DB values use bucket/path; UI obtains short-lived signed URLs.
-- legacy 565 production objects remain resolvable after migration.
+Production migration must include compatibility validation for the existing legacy attachment objects before bucket visibility is changed.
 
-## Remaining gates
+## Gate D — upload failure contract
 
-- Gate C: citizen attachment upload through secure bridge + private bucket.
-- Gate D: staff attachment retry/durable upload state; no silent Base64 loss.
-- Gate E: digital signatures fail closed unless server cryptographic verification explicitly succeeds.
-- Gate F: Settings admin-only, production Supabase config hard-locked, logout cache purge.
-- Gate G: Edge Function source/version-control/security review, including ACK.
-- Gate H: end-to-end regression, concurrency, offline/network-failure, and rollback tests.
+- unresolved `uploading` / `upload_failed` media blocks final save/send;
+- failed issue attachments expose Retry;
+- email sending is cancelled if required media upload did not complete;
+- the old silent "keep Base64 locally" path must never be treated as durable persistence.
+
+## Gate E — digital signature contract
+
+- acceptance requires explicit server-side cryptographic `verified === true`;
+- local `/ByteRange` / signature-count detection is informational only;
+- `valid`, `certificatesOk`, missing verifier response and admin override cannot authorize acceptance;
+- verifier endpoint is build-locked to `/functions/v1/verify-pdf-signatures` on the same Supabase project;
+- staff verifier requests use the authenticated employee access token, not the anon token as bearer identity.
+
+## Gate F — browser/session contract
+
+- Settings UI is Administrator-only;
+- Supabase project URL/key are readonly build configuration;
+- legacy `sb_url` / `sb_key` browser overrides are removed and ignored;
+- logout signs out from Supabase and purges operational localStorage/IndexedDB/in-memory state.
+
+## Gate G — Edge Functions / ACK
+
+Version-controlled today:
+
+- `supabase/functions/citizen-attachments/index.ts`
+
+Referenced by the application but **not yet version-controlled in this repository**:
+
+- `citizen-bridge`
+- `manage-app-user`
+- `send-order-email`
+- `verify-pdf-signatures`
+- `parse-municipal-pdf`
+- `resolve-maps-link`
+
+These deployed sources must be exported/reviewed before production release. They must be checked for authentication, authorization, CORS, input/file-size validation, rate limiting/abuse controls, SSRF where outbound URLs are fetched, service-role scope, secret/error leakage and fail-closed behavior.
+
+Public ACK flow:
+
+- `ack.html` intentionally calls `complete_work_order_ack(p_token)` anonymously;
+- anonymous EXECUTE must **not** be revoked blindly;
+- public page now uses `no-referrer`, scrubs the token from the visible URL/history and does not expose raw RPC errors;
+- server function must enforce cryptographically strong token matching, one-time use/replay protection, expiry, exact row scope and safe return data;
+- run `supabase/audits/20260810_gate_g_ack_server_read_only.sql` against production and review the exported result before any ACK migration.
+
+## Gate H — mandatory final validation
+
+Before release, run at minimum:
+
+1. Admin / Manager / User / orphan authorization matrix.
+2. Concurrent issue numbering and duplicate rejection.
+3. Citizen OTP submit/list/update and attachment upload on the isolated backend.
+4. Staff attachment upload, signed-URL reload, retry after forced network failure and logout purge.
+5. Work-order creation, email delivery and acknowledgment lifecycle.
+6. Signed protocol with valid signatures, invalid signatures and verifier unavailable.
+7. Realtime refresh / conflict behavior from two staff sessions.
+8. Offline/reconnect, slow network and interrupted request tests.
+9. Mobile + desktop browser smoke tests.
+10. Rollback rehearsal from the exact release commit/migrations.
 
 ## Production merge rule
 
-No migration or frontend change reaches `main` / production Supabase until every mandatory Gate passes on staging and a final read-only production preflight reports no P0 blocker.
+No frontend, migration, Storage or Edge Function change reaches `main` / production until:
+
+- all mandatory Gates A–H pass on isolated staging;
+- all deployed legacy Edge Function source is version-controlled and reviewed;
+- ACK server audit has no unresolved P0 blocker;
+- a final read-only production preflight reports no P0 blocker;
+- production rollback steps are documented and tested.
