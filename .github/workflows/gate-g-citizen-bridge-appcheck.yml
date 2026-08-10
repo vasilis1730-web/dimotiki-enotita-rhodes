@@ -2,8 +2,10 @@ name: Gate G citizen bridge App Check patch
 
 on:
   push:
-    branches: [staging-production-hardening]
-    paths: [.github/workflows/gate-g-citizen-bridge-appcheck.yml]
+    branches:
+      - staging-production-hardening
+    paths:
+      - '.github/workflows/gate-g-citizen-bridge-appcheck.yml'
   workflow_dispatch:
 
 permissions:
@@ -25,29 +27,34 @@ jobs:
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
           old="""  const idToken = await getIdToken();
-  if(!idToken) return { ok:false, noAuth:true };
-  try{
-    const res = await fetch(BRIDGE_URL, {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY },
-      body: JSON.stringify(Object.assign({ action, idToken }, payload||{}))
-    });"""
+          if(!idToken) return { ok:false, noAuth:true };
+          try{
+            const res = await fetch(BRIDGE_URL, {
+              method:'POST',
+              headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY },
+              body: JSON.stringify(Object.assign({ action, idToken }, payload||{}))
+            });"""
+          # Source indentation may differ; normalize only for locating this exact logical block.
+          if old not in s:
+              old=old.replace('          ','')
           new="""  const idToken = await getIdToken();
-  if(!idToken) return { ok:false, noAuth:true };
-  let appCheckToken='';
-  try{ appCheckToken = window._getAppCheckToken ? await window._getAppCheckToken() : ''; }catch(_){ appCheckToken=''; }
-  if(!appCheckToken) return { ok:false, status:401, error:'Η ασφαλής επαλήθευση της εφαρμογής δεν είναι διαθέσιμη.' };
-  try{
-    const res = await fetch(BRIDGE_URL, {
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'apikey':SUPABASE_KEY,
-        'x-firebase-id-token':idToken,
-        'x-firebase-appcheck':appCheckToken
-      },
-      body: JSON.stringify(Object.assign({ action, idToken }, payload||{}))
-    });"""
+          if(!idToken) return { ok:false, noAuth:true };
+          let appCheckToken='';
+          try{ appCheckToken = window._getAppCheckToken ? await window._getAppCheckToken() : ''; }catch(_){ appCheckToken=''; }
+          if(!appCheckToken) return { ok:false, status:401, error:'Η ασφαλής επαλήθευση της εφαρμογής δεν είναι διαθέσιμη.' };
+          try{
+            const res = await fetch(BRIDGE_URL, {
+              method:'POST',
+              headers:{
+                'Content-Type':'application/json',
+                'apikey':SUPABASE_KEY,
+                'x-firebase-id-token':idToken,
+                'x-firebase-appcheck':appCheckToken
+              },
+              body: JSON.stringify(Object.assign({ action, idToken }, payload||{}))
+            });"""
+          if old.startswith('const '):
+              new=new.replace('          ','')
           n=s.count(old)
           if n!=1: raise SystemExit(f'expected one citizen bridge block, found {n}')
           s=s.replace(old,new,1)
