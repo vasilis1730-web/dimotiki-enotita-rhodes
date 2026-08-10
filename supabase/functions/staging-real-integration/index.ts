@@ -82,8 +82,8 @@ Deno.serve(async (req: Request) => {
     };
 
     async function addResult(name: string, fn: () => Promise<unknown>) {
-      try { const detail = await fn(); results.push({ name, ok: true, detail }); }
-      catch (e) { results.push({ name, ok: false, detail: errorDetail(e) }); throw e; }
+      try { const detail = await fn(); results.push({ name, ok: true, detail }); return detail; }
+      catch (e) { results.push({ name, ok: false, detail: errorDetail(e) }); return undefined; }
     }
 
     async function createAuthUser(email: string) {
@@ -113,6 +113,7 @@ Deno.serve(async (req: Request) => {
       });
 
       await addResult("real_app_profile_bindings", async () => {
+        assert(authUsers.admin?.id && authUsers.manager?.id && authUsers.user?.id, "auth users unavailable for profile binding");
         const profileRows = (["admin", "manager", "user"] as const).map((tier) => {
           const id = `it_${tier}_${run}`;
           profileIds.push(id);
@@ -139,6 +140,7 @@ Deno.serve(async (req: Request) => {
 
       const issueId = `it_issue_${run}`; issueIds.push(issueId);
       await addResult("real_postgrest_rls_operational", async () => {
+        assert(clients.admin && clients.manager && clients.user && clients.orphan, "signed-in clients unavailable");
         const issueData = { id: issueId, issueNum: `ΑΙΤ-2099-${run.slice(-6).toUpperCase()}`, status: "Εκκρεμεί", title: "REAL INTEGRATION TEST", source: "integration" };
         const insert = await clients.admin.from("rodios_issues").insert({ id: issueId, data: issueData }).select("id").single();
         if (insert.error) throw insert.error;
@@ -163,6 +165,7 @@ Deno.serve(async (req: Request) => {
       });
 
       await addResult("real_settings_admin_boundary", async () => {
+        assert(clients.admin && clients.manager, "admin/manager clients unavailable");
         const before = await admin.from("rodios_settings").select("value").eq("key", "main").single();
         if (before.error) throw before.error;
         const original = before.data.value || {};
@@ -182,6 +185,7 @@ Deno.serve(async (req: Request) => {
       });
 
       await addResult("real_sequence_rpc_authorization", async () => {
+        assert(clients.manager && clients.orphan, "manager/orphan clients unavailable");
         const active = await clients.manager.rpc("rodios_next_sequence", { p_kind: "issue", p_year: seqYear });
         if (active.error) throw active.error;
         assert(Number(active.data) >= 1, "active manager sequence RPC failed");
@@ -193,6 +197,7 @@ Deno.serve(async (req: Request) => {
 
       const storagePath = `integration/${run}/payload.txt`; storagePaths.push(storagePath);
       await addResult("real_private_storage_signed_url", async () => {
+        assert(clients.user && clients.manager && clients.orphan && clients.admin, "storage test clients unavailable");
         const payload = `RODIOS real integration ${run}`;
         const up = await clients.user.storage.from("attachments").upload(storagePath, new Blob([payload], { type: "text/plain" }), { upsert: false });
         if (up.error) throw up.error;
@@ -209,19 +214,35 @@ Deno.serve(async (req: Request) => {
         assert(await downloaded.text() === payload, "signed URL returned wrong bytes");
 
         const managerDelete = await clients.manager.storage.from("attachments").remove([storagePath]);
-        assert(!!managerDelete.error, "manager deleted persisted attachment despite admin-only policy");
+        const afterManager = await admin.storage.from("attachments").download(storagePath);
+        assert(!afterManager.error && !!afterManager.data, "manager delete request actually removed the protected attachment");
+        assert(await afterManager.data.text() === payload, "attachment bytes changed after denied manager delete request");
 
         const orphanPath = `integration/${run}/orphan.txt`;
         const orphanUpload = await clients.orphan.storage.from("attachments").upload(orphanPath, new Blob(["no"], { type: "text/plain" }), { upsert: false });
-        assert(!!orphanUpload.error, "orphan uploaded to private attachments bucket");
+        const orphanProbe = await admin.storage.from("attachments").download(orphanPath);
+        if (!orphanProbe.error && orphanProbe.data) storagePaths.push(orphanPath);
+        assert(!!orphanProbe.error, "orphan Auth user actually created an attachment object");
 
         const adminDelete = await clients.admin.storage.from("attachments").remove([storagePath]);
         if (adminDelete.error) throw adminDelete.error;
+        const afterAdmin = await admin.storage.from("attachments").download(storagePath);
+        assert(!!afterAdmin.error, "admin delete request did not remove attachment");
         storagePaths.splice(storagePaths.indexOf(storagePath), 1);
-        return { upload: true, publicDeniedStatus: direct.status, signedDownload: true, managerDeleteDenied: true, orphanUploadDenied: true, adminDelete: true };
+        return {
+          upload: true,
+          publicDeniedStatus: direct.status,
+          signedDownload: true,
+          managerDeleteApiError: !!managerDelete.error,
+          managerDeletePreservedObject: true,
+          orphanUploadApiError: !!orphanUpload.error,
+          orphanObjectAbsent: true,
+          adminDelete: true,
+        };
       });
 
       await addResult("real_manage_app_user_edge_auth", async () => {
+        assert(clients.admin && clients.manager, "admin/manager clients unavailable");
         const adminPing = await clients.admin.functions.invoke("manage-app-user", { body: { action: "ping" } });
         if (adminPing.error) throw adminPing.error;
         assert(adminPing.data?.ok === true && adminPing.data?.admin === true, "admin manage-app-user ping failed");
@@ -232,6 +253,7 @@ Deno.serve(async (req: Request) => {
 
       const woId = `it_wo_${run}`; workOrderIds.push(woId);
       await addResult("real_direct_acceptance_bypass_denied", async () => {
+        assert(clients.admin, "admin client unavailable");
         const woData = { id: woId, orderNum: `ΕΝΤ-2099-${run.slice(-6).toUpperCase()}`, status: "Σε εξέλιξη", orderType: "contractor", items: [{ qty: 1, unitPrice: 10 }] };
         const { error: woError } = await admin.from("rodios_work_orders").insert({ id: woId, issue_id: issueId, data: woData });
         if (woError) throw woError;
@@ -260,7 +282,8 @@ Deno.serve(async (req: Request) => {
         return { firstUse: true, replayDenied: true };
       });
 
-      return json(req, { ok: true, previewRef: ref, run, realNetwork: true, results });
+      const allOk = results.length >= 9 && results.every((x) => x.ok);
+      return json(req, { ok: allOk, previewRef: ref, run, realNetwork: true, results }, allOk ? 200 : 500);
     } finally {
       for (const p of storagePaths) { try { await admin.storage.from("attachments").remove([p]); } catch (_) {} }
       for (const id of ackIds) { try { await admin.from("work_order_acknowledgments").delete().eq("id", id); } catch (_) {} }
