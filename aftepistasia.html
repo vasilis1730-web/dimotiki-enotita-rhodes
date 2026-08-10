@@ -3723,6 +3723,9 @@ function editUser(idx){
 
 // ── Real user management via secure Edge Function (manage-app-user) ──
 async function manageAppUser(action, profile, password, oldEmail){
+  if(!currentUser || userTier(currentUser)!=='admin'){
+    throw new Error('Η διαχείριση χρηστών επιτρέπεται μόνο στον Administrator.');
+  }
   const sb = getSupabase();
   if(!sb || !sb.auth) throw new Error('Δεν υπάρχει ενεργή σύνδεση με Supabase.');
 
