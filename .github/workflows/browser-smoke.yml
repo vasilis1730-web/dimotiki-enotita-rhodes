@@ -1,0 +1,48 @@
+name: Browser smoke (staging only)
+
+on:
+  push:
+    branches:
+      - staging-browser-e2e
+    paths:
+      - 'index.html'
+      - 'aftepistasia.html'
+      - 'ack.html'
+      - 'manifest*.json'
+      - 'sw.js'
+      - 'scripts/browser_smoke.mjs'
+      - '.github/workflows/browser-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chromium-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned Playwright
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Start isolated localhost server
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 > /tmp/rodios-http.log 2>&1 &
+          echo $! > /tmp/rodios-http.pid
+          for i in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:4173/index.html >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/rodios-http.log
+          exit 1
+      - name: Run browser smoke with production-network guard
+        run: node scripts/browser_smoke.mjs
+      - name: Show local server log on failure
+        if: failure()
+        run: cat /tmp/rodios-http.log || true
