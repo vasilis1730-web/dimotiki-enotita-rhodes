@@ -286,7 +286,9 @@ select
   3,
   '10000000-0000-4000-8000-000000000001'::uuid,
   jsonb_build_object('stg_accept_wo',public.rodios_acceptance_snapshot(w.id,w.issue_id,w.data)),
-  jsonb_build_object('verified',true,'source','seed-behavioral-proof','count',3,'signatureCount',3)
+  jsonb_build_object('verified',true,'source','seed-behavioral-proof','count',3,'signatureCount',3),
+  now(),
+  now() + interval '15 minutes'
 from public.rodios_work_orders w where w.id='stg_accept_wo';
 
 set local role authenticated;
