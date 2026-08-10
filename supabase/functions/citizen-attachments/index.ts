@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.110.9'
-import { decodeProtectedHeader, importJWK, importX509, jwtVerify, type JWTPayload } from 'npm:jose@6.2.3'
+import { createRemoteJWKSet, decodeProtectedHeader, importX509, jwtVerify, type JWTPayload } from 'npm:jose@6.2.3'
 
 const FIREBASE_PROJECT_ID = 'dimosrodou-otp'
 const FIREBASE_PROJECT_NUMBER = '315292350668'
@@ -9,6 +9,7 @@ const FIREBASE_CERTS_URL = 'https://www.googleapis.com/robot/v1/metadata/x509/se
 const APP_CHECK_ISSUER = `https://firebaseappcheck.googleapis.com/${FIREBASE_PROJECT_NUMBER}`
 const APP_CHECK_AUDIENCE = `projects/${FIREBASE_PROJECT_NUMBER}`
 const APP_CHECK_JWKS_URL = 'https://firebaseappcheck.googleapis.com/v1/jwks'
+const APP_CHECK_JWKS = createRemoteJWKSet(new URL(APP_CHECK_JWKS_URL))
 
 const BUCKET = 'attachments'
 const MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -44,8 +45,6 @@ const FILE_RULES: Record<string, FileRule> = {
 
 let cachedCerts: Record<string, string> | null = null
 let certsExpireAt = 0
-let cachedAppCheckJwks: Array<Record<string, unknown>> | null = null
-let appCheckJwksExpireAt = 0
 
 class HttpError extends Error {
   status: number
@@ -108,20 +107,6 @@ async function getFirebaseCerts(): Promise<Record<string, string>> {
   return cachedCerts
 }
 
-async function getAppCheckJwks(): Promise<Array<Record<string, unknown>>> {
-  const now = Date.now()
-  if (cachedAppCheckJwks && now < appCheckJwksExpireAt) return cachedAppCheckJwks
-  const res = await fetch(APP_CHECK_JWKS_URL, { headers: { 'Accept': 'application/json' } })
-  if (!res.ok) throw new UpstreamError(`Firebase App Check JWKS endpoint returned ${res.status}`)
-  const body = await res.json()
-  const keys = Array.isArray(body?.keys) ? body.keys : []
-  if (!keys.length) throw new UpstreamError('Firebase App Check JWKS response is invalid')
-  cachedAppCheckJwks = keys as Array<Record<string, unknown>>
-  // Firebase states App Check public keys must not be cached for more than six hours.
-  appCheckJwksExpireAt = now + Math.min(parseMaxAge(res.headers.get('cache-control')), 6 * 60 * 60) * 1000
-  return cachedAppCheckJwks
-}
-
 type FirebasePayload = JWTPayload & {
   phone_number?: string
   firebase?: { sign_in_provider?: string, identities?: Record<string, unknown> }
@@ -156,16 +141,12 @@ async function verifyAppCheckToken(token: string): Promise<JWTPayload> {
   if (!token || token.length > 20000) throw new Error('Missing or malformed Firebase App Check token')
   const header = decodeProtectedHeader(token)
   if (header.alg !== 'RS256' || header.typ !== 'JWT' || !header.kid) throw new Error('Invalid Firebase App Check header')
-  const jwks = await getAppCheckJwks()
-  const jwk = jwks.find((x) => String(x?.kid || '') === String(header.kid))
-  if (!jwk) throw new Error('Firebase App Check signing key is unknown or expired')
-  const key = await importJWK(jwk as any, 'RS256')
-  const { payload } = await jwtVerify(token, key, {
+  const { payload } = await jwtVerify(token, APP_CHECK_JWKS, {
     algorithms: ['RS256'],
     audience: APP_CHECK_AUDIENCE,
     issuer: APP_CHECK_ISSUER,
-    subject: FIREBASE_WEB_APP_ID,
   })
+  if (payload.sub !== FIREBASE_WEB_APP_ID) throw new Error('Firebase App Check app ID is not authorized')
   return payload
 }
 
