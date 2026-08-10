@@ -1,6 +1,30 @@
-# RODIOS Supabase configuration
-# citizen-attachments uses an external Firebase ID token, verified cryptographically
-# inside the function, so the Supabase gateway JWT check must be disabled.
+# RODIOS Supabase Edge Function authentication policy
+#
+# Citizen functions receive an external Firebase ID token. The Supabase gateway
+# therefore cannot validate them as Supabase JWTs; those functions MUST verify
+# the Firebase token cryptographically inside the function before any privileged action.
+#
+# Staff functions are called only after real Supabase Auth login and MUST keep
+# the gateway JWT verification enabled. Server code must additionally authorize
+# the authenticated user/profile/role as appropriate; verify_jwt alone is not authorization.
+
+[functions.citizen-bridge]
+verify_jwt = false
 
 [functions.citizen-attachments]
 verify_jwt = false
+
+[functions.manage-app-user]
+verify_jwt = true
+
+[functions.send-order-email]
+verify_jwt = true
+
+[functions.verify-pdf-signatures]
+verify_jwt = true
+
+[functions.parse-municipal-pdf]
+verify_jwt = true
+
+[functions.resolve-maps-link]
+verify_jwt = true
