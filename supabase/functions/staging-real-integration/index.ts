@@ -139,11 +139,8 @@ Deno.serve(async (req: Request) => {
 
       const issueId = `it_issue_${run}`; issueIds.push(issueId);
       await addResult("real_postgrest_rls_operational", async () => {
-        const insert = await clients.admin.from("rodios_issues").insert({
-          id: issueId,
-          data: { id: issueId, issueNum: `ΑΙΤ-2099-${run.slice(-6).toUpperCase()}`, status: "Εκκρεμεί", title: "REAL INTEGRATION TEST", source: "integration" },
-          status: "Εκκρεμεί", title: "REAL INTEGRATION TEST", deleted_at: null,
-        }).select("id").single();
+        const issueData = { id: issueId, issueNum: `ΑΙΤ-2099-${run.slice(-6).toUpperCase()}`, status: "Εκκρεμεί", title: "REAL INTEGRATION TEST", source: "integration" };
+        const insert = await clients.admin.from("rodios_issues").insert({ id: issueId, data: issueData }).select("id").single();
         if (insert.error) throw insert.error;
 
         for (const role of ["admin", "manager", "user"] as const) {
@@ -155,10 +152,14 @@ Deno.serve(async (req: Request) => {
         if (orphanRead.error) throw orphanRead.error;
         assert((orphanRead.data || []).length === 0, "orphan Auth user can read protected issue");
 
-        const mgrUpdate = await clients.manager.from("rodios_issues").update({ title: "REAL INTEGRATION MANAGER UPDATE" }).eq("id", issueId).select("title");
+        const managerData = { ...issueData, title: "REAL INTEGRATION MANAGER UPDATE" };
+        const mgrUpdate = await clients.manager.from("rodios_issues").update({ data: managerData }).eq("id", issueId).select("data");
         if (mgrUpdate.error) throw mgrUpdate.error;
-        assert(mgrUpdate.data?.[0]?.title === "REAL INTEGRATION MANAGER UPDATE", "manager operational update failed");
-        return { activeReads: 3, orphanRows: orphanRead.data?.length || 0, managerUpdate: true };
+        assert(mgrUpdate.data?.[0]?.data?.title === "REAL INTEGRATION MANAGER UPDATE", "manager operational data update failed");
+
+        const forbiddenColumnWrite = await clients.manager.from("rodios_issues").update({ title: "MUST BE DENIED" }).eq("id", issueId);
+        assert(!!forbiddenColumnWrite.error, "manager could write denormalized title column despite column guard");
+        return { activeReads: 3, orphanRows: orphanRead.data?.length || 0, managerDataUpdate: true, denormalizedColumnDenied: true };
       });
 
       await addResult("real_settings_admin_boundary", async () => {
@@ -231,13 +232,10 @@ Deno.serve(async (req: Request) => {
 
       const woId = `it_wo_${run}`; workOrderIds.push(woId);
       await addResult("real_direct_acceptance_bypass_denied", async () => {
-        const { error: woError } = await admin.from("rodios_work_orders").insert({
-          id: woId, issue_id: issueId,
-          data: { id: woId, orderNum: `ΕΝΤ-2099-${run.slice(-6).toUpperCase()}`, status: "Σε εξέλιξη", orderType: "contractor", items: [{ qty: 1, unitPrice: 10 }] },
-          status: "Σε εξέλιξη", deleted_at: null,
-        });
+        const woData = { id: woId, orderNum: `ΕΝΤ-2099-${run.slice(-6).toUpperCase()}`, status: "Σε εξέλιξη", orderType: "contractor", items: [{ qty: 1, unitPrice: 10 }] };
+        const { error: woError } = await admin.from("rodios_work_orders").insert({ id: woId, issue_id: issueId, data: woData });
         if (woError) throw woError;
-        const bypass = await clients.admin.from("rodios_work_orders").update({ status: "Παραλήφθηκε", data: { id: woId, status: "Παραλήφθηκε" } }).eq("id", woId).select("id");
+        const bypass = await clients.admin.from("rodios_work_orders").update({ data: { ...woData, status: "Παραλήφθηκε" } }).eq("id", woId).select("id");
         assert(!!bypass.error, "authenticated admin bypassed proof-only accepted-state trigger");
         const verify = await admin.from("rodios_work_orders").select("status,data").eq("id", woId).single();
         if (verify.error) throw verify.error;
