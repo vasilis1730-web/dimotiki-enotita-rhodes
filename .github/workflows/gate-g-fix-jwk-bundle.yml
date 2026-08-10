@@ -1,0 +1,39 @@
+name: Gate G minimal JWK bundle fix
+
+on:
+  push:
+    branches: [staging-production-hardening]
+    paths: [.github/workflows/gate-g-fix-jwk-bundle.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging-production-hardening
+          fetch-depth: 0
+      - name: Apply single guarded TypeScript compatibility change
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('supabase/functions/citizen-attachments/index.ts')
+          s=p.read_text(encoding='utf-8')
+          old="const key = await importJWK(jwk as Parameters<typeof importJWK>[0], 'RS256')"
+          new="const key = await importJWK(jwk as any, 'RS256')"
+          if s.count(old)!=1:
+              raise SystemExit(f'expected one JWK cast, found {s.count(old)}')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+      - name: Commit function compatibility patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/functions/citizen-attachments/index.ts
+          git commit -m 'fix(staging): simplify App Check JWK type for Edge bundler'
+          git push origin HEAD:staging-production-hardening
