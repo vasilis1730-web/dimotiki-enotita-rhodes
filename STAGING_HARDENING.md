@@ -21,7 +21,8 @@ Preview initialization is version-controlled under:
 1. `supabase/migrations/20260809230000_core_schema_bootstrap.sql`
 2. `supabase/migrations/20260809232000_authz_sequences_integrity.sql`
 3. `supabase/migrations/20260810003000_private_attachments_storage.sql`
-4. `supabase/seed.sql`
+4. `supabase/migrations/20260810050000_citizen_upload_quota.sql`
+5. `supabase/seed.sql`
 
 The canonical seed creates synthetic Auth identities without passwords and executes authorization/integrity assertions automatically. Production citizen data is not copied into Preview.
 
@@ -31,14 +32,14 @@ The canonical seed creates synthetic Auth identities without passwords and execu
 |---|---|---|
 | A | Backend RLS / active-user authorization | ✅ PASS in Supabase Preview |
 | B | Atomic numbering / UNIQUE / FK integrity | ✅ PASS in Supabase Preview |
-| C | Citizen attachments through authenticated Edge Function + private bucket | ✅ DEPLOYABLE / Preview PASS; browser E2E still required |
+| C | Private citizen/staff attachments | ✅ DEPLOYABLE / Preview PASS; browser E2E still required |
 | D | Durable upload state / retry / no silent Base64 loss | ✅ Static hardening complete; browser network-failure E2E pending |
 | E | Digital signatures fail closed | ✅ Static hardening complete; real verifier E2E pending |
 | F | Settings admin-only / locked Supabase config / logout cache purge | ✅ Static hardening complete |
-| G | Edge Function + public ACK security review | 🟡 IN PROGRESS — client hardened; deployed legacy function source still missing from Git |
+| G | Edge Functions + public ACK security review | 🟡 PARTIAL PASS — `citizen-attachments` hardened + Preview PASS; legacy function source and ACK server audit still blockers |
 | H | Full regression / concurrency / offline / rollback | ⏳ NOT STARTED |
 
-Latest verified Supabase Preview run after Gates A–F reported:
+Latest verified Supabase Preview run after the Gate G `citizen-attachments` hardening reported:
 
 - Database ✅
 - Services ✅
@@ -47,6 +48,8 @@ Latest verified Supabase Preview run after Gates A–F reported:
 - Migrations ✅
 - Seeding ✅
 - Edge Functions ✅
+
+A permanent GitHub Action, `.github/workflows/edge-function-check.yml`, also runs `deno check` and dependency analysis for version-controlled Edge Functions before deployment.
 
 ## Gate A — authorization contract
 
@@ -78,10 +81,15 @@ Target state implemented on staging:
 
 - `attachments` bucket private;
 - no anonymous direct Storage upload/read;
-- citizen uploads go through `citizen-attachments` using a cryptographically verified Firebase ID token;
+- citizen uploads go through `citizen-attachments`;
+- citizen backend requires both a cryptographically verified Firebase phone-auth ID token and Firebase App Check token;
+- App Check validation checks Firebase JWKS, issuer, audience and the authorized Web App ID;
 - citizen object paths are restricted to the verified phone identity;
+- server-side extension/MIME and file-signature checks reject mismatched or unsupported uploads;
+- an atomic database quota limits a verified citizen identity to 20 uploads / 200 MiB per clock-hour bucket;
+- internal Storage/server errors are logged server-side but not exposed to citizens;
 - staff uses private Storage paths and short-lived signed URLs;
-- direct `getPublicUrl()` attachment flow removed from staging clients.
+- direct `getPublicUrl()` attachment flow is removed from staging clients.
 
 Production migration must include compatibility validation for the existing legacy attachment objects before bucket visibility is changed.
 
@@ -109,11 +117,21 @@ Production migration must include compatibility validation for the existing lega
 
 ## Gate G — Edge Functions / ACK
 
-Version-controlled today:
+### Version-controlled and reviewed
 
 - `supabase/functions/citizen-attachments/index.ts`
+  - Firebase Auth ID token verification;
+  - Firebase App Check verification;
+  - private path ownership;
+  - strict upload type/signature validation;
+  - atomic server-side upload quota;
+  - generic public errors / detailed server logs;
+  - Supabase Preview deploy PASS;
+  - Deno CI type/dependency check PASS.
 
-Referenced by the application but **not yet version-controlled in this repository**:
+`supabase/config.toml` intentionally declares **only functions whose source exists in this repository**. The earlier attempt to declare missing legacy functions caused the Preview deployer to fail during the Edge Function bundle phase. Keeping orphan function declarations out of the deployment config restored a fully green Preview run.
+
+### Referenced by the application but not yet version-controlled
 
 - `citizen-bridge`
 - `manage-app-user`
@@ -122,13 +140,20 @@ Referenced by the application but **not yet version-controlled in this repositor
 - `parse-municipal-pdf`
 - `resolve-maps-link`
 
-These deployed sources must be exported/reviewed before production release. They must be checked for authentication, authorization, CORS, input/file-size validation, rate limiting/abuse controls, SSRF where outbound URLs are fetched, service-role scope, secret/error leakage and fail-closed behavior.
+These deployed sources must be downloaded from the current Supabase project, committed to the staging branch and reviewed before production release. Required review areas: authentication, authorization, CORS, input/file-size validation, rate limiting/abuse controls, SSRF where outbound URLs are fetched, service-role scope, secret/error leakage and fail-closed behavior.
 
-Public ACK flow:
+Current client hardening while those server sources remain unavailable:
+
+- staff-only calls use the real Supabase Auth access token;
+- signature verifier URL is fixed to the same Supabase project;
+- `manageAppUser()` now has an additional Administrator-only client guard;
+- this client guard is defense-in-depth only and **does not replace** mandatory server-side Administrator authorization.
+
+### Public ACK flow
 
 - `ack.html` intentionally calls `complete_work_order_ack(p_token)` anonymously;
 - anonymous EXECUTE must **not** be revoked blindly;
-- public page now uses `no-referrer`, scrubs the token from the visible URL/history and does not expose raw RPC errors;
+- public page uses `no-referrer`, scrubs the token from the visible URL/history and does not expose raw RPC errors;
 - server function must enforce cryptographically strong token matching, one-time use/replay protection, expiry, exact row scope and safe return data;
 - run `supabase/audits/20260810_gate_g_ack_server_read_only.sql` against production and review the exported result before any ACK migration.
 
