@@ -24,13 +24,12 @@ verify_jwt = true
 [functions.resolve-maps-link]
 verify_jwt = true
 
-# TEST-ONLY function. Exists only on the disposable staging-real-integration Preview.
-# The handler independently refuses the production project ref and any database
-# whose rodios_settings.main is not explicitly marked staging:true.
+# TEST-ONLY functions below exist only on disposable staging-real-integration Preview.
 [functions.staging-real-integration]
 verify_jwt = false
 
-# TEST-ONLY negative-security probe for citizen endpoints. It refuses production
-# and requires the staging:true database marker before issuing any probe traffic.
 [functions.staging-citizen-security-probe]
+verify_jwt = false
+
+[functions.staging-citizen-positive-fixture]
 verify_jwt = false
