@@ -1,0 +1,32 @@
+name: Fix H5 payment assertion
+
+on:
+  push:
+    branches:
+      - staging-production-hardening
+    paths:
+      - 'scripts/fix_h5_seed_amount_assertion.py'
+      - '.github/workflows/fix-h5-seed-amount-assertion.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging-production-hardening
+          fetch-depth: 0
+      - name: Apply guarded H5 amount assertion fix
+        run: python3 scripts/fix_h5_seed_amount_assertion.py
+      - name: Commit seed assertion fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add supabase/seed.sql
+          git commit -m 'fix(staging): keep H5 payment assertion outside private helper'
+          git push origin HEAD:staging-production-hardening
