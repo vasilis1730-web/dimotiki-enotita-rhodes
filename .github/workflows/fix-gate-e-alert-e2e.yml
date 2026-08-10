@@ -1,10 +1,11 @@
-name: Fix Gate E alert syntax (E2E branch)
+name: Fix Gate E alert syntax E2E
 
 on:
   push:
     branches:
       - staging-browser-e2e
     paths:
+      - 'scripts/fix_gate_e_alert_e2e.py'
       - '.github/workflows/fix-gate-e-alert-e2e.yml'
   workflow_dispatch:
 
@@ -20,26 +21,14 @@ jobs:
         with:
           ref: staging-browser-e2e
           fetch-depth: 0
-      - name: Apply exact guarded fix
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('aftepistasia.html')
-          s=p.read_text(encoding='utf-8')
-          old="""    alert('🚫 Ανιχνεύθηκαν '+sigs+'/'+req+' ψηφιακές υπογραφές.
-
-Η παραλαβή απαιτεί όλες τις υπογραφές (Άρθρο 9). Ανεβάστε το πλήρως υπογεγραμμένο πρωτόκολλο.');"""
-          new="""    alert('🚫 Ανιχνεύθηκαν '+sigs+'/'+req+' ψηφιακές υπογραφές.\\n\\nΗ παραλαβή απαιτεί όλες τις υπογραφές (Άρθρο 9). Ανεβάστε το πλήρως υπογεγραμμένο πρωτόκολλο.');"""
-          if s.count(old)!=1:
-              raise SystemExit(f'expected exactly one broken Gate E alert, found {s.count(old)}')
-          s=s.replace(old,new,1)
-          if old in s or new not in s:
-              raise SystemExit('Gate E syntax replacement invariant failed')
-          p.write_text(s,encoding='utf-8')
-          PY
-      - name: Verify every inline script
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply guarded repair
+        run: python3 scripts/fix_gate_e_alert_e2e.py
+      - name: Verify all inline JavaScript
         run: python3 scripts/check_inline_js.py
-      - name: Commit E2E copy fix
+      - name: Commit repaired HTML
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
