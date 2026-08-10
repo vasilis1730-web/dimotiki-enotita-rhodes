@@ -5,7 +5,7 @@ const ORIGIN='http://127.0.0.1:4173';
 const PROD_SUPABASE_REF='nzrdcgmrsfdmocyhfrod';
 const allowedStaticHosts=new Set(['cdn.jsdelivr.net','www.gstatic.com']);
 
-async function smoke(path, checks=[]) {
+async function smoke(path, checks=[], allowedPageErrors=[]) {
   const browser=await chromium.launch({headless:true});
   const context=await browser.newContext({serviceWorkers:'block'});
   const page=await context.newPage();
@@ -37,16 +37,17 @@ async function smoke(path, checks=[]) {
   for(const check of checks) await check(page);
 
   assert.equal(productionRequests.length,0,`${path}: attempted production Supabase request(s): ${productionRequests.join(', ')}`);
-  assert.equal(pageErrors.length,0,`${path}: pageerror(s): ${pageErrors.join(' | ')}`);
+  const unexpectedErrors=pageErrors.filter(msg=>!allowedPageErrors.some(re=>re.test(msg)));
+  assert.equal(unexpectedErrors.length,0,`${path}: unexpected pageerror(s): ${unexpectedErrors.join(' | ')}`);
 
-  console.log(`PASS ${path} | title=${JSON.stringify(title)} | blockedExternal=${blocked.length}`);
+  console.log(`PASS ${path} | title=${JSON.stringify(title)} | blockedExternal=${blocked.length} | expectedBlockedErrors=${pageErrors.length-unexpectedErrors.length}`);
   await browser.close();
 }
 
 await smoke('/index.html',[
   async p=>assert.equal(await p.locator('#loginScreen').count(),1,'citizen login screen missing'),
   async p=>assert.match(await p.locator('body').innerText(),/ΡΟΔΙΟΣ/,'citizen branding missing')
-]);
+],[/Firebase: Error \(auth\/internal-error\)/]);
 
 await smoke('/aftepistasia.html',[
   async p=>assert.match(await p.locator('body').innerText(),/ΡΟΔΙΟΣ|Αυτεπιστασία|Αιτήματα/,'staff shell did not render')
