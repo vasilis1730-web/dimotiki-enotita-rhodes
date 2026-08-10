@@ -1,3 +1,4 @@
+// Gate H localhost smoke — rerun after Gate E syntax repair.
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 
