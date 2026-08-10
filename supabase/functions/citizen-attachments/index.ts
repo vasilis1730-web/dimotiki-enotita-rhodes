@@ -159,7 +159,7 @@ async function verifyAppCheckToken(token: string): Promise<JWTPayload> {
   const jwks = await getAppCheckJwks()
   const jwk = jwks.find((x) => String(x?.kid || '') === String(header.kid))
   if (!jwk) throw new Error('Firebase App Check signing key is unknown or expired')
-  const key = await importJWK(jwk as Parameters<typeof importJWK>[0], 'RS256')
+  const key = await importJWK(jwk as any, 'RS256')
   const { payload } = await jwtVerify(token, key, {
     algorithms: ['RS256'],
     audience: APP_CHECK_AUDIENCE,
