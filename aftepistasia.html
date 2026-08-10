@@ -4362,7 +4362,7 @@ async function importSignedPdf(input){
           'Authorization': 'Bearer '+_sigAccessToken,
           'apikey': _anonKey
         },
-        body: JSON.stringify({ pdfBase64: wo.signedPdfData||'' })
+        body: JSON.stringify({ pdfBase64: wo.signedPdfData||'', workOrderIds:[wo.id], signedPdfPath:wo.signedPdfPath||'', pdfName:wo.signedPdfName||file.name||'' })
       });
       const _respText = await _resp.text();
       if(!_resp.ok){
@@ -4379,6 +4379,7 @@ async function importSignedPdf(input){
           _extractedNames = _result.signers || _result.names || _result.signerNames || [];
           // Store full verification result
           wo._edgeResult = _result;
+          if(_result.protocolPath){ wo.signedPdfPath=_result.protocolPath; wo.signedPdfBucket='protocols'; }
           const _edgeCount = Number(_result.count || _result.signatureCount || 0);
           wo._edgeSigCount = Math.max(_edgeCount, _sigs);
           // Gate E: fail closed. Only explicit server cryptographic verification authorizes the protocol.
@@ -4519,65 +4520,64 @@ function updateLinkedIssueStatus(wo, newStatus){
   save();
 }
 
+function _mergeAcceptanceRows(target,rows){
+  if(!Array.isArray(rows)) return;
+  rows.forEach(row=>{
+    if(!row||!row.id)return;
+    const idx=target.findIndex(x=>x&&x.id===row.id);
+    if(idx>=0) target[idx]=row;
+    else target.push(row);
+  });
+}
+async function _finalizeVerifiedAcceptanceRpc(orderIds,edgeResult){
+  const ids=[...new Set((orderIds||[]).map(x=>String(x||'').trim()).filter(Boolean))].sort();
+  if(!ids.length) throw new Error('Δεν υπάρχουν εντολές προς παραλαβή.');
+  const proofId=String(edgeResult&&edgeResult.verificationProofId||'').trim();
+  if(!proofId) throw new Error('Η κρυπτογραφική επαλήθευση δεν διαθέτει server proof. Επαληθεύστε ξανά το PDF.');
+  const sb=getSupabase();
+  if(!sb) throw new Error('Δεν υπάρχει σύνδεση με τη βάση.');
+  const {data,error}=await sb.rpc('rodios_finalize_verified_acceptance',{p_proof_id:proofId,p_expected_order_ids:ids});
+  if(error) throw error;
+  if(!data||data.ok!==true) throw new Error('Η βάση δεν επιβεβαίωσε την παραλαβή.');
+  _mergeAcceptanceRows(workOrders,data.orders);
+  _mergeAcceptanceRows(issues,data.issues);
+  _mergeAcceptanceRows(payments,data.payments);
+  return data;
+}
 async function finalizeAcceptance(){
   const wo = workOrders.find(w=>w.id===_sigOrderId);
   if(!wo) return;
-  if(!wo.signedPdfData && !wo.signedPdfUrl){
-    // v9.18.2: αν υπάρχει όνομα αρχείου χωρίς δεδομένα, το ανέβασμα είχε αποτύχει
-    // (ή το base64 χάθηκε σε refresh) — δώσε σαφή οδηγία αντί για παραπλανητικό μήνυμα.
+  if(!wo.signedPdfData && !wo.signedPdfUrl && !wo.signedPdfPath){
     if(wo.signedPdfName){
-      alert('⚠ Το υπογεγραμμένο PDF «'+wo.signedPdfName+'» δεν βρέθηκε αποθηκευμένο.\n\n'+
-            'Το ανέβασμα στο Storage είχε αποτύχει. Πατήστε «↩ Επανεκκίνηση» και ανεβάστε ξανά το PDF.');
-    } else {
-      alert('Εισάγετε πρώτα το υπογεγραμμένο PDF.');
-    }
+      alert('⚠ Το υπογεγραμμένο PDF «'+wo.signedPdfName+'» δεν βρέθηκε αποθηκευμένο.\n\nΤο πρωτόκολλο ΔΕΝ μπορεί να παραληφθεί. Ανεβάστε ξανά το PDF.');
+    } else alert('Εισάγετε πρώτα το υπογεγραμμένο PDF.');
     return;
   }
   if(!wo._edgeResult || wo._edgeResult.verified !== true){
     alert('🚫 Η παραλαβή δεν μπορεί να οριστικοποιηθεί χωρίς ρητή επιτυχή κρυπτογραφική επαλήθευση του PDF από τον server.');
     return;
   }
-  let sigs = countPdfSignatures(wo.signedPdfData||'');
-  const req = Math.max(1, (settings.eSignUsers||[]).filter(u=>u.name).length||3);
-  if(sigs === 0){
-    sigs = Number(wo._edgeSigCount || (wo._edgeResult && (wo._edgeResult.count || wo._edgeResult.signatureCount)) || ((wo._sigExtractedNames||[]).length) || 0);
-  }
-
-  // Gate E: all required signatures are mandatory; no administrative bypass is allowed.
-  if(sigs < req){
+  let sigs=countPdfSignatures(wo.signedPdfData||'');
+  const req=Math.max(1,(settings.eSignUsers||[]).filter(u=>u.name).length||3);
+  if(sigs===0) sigs=Number(wo._edgeSigCount||(wo._edgeResult&&(wo._edgeResult.count||wo._edgeResult.signatureCount))||((wo._sigExtractedNames||[]).length)||0);
+  if(sigs<req){
     alert('🚫 Ανιχνεύθηκαν '+sigs+'/'+req+' ψηφιακές υπογραφές.\n\nΗ παραλαβή απαιτεί όλες τις υπογραφές (Άρθρο 9). Ανεβάστε το πλήρως υπογεγραμμένο πρωτόκολλο.');
     return;
   }
-
-  // Server result was already required to be verified=true above.
-  // If edge result says verified=true → proceed without any further checks
-
-  closeSigModal();
-  wo.status = 'Παραλήφθηκε'; // Auto-set when protocol accepted
-  wo.completionDate = todayStr();
-  wo._protocolReady = true; // CRITICAL: ensure flag persists across page reloads
-  updateLinkedIssueStatus(wo, 'Ολοκληρωμένο'); // Sync citizen issue
-  const idx = workOrders.findIndex(w=>w.id===wo.id);
-  if(idx>=0) workOrders[idx]=wo;
-  // ── AUTO-CREATE PAYMENT ──────────────────────────────────────
-  const alreadyPaid = payments.some(p=>p.orderId===wo.id&&!p.isPenalty);
-  if(!alreadyPaid){
-    const netAmt = Math.max(0, woTotal(wo)-(wo.penaltyAmount||0));
-    const d = new Date();
-    payments.push({
-      id:genId(), date:todayStr(),
-      amount:netAmt, orderId:wo.id, invoiceNum:'',
-      month:d.toLocaleDateString('el-GR',{month:'long',year:'numeric'}),
-      notes:'Παραλαβή εντολής '+wo.orderNum
-        +' — ψηφιακά υπογεγραμμένο ('+(wo.signedPdfName||'')+', '+sigs+' υπογραφ'+(sigs===1?'ή':'ές')+')'
-        +(wo.penaltyAmount>0?' — μετά αφαίρεση ρήτρας -'+fmt(wo.penaltyAmount)+' €':''),
-      isPenalty:false, autoCreated:true
-    });
-    toast('✅ Παραλαβή ψηφιακά υπογεγραμμένη — Χρέωση '+fmt(netAmt)+' € δημιουργήθηκε αυτόματα');
+  if(!wo._edgeResult.verificationProofId){
+    alert('🚫 Η επαλήθευση είναι παλαιού τύπου ή έχει λήξει. Πατήστε «↩ Επανεκκίνηση» και επαληθεύστε ξανά το PDF ώστε να εκδοθεί server proof.');
+    return;
   }
-  try{ await saveNow(); }
-  catch(e){ alert('❌ ΠΡΟΣΟΧΗ: Η παραλαβή έγινε τοπικά αλλά ΔΕΝ αποθηκεύτηκε στη βάση.\n\n'+(e.message||e)+'\n\nΔοκιμάστε ξανά την ενέργεια ή ανανεώστε τα δεδομένα.'); }
-  renderAll();
+  try{
+    const result=await _finalizeVerifiedAcceptanceRpc([wo.id],wo._edgeResult);
+    closeSigModal();
+    renderAll();
+    const created=(result.payments||[]).length;
+    toast('✅ Η παραλαβή αποθηκεύτηκε ατομικά στη βάση'+(created?' — δημιουργήθηκε αυτόματα η χρέωση.':'.'));
+  }catch(e){
+    console.error('[ACCEPT] transactional acceptance failed:',e);
+    alert('❌ Η παραλαβή ΔΕΝ ολοκληρώθηκε και δεν έγινε τοπική αλλαγή κατάστασης.\n\n'+((e&&e.message)||e)+'\n\nΕπαληθεύστε ξανά το PDF αν το proof έληξε ή η εντολή άλλαξε.');
+  }
 }
 
 function renderESignUsersSettings(){
@@ -8423,10 +8423,11 @@ async function importBulkSignedPdf(input){
   const _bulkSessionRes=await getSupabase().auth.getSession();
   const _bulkAccessToken=_bulkSessionRes&&_bulkSessionRes.data&&_bulkSessionRes.data.session&&_bulkSessionRes.data.session.access_token;
   if(edgeUrl&&anonKey&&_bulkAccessToken){
-    try{const resp=await fetch(edgeUrl,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_bulkAccessToken,'apikey':anonKey},body:JSON.stringify({pdfBase64:b64})});
+    try{const resp=await fetch(edgeUrl,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_bulkAccessToken,'apikey':anonKey},body:JSON.stringify({pdfBase64:b64,workOrderIds:orders.map(w=>w.id),pdfName:file.name||''})});
       if(resp.ok)edgeResult=await resp.json();}catch(e){}
   }
   window._bulkWo._edgeResult=edgeResult;
+  if(edgeResult&&edgeResult.protocolPath){ window._bulkWo.signedPdfPath=edgeResult.protocolPath; window._bulkWo.signedPdfBucket='protocols'; }
   renderBulkResultModal(orders,edgeResult,file.name,b64);
 }
 function renderBulkResultModal(orders,edgeResult,fname,b64){
@@ -8488,29 +8489,24 @@ async function finalizeBulkAcceptance(){
   }
   const req=Math.max(1,(settings.eSignUsers||[]).filter(u=>u.name&&u.name.trim()).length||3);
   const serverCount=Number(edgeResult.count||edgeResult.signatureCount||((edgeResult.signers||[]).length)||0);
-  if(serverCount < req){
+  if(serverCount<req){
     alert('🚫 Ο server επιβεβαίωσε μόνο '+serverCount+'/'+req+' απαιτούμενες υπογραφές. Η μαζική παραλαβή ακυρώθηκε.');
     return;
   }
-  const today=todayStr(); const d=new Date();
-  orders.forEach(wo=>{
-    wo.status='Παραλήφθηκε'; wo.completionDate=today;
-    wo.signedPdfData=bulkWo.signedPdfData||null; wo.signedPdfUrl=bulkWo.signedPdfUrl||null;
-    wo.signedPdfName=bulkWo.signedPdfName||''; wo.signedAt=bulkWo.signedAt||new Date().toISOString();
-    wo._edgeResult=bulkWo._edgeResult||null; wo._isBulkProtocol=true;
-    wo._protocolReady=true; // Persistent flag for reload survival
-    updateLinkedIssueStatus(wo,'Ολοκληρωμένο');
-    if(!payments.some(p=>p.orderId===wo.id&&!p.isPenalty)){
-      const net=Math.max(0,woTotal(wo)-(wo.penaltyAmount||0));
-      payments.push({id:genId(),date:today,amount:net,orderId:wo.id,invoiceNum:'',
-        month:d.toLocaleDateString('el-GR',{month:'long',year:'numeric'}),
-        notes:'Μαζική παραλαβή ('+orders.length+' εντολές) — '+esc(wo.orderNum),
-        isPenalty:false,autoCreated:true});
-    }
-  });
-  _bulkSelected.clear(); window._bulkWo=null;
-  closeSigModal(); saveNow().catch(e=>console.warn('Immediate bulk acceptance save failed:', e)); renderAll(); updateBulkBar();
-  toast('✅ Μαζική παραλαβή '+orders.length+' εντολών ολοκληρώθηκε!');
+  if(!edgeResult.verificationProofId){
+    alert('🚫 Δεν υπάρχει server proof για το συγκεκριμένο σύνολο εντολών. Επαληθεύστε ξανά το κοινό PDF.');
+    return;
+  }
+  const ids=orders.map(w=>w.id).sort();
+  try{
+    const result=await _finalizeVerifiedAcceptanceRpc(ids,edgeResult);
+    _bulkSelected.clear(); window._bulkWo=null;
+    closeSigModal(); renderAll(); updateBulkBar();
+    toast('✅ Μαζική παραλαβή '+orders.length+' εντολών αποθηκεύτηκε ατομικά στη βάση ('+(result.payments||[]).length+' νέες χρεώσεις).');
+  }catch(e){
+    console.error('[BULK ACCEPT] transactional acceptance failed:',e);
+    alert('❌ Η μαζική παραλαβή ΔΕΝ ολοκληρώθηκε και δεν άλλαξε τοπικά καμία εντολή.\n\n'+((e&&e.message)||e)+'\n\nΑν άλλαξε η επιλογή εντολών ή έληξε το proof, επαληθεύστε ξανά το κοινό PDF.');
+  }
 }
 function printBulkProtocol(){
   const orders=workOrders.filter(w=>_bulkSelected.has(w.id));
