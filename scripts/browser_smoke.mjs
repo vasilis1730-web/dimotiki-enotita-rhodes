@@ -1,4 +1,4 @@
-// Gate H localhost smoke — rerun after Gate E syntax repair.
+// Gate H localhost smoke — production-network isolated.
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 
@@ -51,7 +51,56 @@ await smoke('/index.html',[
 ],[/Firebase: Error \(auth\/internal-error\)/]);
 
 await smoke('/aftepistasia.html',[
-  async p=>assert.match(await p.locator('body').innerText(),/ΡΟΔΙΟΣ|Αυτεπιστασία|Αιτήματα/,'staff shell did not render')
+  async p=>assert.match(await p.locator('body').innerText(),/ΡΟΔΙΟΣ|Αυτεπιστασία|Αιτήματα/,'staff shell did not render'),
+  async p=>{
+    const roles=await p.evaluate(async()=>{
+      const settingsBtn=()=>Array.from(document.querySelectorAll('nav button')).find(b=>b.textContent.includes('Ρυθμίσεις'));
+      const probe=(u)=>{
+        currentUser=u;
+        updateHeader();
+        const btn=settingsBtn();
+        return {tier:userTier(u),perm:permSettings(),display:btn?getComputedStyle(btn).display:'missing'};
+      };
+      const admin=probe({id:'admin',email:'rodios-admin-staging@rhodes.gr',tier:'admin',canOrders:true});
+      const manager=probe({id:'stg_manager',email:'manager@example.invalid',tier:'manager',canOrders:true});
+      const user=probe({id:'stg_user',email:'user@example.invalid',tier:'user',canOrders:true});
+
+      currentUser={id:'stg_manager',email:'manager@example.invalid',tier:'manager',canOrders:true};
+      currentTab='dashboard';
+      showTab('settings');
+      const managerTabAfterAttempt=currentTab;
+
+      currentUser={id:'admin',email:'rodios-admin-staging@rhodes.gr',tier:'admin',canOrders:true};
+      currentTab='dashboard';
+      showTab('settings');
+      const adminTabAfterAttempt=currentTab;
+
+      localStorage.setItem('rodios_v9_light_cache','sensitive');
+      localStorage.setItem('rodios_v9_last_counts','sensitive');
+      localStorage.setItem('serviceStaff','sensitive');
+      localStorage.setItem('sb_url','legacy-override');
+      localStorage.setItem('sb_key','legacy-override');
+      await _purgeOperationalBrowserState();
+      const purge={};
+      for(const k of ['rodios_v9_light_cache','rodios_v9_last_counts','serviceStaff','sb_url','sb_key']) purge[k]=localStorage.getItem(k);
+
+      return {admin,manager,user,managerTabAfterAttempt,adminTabAfterAttempt,purge};
+    });
+
+    assert.equal(roles.admin.tier,'admin','admin tier resolution failed');
+    assert.equal(roles.admin.perm,true,'admin Settings permission denied');
+    assert.notEqual(roles.admin.display,'none','admin Settings nav hidden');
+    assert.equal(roles.manager.tier,'manager','manager tier resolution failed');
+    assert.equal(roles.manager.perm,false,'manager gained Settings permission');
+    assert.equal(roles.manager.display,'none','manager Settings nav visible');
+    assert.equal(roles.user.tier,'user','user tier resolution failed');
+    assert.equal(roles.user.perm,false,'user gained Settings permission');
+    assert.equal(roles.user.display,'none','user Settings nav visible');
+    assert.equal(roles.managerTabAfterAttempt,'dashboard','manager opened Settings tab');
+    assert.equal(roles.adminTabAfterAttempt,'settings','admin could not open Settings tab');
+    for(const [k,v] of Object.entries(roles.purge)) assert.equal(v,null,`logout purge left ${k}`);
+    console.log('PASS staff role/UI/cache invariants');
+  }
 ]);
 
 await smoke('/ack.html',[
