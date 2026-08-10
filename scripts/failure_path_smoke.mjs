@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 const ORIGIN='http://127.0.0.1:4173';
 const PROD_SUPABASE_REF='nzrdcgmrsfdmocyhfrod';
 const CDN_HOSTS=new Set(['cdn.jsdelivr.net','www.gstatic.com']);
+const launchOptions={headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE}:{})};
 
-const browser=await chromium.launch({headless:true});
+const browser=await chromium.launch(launchOptions);
 const context=await browser.newContext({serviceWorkers:'block'});
 const page=await context.newPage();
 const prod=[];
@@ -81,7 +82,36 @@ const result=await page.evaluate(async()=>{
   }catch(e){ out.manageUserBlocked={threw:true,message:String(e?.message||e),supabaseRequested}; }
   window.getSupabase=originalGetSupabase;
 
-  // 5) PDF acceptance: no/false verification must never authorize acceptance.
+  // 5) Atomic synchronization carries the exact DB version and maps stale-write
+  // rejection to the user-visible concurrency contract.
+  const expectedVersion='2026-08-10T12:34:56.123456+00:00';
+  _v9RowVersions.issues=new Map([['sync_contract_row',expectedVersion]]);
+  const versioned=_v9ExpectedRow('issues',{id:'sync_contract_row',data:{id:'sync_contract_row',title:'changed'}});
+  let capturedBundle=null;
+  window.getSupabase=()=>({rpc:async(name,args)=>{
+    capturedBundle={name,args};
+    return {data:{ok:true,versions:{issues:{sync_contract_row:'2026-08-10T12:35:00.000001+00:00'}}},error:null};
+  }});
+  const committed=await _v9CommitBundle({issues:{upserts:[versioned],deletes:[]}});
+  let conflict=null;
+  window.getSupabase=()=>({rpc:async()=>({data:null,error:{code:'40001',message:'RODIOS_SYNC_CONFLICT',details:'issues:sync_contract_row'}})});
+  try{ await _v9CommitBundle({issues:{upserts:[versioned],deletes:[]}}); }
+  catch(e){ conflict={message:String(e?.message||e),ids:e?.conflictIds||[],code:e?.code||''}; }
+  _v9Baseline.issues=new Map([['sync_delete_issue','x']]);
+  _v9Baseline.payments=new Map([['sync_delete_payment','x']]);
+  _v9RowVersions.issues=new Map([['sync_delete_issue','2026-08-10T13:00:00.000001+00:00']]);
+  _v9RowVersions.payments=new Map([['sync_delete_payment','2026-08-10T13:00:00.000002+00:00']]);
+  let deleteCalls=0; let deleteBundle=null;
+  window.getSupabase=()=>({rpc:async(name,args)=>{
+    deleteCalls++; deleteBundle=args.p_bundle;
+    return {data:{ok:true,versions:{},deleted:{issues:['sync_delete_issue'],payments:['sync_delete_payment']}},error:null};
+  }});
+  await _v9DeleteBundle({rodios_issues:['sync_delete_issue'],rodios_payments:['sync_delete_payment']});
+  out.atomicSync={expected:versioned.expectedUpdatedAt,capturedBundle,committed,conflict,deleteCalls,deleteBundle,
+    deletedBaselinesAbsent:!_v9Baseline.issues.has('sync_delete_issue')&&!_v9Baseline.payments.has('sync_delete_payment')};
+  window.getSupabase=originalGetSupabase;
+
+  // 6) PDF acceptance: no/false verification must never authorize acceptance.
   settings.eSignUsers=[{name:'A'},{name:'B'},{name:'C'}];
   const fakePdf='data:application/pdf;base64,'+btoa('%PDF-1.7 /ByteRange [0 10 20 30] /ByteRange [0 10 20 30] /ByteRange [0 10 20 30]');
   const baseWo={id:'wo_sig_test',orderNum:'ΕΝΤ-2099-002',status:'Σε εξέλιξη',signedPdfData:fakePdf,signedPdfName:'fake.pdf',issueId:null};
@@ -95,7 +125,7 @@ const result=await page.evaluate(async()=>{
   await finalizeAcceptance();
   out.pdfVerifiedFalse={status:workOrders[0].status,protocolReady:!!workOrders[0]._protocolReady,alert:alerts.at(-1)||''};
 
-  // 6) verified:true without a server proof must be blocked before RPC/client creation.
+  // 7) verified:true without a server proof must be blocked before RPC/client creation.
   let noProofRpcCalls=0;
   window.getSupabase=()=>({rpc:async()=>{noProofRpcCalls++; throw new Error('RPC_MUST_NOT_RUN');}});
   workOrders=[{...structuredClone(baseWo),_edgeResult:{verified:true,count:3,signatureCount:3},_edgeSigCount:3}]; payments=[]; issues=[];
@@ -103,7 +133,7 @@ const result=await page.evaluate(async()=>{
   await finalizeAcceptance();
   out.pdfNoProof={status:workOrders[0].status,protocolReady:!!workOrders[0]._protocolReady,paymentCount:payments.length,rpcCalls:noProofRpcCalls,alert:alerts.at(-1)||''};
 
-  // 7) valid proof but failed transaction must leave all local business state untouched.
+  // 8) valid proof but failed transaction must leave all local business state untouched.
   let failedRpcCalls=0;
   window.getSupabase=()=>({rpc:async(name,args)=>{failedRpcCalls++; return {data:null,error:{message:'SIMULATED_ATOMIC_RPC_FAILURE'}};}});
   const failingWo={...structuredClone(baseWo),_edgeResult:{verified:true,count:3,signatureCount:3,verificationProofId:'20000000-0000-4000-8000-000000000099'},_edgeSigCount:3};
@@ -114,7 +144,7 @@ const result=await page.evaluate(async()=>{
   out.pdfRpcFailure={rpcCalls:failedRpcCalls,stateUnchanged:JSON.stringify({workOrders,payments,issues})===beforeFailure,status:workOrders[0].status,alert:alerts.at(-1)||''};
   window.getSupabase=originalGetSupabase;
 
-  // 8) CSV export neutralizer only changes export representation.
+  // 9) CSV export neutralizer only changes export representation.
   out.csv={eq:_csvSafeCell('=1+1'),plus:_csvSafeCell('+SUM(A1:A2)'),safe:_csvSafeCell('κανονικό κείμενο')};
 
   window.alert=originalAlert;
@@ -133,6 +163,16 @@ assert.match(result.emailBlocked.message,/ακυρώθηκε|δεν μεταφο
 assert.equal(result.manageUserBlocked.threw,true,'manager could call manageAppUser');
 assert.equal(result.manageUserBlocked.supabaseRequested,false,'manager reached Supabase before client guard');
 assert.match(result.manageUserBlocked.message,/Administrator/i,'manager user-management denial message missing');
+assert.equal(result.atomicSync.expected,'2026-08-10T12:34:56.123456+00:00','atomic sync changed/lost the exact expected DB version');
+assert.equal(result.atomicSync.capturedBundle.name,'rodios_save_bundle','browser did not use the atomic save RPC');
+assert.equal(result.atomicSync.capturedBundle.args.p_bundle.issues.upserts[0].expectedUpdatedAt,result.atomicSync.expected,'atomic RPC bundle omitted the expected version');
+assert.equal(result.atomicSync.committed.ok,true,'atomic save success response was rejected');
+assert.equal(result.atomicSync.conflict.code,'RODIOS_SYNC_CONFLICT','stale atomic write was not mapped to the concurrency error');
+assert.deepEqual(result.atomicSync.conflict.ids,['sync_contract_row'],'stale atomic write lost the conflicting row id');
+assert.equal(result.atomicSync.deleteCalls,1,'related deletes did not use one atomic RPC');
+assert.equal(result.atomicSync.deleteBundle.issues.deletes.length,1,'atomic delete bundle omitted the issue');
+assert.equal(result.atomicSync.deleteBundle.payments.deletes.length,1,'atomic delete bundle omitted the payment');
+assert.equal(result.atomicSync.deletedBaselinesAbsent,true,'committed atomic deletes remained in the local baseline');
 assert.notEqual(result.pdfNoServer.status,'Παραλήφθηκε','PDF without server verification was accepted');
 assert.equal(result.pdfNoServer.protocolReady,false,'PDF without server verification set protocolReady');
 assert.match(result.pdfNoServer.alert,/κρυπτογραφική επαλήθευση/i,'missing-verifier rejection absent');
@@ -153,6 +193,7 @@ assert.equal(prod.length,0,'failure-path test attempted production Supabase: '+p
 console.log('PASS issue attachment fail-closed + Retry contract');
 console.log('PASS order media save/email fail-closed contract');
 console.log('PASS non-admin manage-user client guard');
+console.log('PASS atomic synchronization exact-version + stale-write contract');
 console.log('PASS PDF no/false verification fail-closed contract');
 console.log('PASS PDF verified:true without proof blocked before RPC');
 console.log('PASS transactional RPC failure leaves local state unchanged');

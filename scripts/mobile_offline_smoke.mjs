@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 const ORIGIN='http://127.0.0.1:4173';
 const PROD_SUPABASE_REF='nzrdcgmrsfdmocyhfrod';
+const launchOptions={headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE}:{})};
 const CDN_HOSTS=new Set(['cdn.jsdelivr.net','www.gstatic.com']);
 
 async function addSafeRouting(page, productionRequests){
@@ -15,7 +16,7 @@ async function addSafeRouting(page, productionRequests){
 }
 
 async function mobileCheck(path){
-  const browser=await chromium.launch({headless:true});
+  const browser=await chromium.launch(launchOptions);
   const context=await browser.newContext({viewport:{width:390,height:844},serviceWorkers:'block'});
   const page=await context.newPage();
   const productionRequests=[];
@@ -38,7 +39,7 @@ async function mobileCheck(path){
 }
 
 async function offlineShell(path){
-  const browser=await chromium.launch({headless:true});
+  const browser=await chromium.launch(launchOptions);
   const context=await browser.newContext({serviceWorkers:'allow'});
   const page=await context.newPage();
   const productionRequests=[];

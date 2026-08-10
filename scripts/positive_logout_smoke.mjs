@@ -4,8 +4,9 @@ import assert from 'node:assert/strict';
 const ORIGIN='http://127.0.0.1:4173';
 const PROD_SUPABASE_REF='nzrdcgmrsfdmocyhfrod';
 const CDN_HOSTS=new Set(['cdn.jsdelivr.net','www.gstatic.com']);
+const launchOptions={headless:true,...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE?{executablePath:process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE}:{})};
 
-const browser=await chromium.launch({headless:true});
+const browser=await chromium.launch(launchOptions);
 const context=await browser.newContext({serviceWorkers:'block'});
 const page=await context.newPage();
 const prod=[];
