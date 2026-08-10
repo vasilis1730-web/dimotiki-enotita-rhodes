@@ -1,21 +1,25 @@
-# RODIOS Supabase Edge Function configuration
-#
-# IMPORTANT: only functions whose source exists under supabase/functions/ are
-# declared here. Legacy deployed functions are intentionally NOT declared until
-# their real source is downloaded from Supabase, version-controlled and reviewed.
-#
-# citizen-attachments is invoked by a Firebase-authenticated citizen client.
-# Its Authorization identity is external to Supabase Auth, so the platform JWT
-# check must be disabled and the function MUST verify Firebase Auth + App Check
-# cryptographically inside the handler before any privileged action.
+# RODIOS Supabase Edge Function authentication policy — Gate G
+# Citizen endpoints use external Firebase identity and therefore verify Firebase
+# Auth + App Check inside the handler. Staff endpoints require a Supabase user JWT
+# at the gateway and independently enforce an active application profile in code.
+
+[functions.citizen-bridge]
+verify_jwt = false
 
 [functions.citizen-attachments]
 verify_jwt = false
 
-# Required policy once the missing legacy sources are brought into this repo:
-# - citizen-bridge: verify_jwt = false; verify Firebase identity in handler.
-# - manage-app-user: verify_jwt = true + server-side Administrator authorization.
-# - send-order-email: verify_jwt = true + active staff authorization.
-# - verify-pdf-signatures: verify_jwt = true + active staff authorization.
-# - parse-municipal-pdf: verify_jwt = true + active staff authorization and strict file validation.
-# - resolve-maps-link: verify_jwt = true + active staff authorization and SSRF-safe outbound URL rules.
+[functions.manage-app-user]
+verify_jwt = true
+
+[functions.send-order-email]
+verify_jwt = true
+
+[functions.verify-pdf-signatures]
+verify_jwt = true
+
+[functions.parse-municipal-pdf]
+verify_jwt = true
+
+[functions.resolve-maps-link]
+verify_jwt = true
