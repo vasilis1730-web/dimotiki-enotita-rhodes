@@ -18,6 +18,22 @@ function randomText(bytes = 12): string {
   return [...a].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function errorDetail(e: unknown) {
+  if (e instanceof Error) return { message: e.message, name: e.name, stack: e.stack?.split("\n").slice(0, 4).join("\n") };
+  if (e && typeof e === "object") {
+    const x = e as Record<string, unknown>;
+    return {
+      message: String(x.message ?? x.error_description ?? x.error ?? "Unknown object error"),
+      code: x.code ?? null,
+      details: x.details ?? null,
+      hint: x.hint ?? null,
+      status: x.status ?? null,
+      name: x.name ?? null,
+    };
+  }
+  return { message: String(e) };
+}
+
 async function json(req: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body, null, 2), {
     status,
@@ -41,6 +57,7 @@ Deno.serve(async (req: Request) => {
   if (!supabaseUrl || !anonKey || !serviceKey) return json(req, { ok: false, error: "Missing Supabase runtime credentials" }, 500);
 
   const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const diagnostics: TestResult[] = [];
   try {
     const ref = await requirePreviewGuard(admin, supabaseUrl);
     if (req.method === "GET") return json(req, { ok: true, ready: true, function: FUNCTION_NAME, previewRef: ref });
@@ -48,7 +65,7 @@ Deno.serve(async (req: Request) => {
 
     const run = `${Date.now().toString(36)}_${randomText(5)}`;
     const password = `R0dios-${randomText(12)}!Aa1`;
-    const results: TestResult[] = [];
+    const results = diagnostics;
     const createdUserIds: string[] = [];
     const profileIds: string[] = [];
     const storagePaths: string[] = [];
@@ -66,7 +83,7 @@ Deno.serve(async (req: Request) => {
 
     async function addResult(name: string, fn: () => Promise<unknown>) {
       try { const detail = await fn(); results.push({ name, ok: true, detail }); }
-      catch (e) { results.push({ name, ok: false, detail: e instanceof Error ? e.message : String(e) }); throw e; }
+      catch (e) { results.push({ name, ok: false, detail: errorDetail(e) }); throw e; }
     }
 
     async function createAuthUser(email: string) {
@@ -95,18 +112,21 @@ Deno.serve(async (req: Request) => {
         return { created: 4 };
       });
 
-      const profileRows = (["admin", "manager", "user"] as const).map((tier) => {
-        const id = `it_${tier}_${run}`;
-        profileIds.push(id);
-        return {
-          id,
-          auth_user_id: authUsers[tier].id,
-          data: { id, name: `Integration ${tier}`, email: emails[tier], tier, role: tier, username: id, canOrders: true, canEdit: true },
-          deleted_at: null,
-        };
+      await addResult("real_app_profile_bindings", async () => {
+        const profileRows = (["admin", "manager", "user"] as const).map((tier) => {
+          const id = `it_${tier}_${run}`;
+          profileIds.push(id);
+          return {
+            id,
+            auth_user_id: authUsers[tier].id,
+            data: { id, name: `Integration ${tier}`, email: emails[tier], tier, role: tier, username: id, canOrders: true, canEdit: true },
+            deleted_at: null,
+          };
+        });
+        const { error } = await admin.from("rodios_app_users").upsert(profileRows, { onConflict: "id" });
+        if (error) throw error;
+        return { bound: 3 };
       });
-      const { error: profileError } = await admin.from("rodios_app_users").upsert(profileRows, { onConflict: "id" });
-      if (profileError) throw profileError;
 
       const clients: Record<string, SupabaseClient> = {};
       await addResult("real_auth_sign_in_password", async () => {
@@ -253,6 +273,6 @@ Deno.serve(async (req: Request) => {
       try { await admin.from("rodios_sequences").delete().eq("kind", "issue").eq("year", seqYear); } catch (_) {}
     }
   } catch (e) {
-    return json(req, { ok: false, function: FUNCTION_NAME, error: e instanceof Error ? e.message : String(e) }, 500);
+    return json(req, { ok: false, function: FUNCTION_NAME, error: errorDetail(e), results: diagnostics }, 500);
   }
 });
