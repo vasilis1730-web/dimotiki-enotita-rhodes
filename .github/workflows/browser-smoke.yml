@@ -12,6 +12,7 @@ on:
       - 'sw.js'
       - 'scripts/browser_smoke.mjs'
       - 'scripts/mobile_offline_smoke.mjs'
+      - 'scripts/failure_path_smoke.mjs'
       - '.github/workflows/browser-smoke.yml'
   workflow_dispatch:
 
@@ -46,6 +47,8 @@ jobs:
         run: node scripts/browser_smoke.mjs
       - name: Run mobile and offline/reconnect smoke
         run: node scripts/mobile_offline_smoke.mjs
+      - name: Run fail-closed functional paths
+        run: node scripts/failure_path_smoke.mjs
       - name: Show local server log on failure
         if: failure()
         run: cat /tmp/rodios-http.log || true
