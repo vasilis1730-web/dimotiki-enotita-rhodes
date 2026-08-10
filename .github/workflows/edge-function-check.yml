@@ -1,0 +1,44 @@
+name: Edge Function check
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/**'
+      - '.github/workflows/edge-function-check.yml'
+  push:
+    branches:
+      - staging-production-hardening
+    paths:
+      - 'supabase/functions/**'
+      - '.github/workflows/edge-function-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deno-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Deno version
+        run: deno --version
+      - name: Type-check Edge Functions
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r -d '' file; do
+            found=1
+            echo "::group::deno check $file"
+            deno check "$file"
+            echo "::endgroup::"
+          done < <(find supabase/functions -mindepth 2 -maxdepth 2 -name index.ts -print0 | sort -z)
+          if [ "$found" -eq 0 ]; then
+            echo 'No Edge Function index.ts files found.' >&2
+            exit 1
+          fi
+      - name: Dependency summary
+        run: deno info supabase/functions/citizen-attachments/index.ts
