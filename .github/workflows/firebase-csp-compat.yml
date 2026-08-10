@@ -1,0 +1,51 @@
+name: Firebase CSP compatibility patch
+
+on:
+  push:
+    branches:
+      - staging-production-hardening
+    paths:
+      - '.github/workflows/firebase-csp-compat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging-production-hardening
+          fetch-depth: 0
+      - name: Patch citizen CSP
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          origin='https://dimosrodou-otp.firebaseapp.com'
+          if s.count('Content-Security-Policy') != 1:
+              raise SystemExit('expected exactly one CSP')
+          if origin in s:
+              raise SystemExit('Firebase authDomain already present')
+          old_connect="https://firebaseappcheck.googleapis.com https://www.google.com"
+          new_connect="https://firebaseappcheck.googleapis.com https://dimosrodou-otp.firebaseapp.com https://www.google.com"
+          old_frame="https://*.supabase.co https://www.google.com"
+          new_frame="https://*.supabase.co https://dimosrodou-otp.firebaseapp.com https://www.google.com"
+          if s.count(old_connect)!=1 or s.count(old_frame)!=1:
+              raise SystemExit('CSP markers missing or ambiguous')
+          s=s.replace(old_connect,new_connect,1).replace(old_frame,new_frame,1)
+          if s.count(origin)!=2:
+              raise SystemExit(f'expected Firebase authDomain twice in CSP, found {s.count(origin)}')
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit CSP patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'security(staging): allow Firebase auth helper in citizen CSP'
+          git push origin HEAD:staging-production-hardening
