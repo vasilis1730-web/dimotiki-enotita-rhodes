@@ -33,9 +33,14 @@ const result=await page.evaluate(async()=>{
   // 1) Issue save must fail before numbering/persistence when an attachment is unresolved.
   document.getElementById('i_id').value='';
   document.getElementById('i_date').value='2026-08-10';
-  document.getElementById('i_cat').value='Οδοποιία';
-  // title/location are ordinary text/select fields in the current modal; values only need to be non-empty.
-  document.getElementById('i_title').value='STAGING TEST';
+  document.getElementById('i_cat').value='Οδοστρωσία';
+  onCategoryChange();
+  const titleEl=document.getElementById('i_title');
+  const firstTitle=Array.from(titleEl.options).find(o=>o.value)?.value || 'STAGING TEST';
+  if(!Array.from(titleEl.options).some(o=>o.value===firstTitle)){
+    const opt=document.createElement('option'); opt.value=firstTitle; opt.textContent=firstTitle; titleEl.appendChild(opt);
+  }
+  titleEl.value=firstTitle;
   document.getElementById('i_location').value='STAGING LOCATION';
   _issueAttachments=[{name:'failed.jpg',upload_failed:true,_file:{name:'failed.jpg'}}];
   let numberingCalls=0;
@@ -44,13 +49,14 @@ const result=await page.evaluate(async()=>{
   const issuesBefore=issues.length;
   await saveIssue();
   out.issueBlocked={
+    category:document.getElementById('i_cat').value,
+    title:document.getElementById('i_title').value,
     numberingCalls,
     issuesDelta:issues.length-issuesBefore,
     alert:alerts.at(-1)||''
   };
   window.nextIssueNumAsync=originalNext;
 
-  // Retry path must remain available as an explicit function.
   out.retryFunction=typeof retryIssueAttachment;
 
   // 2) Order save must fail before reading the rest of the form when media is unresolved.
@@ -102,11 +108,7 @@ const result=await page.evaluate(async()=>{
   out.pdfVerifiedFalse={status:workOrders[0].status,protocolReady:!!workOrders[0]._protocolReady,alert:alerts.at(-1)||''};
 
   // 6) CSV export neutralizer must change dangerous leading spreadsheet formulas only in export representation.
-  out.csv={
-    eq:_csvSafeCell('=1+1'),
-    plus:_csvSafeCell('+SUM(A1:A2)'),
-    safe:_csvSafeCell('κανονικό κείμενο')
-  };
+  out.csv={eq:_csvSafeCell('=1+1'),plus:_csvSafeCell('+SUM(A1:A2)'),safe:_csvSafeCell('κανονικό κείμενο')};
 
   window.alert=originalAlert;
   window.toast=originalToast;
@@ -115,29 +117,23 @@ const result=await page.evaluate(async()=>{
 
 assert.equal(result.issueBlocked.numberingCalls,0,'failed attachment burned/asked for issue number');
 assert.equal(result.issueBlocked.issuesDelta,0,'failed attachment allowed issue persistence');
-assert.match(result.issueBlocked.alert,/Retry|μεταφορτωθεί/i,'failed attachment did not show retry/block message');
+assert.match(result.issueBlocked.alert,/Retry|μεταφορτωθεί/i,`failed attachment did not show retry/block message; cat=${result.issueBlocked.category} title=${result.issueBlocked.title} alert=${result.issueBlocked.alert}`);
 assert.equal(result.retryFunction,'function','retryIssueAttachment is missing');
-
 assert.equal(result.orderBlocked.ordersDelta,0,'unresolved order media allowed save');
 assert.match(result.orderBlocked.toast,/Retry|δεν μεταφορτώθηκαν/i,'unresolved order media did not block save');
-
 assert.equal(result.emailBlocked.threw,true,'unresolved order media allowed email payload');
 assert.match(result.emailBlocked.message,/ακυρώθηκε|δεν μεταφορτώθηκαν/i,'email media failure message missing');
-
 assert.equal(result.manageUserBlocked.threw,true,'manager could call manageAppUser');
 assert.equal(result.manageUserBlocked.supabaseRequested,false,'manager reached Supabase before client guard');
 assert.match(result.manageUserBlocked.message,/Administrator/i,'manager user-management denial message missing');
-
 assert.notEqual(result.pdfNoServer.status,'Παραλήφθηκε','PDF without server verification was accepted');
 assert.equal(result.pdfNoServer.protocolReady,false,'PDF without server verification set protocolReady');
 assert.match(result.pdfNoServer.alert,/κρυπτογραφική επαλήθευση/i,'missing-verifier rejection absent');
 assert.notEqual(result.pdfVerifiedFalse.status,'Παραλήφθηκε','verified:false PDF was accepted');
 assert.equal(result.pdfVerifiedFalse.protocolReady,false,'verified:false PDF set protocolReady');
-
 assert.match(result.csv.eq,/^"'/,'formula starting = was not neutralized');
 assert.match(result.csv.plus,/^"'/,'formula starting + was not neutralized');
 assert.equal(result.csv.safe,'"κανονικό κείμενο"','safe CSV text was unexpectedly altered');
-
 assert.equal(prod.length,0,'failure-path test attempted production Supabase: '+prod.join(', '));
 console.log('PASS issue attachment fail-closed + Retry contract');
 console.log('PASS order media save/email fail-closed contract');
