@@ -8,7 +8,7 @@
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
   import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
-  import { initializeAppCheck, ReCaptchaV3Provider } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js';
+  import { initializeAppCheck, ReCaptchaV3Provider, getToken as getAppCheckToken } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js';
 
   const _fbApp = initializeApp({apiKey:"AIzaSyATvkHqSyyVxVD8UujQQnj_wdR2Kc306wA",authDomain:"dimosrodou-otp.firebaseapp.com",projectId:"dimosrodou-otp",appId:"1:315292350668:web:8288883847d24ac33e2a69"});
 
@@ -27,6 +27,14 @@
   } else {
     console.info('Firebase App Check not enabled: missing reCAPTCHA site key.');
   }
+
+  // Gate G: custom Supabase citizen backends require a valid Firebase App Check token.
+  window._getAppCheckToken = async function(){
+    if(!window._appCheck) throw new Error('Firebase App Check is not available');
+    const r = await getAppCheckToken(window._appCheck, false);
+    if(!r || !r.token) throw new Error('Firebase App Check token is unavailable');
+    return r.token;
+  };
 
   const _fbAuthInst = getAuth(_fbApp); _fbAuthInst.languageCode='el';
   window._fbAuth=_fbAuthInst; window._RecaptchaVerifier=RecaptchaVerifier;
@@ -657,13 +665,18 @@ async function parseMapsLink(){
 async function callCitizenAttachmentsJson(action, payload){
   const idToken = await getIdToken();
   if(!idToken) return {ok:false,noAuth:true};
+  let appCheckToken='';
+  try{ appCheckToken = window._getAppCheckToken ? await window._getAppCheckToken() : ''; }
+  catch(e){ console.warn('App Check token failed:',e); }
+  if(!appCheckToken) return {ok:false,status:401,error:'Η ασφαλής επαλήθευση της εφαρμογής δεν είναι διαθέσιμη.'};
   try{
     const res = await fetch(CITIZEN_ATTACHMENTS_URL, {
       method:'POST',
       headers:{
         'Content-Type':'application/json',
         'apikey':SUPABASE_KEY,
-        'x-firebase-id-token':idToken
+        'x-firebase-id-token':idToken,
+        'x-firebase-appcheck':appCheckToken
       },
       body:JSON.stringify(Object.assign({action},payload||{}))
     });
@@ -704,12 +717,14 @@ async function handleFiles(fileList){
     try{
       const idToken=await getIdToken();
       if(!idToken) throw new Error('Η σύνδεση έληξε. Συνδεθείτε ξανά.');
+      const appCheckToken = window._getAppCheckToken ? await window._getAppCheckToken() : '';
+      if(!appCheckToken) throw new Error('Η ασφαλής επαλήθευση της εφαρμογής δεν είναι διαθέσιμη.');
       const fd=new FormData();
       fd.append('action','upload');
       fd.append('file',f,f.name);
       const res=await fetch(CITIZEN_ATTACHMENTS_URL,{
         method:'POST',
-        headers:{'apikey':SUPABASE_KEY,'x-firebase-id-token':idToken},
+        headers:{'apikey':SUPABASE_KEY,'x-firebase-id-token':idToken,'x-firebase-appcheck':appCheckToken},
         body:fd
       });
       let data=null; try{data=await res.json();}catch(_){}
