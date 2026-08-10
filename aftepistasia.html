@@ -8,7 +8,8 @@
   <meta name="description" content="ΡΟΔΙΟΣ - Εφαρμογή για υποβολή και διαχείριση αιτημάτων πολιτών προς υπηρεσίες αυτεπιστασίας στη Ρόδο.">
   <meta name="robots" content="index, follow">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.gstatic.com https://www.google.com https://www.recaptcha.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co https://*.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://firebaseappcheck.googleapis.com https://www.google.com https://www.recaptcha.net; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; frame-src 'self' data: blob: https://*.supabase.co https://www.google.com https://www.recaptcha.net; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.9"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <title>ΡΟΔΙΟΣ - Αιτήματα Πολιτών</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231a3a5c'/%3E%3Cpath d='M10 32 32 14l22 18H10Z' fill='%23ffffff'/%3E%3Crect x='14' y='32' width='36' height='20' rx='3' fill='%23ffffff'/%3E%3Crect x='20' y='37' width='6' height='10' fill='%231a3a5c'/%3E%3Crect x='29' y='37' width='6' height='15' fill='%231a3a5c'/%3E%3Crect x='38' y='37' width='6' height='10' fill='%231a3a5c'/%3E%3Ccircle cx='32' cy='11' r='4' fill='%23f0b429'/%3E%3C/svg%3E">
@@ -354,8 +355,8 @@ tr:hover td{background:#faf9f7;}
 </style>
   <!-- v9.19.8: Το Firebase SDK αφαιρέθηκε — η εφαρμογή προσωπικού χρησιμοποιεί
        αποκλειστικά Supabase Auth. Η είσοδος πολιτών ζει στη χωριστή εφαρμογή ΡΟΔΙΟΣ. -->
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#1a2744">
+  <link rel="manifest" href="manifest-staff.json">
+  <meta name="theme-color" content="#1a3a5c">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
