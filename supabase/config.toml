@@ -1,30 +1,21 @@
-# RODIOS Supabase Edge Function authentication policy
+# RODIOS Supabase Edge Function configuration
 #
-# Citizen functions receive an external Firebase ID token. The Supabase gateway
-# therefore cannot validate them as Supabase JWTs; those functions MUST verify
-# the Firebase token cryptographically inside the function before any privileged action.
+# IMPORTANT: only functions whose source exists under supabase/functions/ are
+# declared here. Legacy deployed functions are intentionally NOT declared until
+# their real source is downloaded from Supabase, version-controlled and reviewed.
 #
-# Staff functions are called only after real Supabase Auth login and MUST keep
-# the gateway JWT verification enabled. Server code must additionally authorize
-# the authenticated user/profile/role as appropriate; verify_jwt alone is not authorization.
-
-[functions.citizen-bridge]
-verify_jwt = false
+# citizen-attachments is invoked by a Firebase-authenticated citizen client.
+# Its Authorization identity is external to Supabase Auth, so the platform JWT
+# check must be disabled and the function MUST verify Firebase Auth + App Check
+# cryptographically inside the handler before any privileged action.
 
 [functions.citizen-attachments]
 verify_jwt = false
 
-[functions.manage-app-user]
-verify_jwt = true
-
-[functions.send-order-email]
-verify_jwt = true
-
-[functions.verify-pdf-signatures]
-verify_jwt = true
-
-[functions.parse-municipal-pdf]
-verify_jwt = true
-
-[functions.resolve-maps-link]
-verify_jwt = true
+# Required policy once the missing legacy sources are brought into this repo:
+# - citizen-bridge: verify_jwt = false; verify Firebase identity in handler.
+# - manage-app-user: verify_jwt = true + server-side Administrator authorization.
+# - send-order-email: verify_jwt = true + active staff authorization.
+# - verify-pdf-signatures: verify_jwt = true + active staff authorization.
+# - parse-municipal-pdf: verify_jwt = true + active staff authorization and strict file validation.
+# - resolve-maps-link: verify_jwt = true + active staff authorization and SSRF-safe outbound URL rules.
