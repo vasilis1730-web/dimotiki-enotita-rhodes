@@ -1,3 +1,4 @@
+# Gate H browser suite — GitHub Actions localhost only; never production traffic.
 name: Browser smoke (staging only)
 
 on:
