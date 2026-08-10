@@ -309,7 +309,7 @@ end $$;
 
 -- Exact proof + exact order set must atomically update order, linked issue and one payment.
 do $$
-declare r jsonb; amt numeric; used timestamptz;
+declare r jsonb; amt numeric;
 begin
   select public.rodios_finalize_verified_acceptance(
     '20000000-0000-4000-8000-000000000001'::uuid,
@@ -321,8 +321,6 @@ begin
   select case when coalesce(data->>'amount','') ~ '^-?[0-9]+([.][0-9]+)?$' then (data->>'amount')::numeric else -1 end into amt
   from public.rodios_payments where work_order_id='stg_accept_wo' and deleted_at is null and coalesce(data->>'isPenalty','false')<>'true';
   if amt <> 175 then raise exception 'GATE_H5_FAIL: expected atomic payment 175, got %',amt; end if;
-  select used_at into used from public.rodios_pdf_verification_proofs where id='20000000-0000-4000-8000-000000000001'::uuid;
-  if used is null then raise exception 'GATE_H5_FAIL: proof was not consumed'; end if;
 end $$;
 
 -- Replay must fail.
@@ -361,6 +359,15 @@ begin
 end $$;
 
 reset role;
+
+-- Owner-level inspection confirms the proof was consumed without granting clients table access.
+do $$
+declare used timestamptz;
+begin
+  select used_at into used from public.rodios_pdf_verification_proofs
+  where id='20000000-0000-4000-8000-000000000001'::uuid;
+  if used is null then raise exception 'GATE_H5_FAIL: proof was not consumed'; end if;
+end $$;
 
 -- Clean behavioral probe rows so the ordinary synthetic dataset remains small.
 delete from public.rodios_payments where work_order_id='stg_accept_wo';
