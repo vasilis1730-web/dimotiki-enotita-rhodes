@@ -26,7 +26,6 @@ const result=await page.evaluate(async()=>{
   const out={};
   const originalAlert=window.alert;
   const originalToast=window.toast;
-  const originalSaveNow=window.saveNow;
   const originalRenderAll=window.renderAll;
   const originalCloseSigModal=window.closeSigModal;
   const originalGetSupabase=window.getSupabase;
@@ -34,36 +33,49 @@ const result=await page.evaluate(async()=>{
   window.alert=m=>alerts.push(String(m));
   window.toast=m=>toasts.push(String(m));
 
-  // Positive client acceptance is permitted only with explicit server verified:true.
   settings.eSignUsers=[{name:'A'},{name:'B'},{name:'C'}];
   const fakePdf='data:application/pdf;base64,'+btoa('%PDF-1.7');
-  payments=[];
-  workOrders=[{
-    id:'wo_positive_sig',orderNum:'ΕΝΤ-2099-010',status:'Σε εξέλιξη',issueId:null,
+  const proofId='20000000-0000-4000-8000-000000000010';
+  const localOrder={
+    id:'wo_positive_sig',orderNum:'ΕΝΤ-2099-010',status:'Σε εξέλιξη',issueId:'issue_positive',
     signedPdfData:fakePdf,signedPdfName:'verified-by-server.pdf',
-    _edgeResult:{verified:true,count:3,signatureCount:3},_edgeSigCount:3,
-    items:[],penaltyAmount:0
-  }];
+    _edgeResult:{verified:true,count:3,signatureCount:3,verificationProofId:proofId},_edgeSigCount:3,
+    items:[{qty:2,unitPrice:100}],discountPct:10,penaltyAmount:5
+  };
+  workOrders=[structuredClone(localOrder)];
+  issues=[{id:'issue_positive',status:'Σε εξέλιξη',title:'Before server response'}];
+  payments=[];
   _sigOrderId='wo_positive_sig';
-  let saveNowCalls=0, renderAllCalls=0, closeSigCalls=0;
-  window.saveNow=async()=>{saveNowCalls++;};
+
+  const serverOrder={...structuredClone(localOrder),status:'Παραλήφθηκε',completionDate:'2099-01-02',_protocolReady:true,verificationProofId:proofId,pdfSha256:'a'.repeat(64)};
+  const serverIssue={id:'issue_positive',status:'Ολοκληρωμένο',title:'Before server response',completionDate:'2099-01-02'};
+  const serverPayment={id:'payment_positive',orderId:'wo_positive_sig',amount:175,autoCreated:true,isPenalty:false,date:'2099-01-02'};
+  let rpcCalls=0; let rpcName=''; let rpcArgs=null;
+  window.getSupabase=()=>({rpc:async(name,args)=>{
+    rpcCalls++; rpcName=name; rpcArgs=args;
+    return {data:{ok:true,proofId,pdfSha256:'a'.repeat(64),orderIds:['wo_positive_sig'],orders:[serverOrder],issues:[serverIssue],payments:[serverPayment]},error:null};
+  }});
+  let renderAllCalls=0, closeSigCalls=0;
   window.renderAll=()=>{renderAllCalls++;};
   window.closeSigModal=()=>{closeSigCalls++;};
+
   await finalizeAcceptance();
   out.pdfPositive={
+    rpcCalls,rpcName,rpcArgs,
     status:workOrders[0].status,
     protocolReady:!!workOrders[0]._protocolReady,
     completionDate:workOrders[0].completionDate||'',
-    autoPayments:payments.filter(p=>p.orderId==='wo_positive_sig'&&p.autoCreated).length,
-    saveNowCalls,renderAllCalls,closeSigCalls,
+    issueStatus:issues.find(i=>i.id==='issue_positive')?.status||'',
+    paymentCount:payments.filter(p=>p.orderId==='wo_positive_sig'&&p.autoCreated).length,
+    paymentAmount:payments.find(p=>p.orderId==='wo_positive_sig')?.amount??null,
+    renderAllCalls,closeSigCalls,
     alert:alerts.at(-1)||'',toast:toasts.at(-1)||''
   };
 
-  window.saveNow=originalSaveNow;
   window.renderAll=originalRenderAll;
   window.closeSigModal=originalCloseSigModal;
 
-  // Full logout path: signOut + operational purge + return to login UI.
+  // Full logout path remains unchanged after the acceptance refactor.
   currentUser={id:'admin',tier:'admin',email:'rodios-admin-staging@rhodes.gr',canOrders:true};
   document.getElementById('headerUser').style.display='block';
   document.getElementById('loginScreen').style.display='none';
@@ -90,14 +102,19 @@ const result=await page.evaluate(async()=>{
   return out;
 });
 
-assert.equal(result.pdfPositive.status,'Παραλήφθηκε','verified:true PDF did not enter accepted state');
-assert.equal(result.pdfPositive.protocolReady,true,'verified:true PDF did not set protocolReady');
-assert(result.pdfPositive.completionDate,'verified:true PDF did not set completionDate');
-assert.equal(result.pdfPositive.autoPayments,1,'verified:true acceptance did not auto-create exactly one payment');
-assert.equal(result.pdfPositive.alert,'','verified:true PDF unexpectedly alerted rejection');
-assert.equal(result.pdfPositive.saveNowCalls,1,'verified:true acceptance did not invoke persistence path exactly once');
-assert.equal(result.pdfPositive.renderAllCalls,1,'verified:true acceptance did not rerender exactly once');
-assert.equal(result.pdfPositive.closeSigCalls,1,'verified:true acceptance did not close signature modal exactly once');
+assert.equal(result.pdfPositive.rpcCalls,1,'proof acceptance did not call exactly one RPC');
+assert.equal(result.pdfPositive.rpcName,'rodios_finalize_verified_acceptance','wrong acceptance RPC');
+assert.equal(result.pdfPositive.rpcArgs.p_proof_id,'20000000-0000-4000-8000-000000000010','wrong proof ID sent');
+assert.deepEqual(result.pdfPositive.rpcArgs.p_expected_order_ids,['wo_positive_sig'],'wrong order ID set sent');
+assert.equal(result.pdfPositive.status,'Παραλήφθηκε','client did not merge server accepted order');
+assert.equal(result.pdfPositive.protocolReady,true,'client did not merge server protocolReady');
+assert.equal(result.pdfPositive.completionDate,'2099-01-02','client did not use server completionDate');
+assert.equal(result.pdfPositive.issueStatus,'Ολοκληρωμένο','client did not merge server linked issue');
+assert.equal(result.pdfPositive.paymentCount,1,'client did not merge exactly one server-created payment');
+assert.equal(result.pdfPositive.paymentAmount,175,'client altered server-calculated payment amount');
+assert.equal(result.pdfPositive.alert,'','successful proof RPC unexpectedly alerted rejection');
+assert.equal(result.pdfPositive.renderAllCalls,1,'successful proof RPC did not rerender exactly once');
+assert.equal(result.pdfPositive.closeSigCalls,1,'successful proof RPC did not close signature modal exactly once');
 
 assert.equal(result.logout.signOutCalls,1,'doLogout did not call Supabase auth.signOut exactly once');
 assert.equal(result.logout.currentUserIsNull,true,'doLogout left currentUser populated');
@@ -106,7 +123,7 @@ assert.equal(result.logout.headerDisplay,'none','doLogout left header user visib
 for(const [k,v] of Object.entries(result.logout.keys)) assert.equal(v,null,`doLogout left operational key ${k}`);
 assert.equal(prod.length,0,'positive/logout test attempted production Supabase: '+prod.join(', '));
 
-console.log('PASS PDF verified:true positive client acceptance path');
+console.log('PASS server-proof RPC success merges authoritative order/issue/payment rows');
 console.log('PASS full doLogout signOut + purge + login return');
 console.log('POSITIVE_LOGOUT_SMOKE_PASS');
 await browser.close();
