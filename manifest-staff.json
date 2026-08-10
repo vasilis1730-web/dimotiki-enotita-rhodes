@@ -1,0 +1,19 @@
+{
+  "name": "ΡΟΔΙΟΣ — Υπηρεσιακή Διαχείριση",
+  "short_name": "ΡΟΔΙΟΣ Staff",
+  "description": "Υπηρεσιακή εφαρμογή του Δήμου Ρόδου για διαχείριση αιτημάτων, εντολών εργασίας και αυτεπιστασίας.",
+  "id": "/dimotiki-enotita-rhodes/aftepistasia.html",
+  "start_url": "/dimotiki-enotita-rhodes/aftepistasia.html",
+  "scope": "/dimotiki-enotita-rhodes/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f3f1ec",
+  "theme_color": "#1a3a5c",
+  "lang": "el",
+  "icons": [
+    {"src":"icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"icon-192.png","sizes":"192x192","type":"image/png","purpose":"maskable"},
+    {"src":"icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},
+    {"src":"icon-512.png","sizes":"512x512","type":"image/png","purpose":"maskable"}
+  ]
+}
