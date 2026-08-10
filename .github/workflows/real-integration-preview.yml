@@ -50,23 +50,29 @@ jobs:
           echo 'Supabase Preview did not reach a fully green state for the current commit.' >&2
           exit 1
 
-      - name: Verify disposable test runner guard is live
+      - name: Verify disposable test runners are live
         env:
           PREVIEW_REF: ${{ steps.preview.outputs.preview_ref }}
         run: |
           set -euo pipefail
-          url="https://${PREVIEW_REF}.supabase.co/functions/v1/staging-real-integration"
-          for i in $(seq 1 40); do
-            code=$(curl -sS -o /tmp/ready.json -w '%{http_code}' "$url" || true)
-            if [ "$code" = '200' ] && jq -e '.ok==true and .ready==true' /tmp/ready.json >/dev/null 2>&1; then
-              jq . /tmp/ready.json
-              exit 0
+          for fn in staging-real-integration staging-citizen-security-probe; do
+            url="https://${PREVIEW_REF}.supabase.co/functions/v1/${fn}"
+            ready=0
+            for i in $(seq 1 40); do
+              code=$(curl -sS -o "/tmp/${fn}.json" -w '%{http_code}' "$url" || true)
+              if [ "$code" = '200' ] && jq -e '.ok==true and .ready==true' "/tmp/${fn}.json" >/dev/null 2>&1; then
+                jq . "/tmp/${fn}.json"
+                ready=1
+                break
+              fi
+              sleep 3
+            done
+            if [ "$ready" != '1' ]; then
+              cat "/tmp/${fn}.json" 2>/dev/null || true
+              echo "Disposable runner ${fn} did not become ready." >&2
+              exit 1
             fi
-            sleep 3
           done
-          cat /tmp/ready.json 2>/dev/null || true
-          echo 'Disposable integration runner did not become ready.' >&2
-          exit 1
 
       - name: Run real Auth / RLS / Storage / Edge / ACK integration suite once
         env:
@@ -77,13 +83,26 @@ jobs:
           code=$(curl -sS -o real-integration-result.json -w '%{http_code}' -X POST "$url")
           cat real-integration-result.json | jq .
           test "$code" = '200'
-          jq -e '.ok==true and .realNetwork==true and ((.results | length) >= 8) and all(.results[]; .ok==true)' real-integration-result.json >/dev/null
+          jq -e '.ok==true and .realNetwork==true and ((.results | length) >= 10) and all(.results[]; .ok==true)' real-integration-result.json >/dev/null
 
-      - name: Upload sanitized integration result
+      - name: Run real citizen negative-security HTTP suite
+        env:
+          PREVIEW_REF: ${{ steps.preview.outputs.preview_ref }}
+        run: |
+          set -euo pipefail
+          url="https://${PREVIEW_REF}.supabase.co/functions/v1/staging-citizen-security-probe"
+          code=$(curl -sS -o citizen-security-result.json -w '%{http_code}' -X POST "$url")
+          cat citizen-security-result.json | jq .
+          test "$code" = '200'
+          jq -e '.ok==true and .realNetwork==true and (.results|length)==10 and all(.results[]; .ok==true)' citizen-security-result.json >/dev/null
+
+      - name: Upload sanitized integration results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: real-supabase-integration-result
-          path: real-integration-result.json
+          name: real-supabase-integration-results
+          path: |
+            real-integration-result.json
+            citizen-security-result.json
           if-no-files-found: ignore
           retention-days: 7
