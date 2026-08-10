@@ -7532,9 +7532,7 @@ async function prepareContractorEmailPayload(wo){
   if(!email) throw new Error('Δεν έχει οριστεί email αναδόχου στις Ρυθμίσεις.');
   const subject = 'Εντολή Εργασίας ' + wo.orderNum;
   let body = buildEmailBody(wo);
-  if(wo.orderType !== 'service'){
-    try { body += await buildAckCompletionText(wo); } catch(e){ console.error('ack link failed:', e); }
-  }
+  // Gate H: do not create ACK tokens/rows before media validation succeeds.
   // Refresh from the linked request before sending, so old/stale copied attachments are corrected.
   const allAtts = getEffectiveOrderAttachments(wo);
   wo.attachments = cloneAttachments(allAtts);
@@ -7545,6 +7543,10 @@ async function prepareContractorEmailPayload(wo){
     .concat(Array.isArray(wo.mediaAfter)?wo.mediaAfter:[])
     .filter(m=>m&&(m.upload_failed||(m.data&&!m.path)));
   if(unresolvedMedia.length) throw new Error('Υπάρχουν '+unresolvedMedia.length+' αρχεία εντολής που δεν μεταφορτώθηκαν στο ασφαλές Storage. Η αποστολή ακυρώθηκε.');
+  // Only after all media is durable may we create the contractor ACK capability.
+  if(wo.orderType !== 'service'){
+    try { body += await buildAckCompletionText(wo); } catch(e){ console.error('ack link failed:', e); }
+  }
   // Body: request-attachment links (existing safety net).
   body += attachmentLinksBlock(wo);
   // Gather ALL sendable files: request attachments + the order's BEFORE/AFTER photos.
