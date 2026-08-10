@@ -1,0 +1,34 @@
+name: Fix Gate E alert syntax
+
+on:
+  push:
+    branches:
+      - staging-production-hardening
+    paths:
+      - 'scripts/fix_gate_e_alert.py'
+      - '.github/workflows/fix-gate-e-alert.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging-production-hardening
+          fetch-depth: 0
+      - name: Apply guarded Gate E syntax fix
+        run: python3 scripts/fix_gate_e_alert.py
+      - name: Verify inline JavaScript syntax
+        run: python3 scripts/check_inline_js.py
+      - name: Commit fix
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add aftepistasia.html
+          git commit -m 'fix(staging): repair Gate E alert JavaScript syntax'
+          git push origin HEAD:staging-production-hardening
