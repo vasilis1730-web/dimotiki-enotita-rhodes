@@ -2,6 +2,11 @@ name: Citizen positive Firebase E2E (disposable preview only)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - staging-real-integration
+    paths:
+      - '.ci/run-citizen-positive'
 
 permissions:
   contents: read
