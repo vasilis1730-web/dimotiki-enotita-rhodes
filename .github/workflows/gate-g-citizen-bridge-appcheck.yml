@@ -26,40 +26,25 @@ jobs:
           from pathlib import Path
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
-          old="""  const idToken = await getIdToken();
-          if(!idToken) return { ok:false, noAuth:true };
-          try{
-            const res = await fetch(BRIDGE_URL, {
-              method:'POST',
-              headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY },
-              body: JSON.stringify(Object.assign({ action, idToken }, payload||{}))
-            });"""
-          # Source indentation may differ; normalize only for locating this exact logical block.
-          if old not in s:
-              old=old.replace('          ','')
-          new="""  const idToken = await getIdToken();
-          if(!idToken) return { ok:false, noAuth:true };
-          let appCheckToken='';
-          try{ appCheckToken = window._getAppCheckToken ? await window._getAppCheckToken() : ''; }catch(_){ appCheckToken=''; }
-          if(!appCheckToken) return { ok:false, status:401, error:'Η ασφαλής επαλήθευση της εφαρμογής δεν είναι διαθέσιμη.' };
-          try{
-            const res = await fetch(BRIDGE_URL, {
-              method:'POST',
-              headers:{
-                'Content-Type':'application/json',
-                'apikey':SUPABASE_KEY,
-                'x-firebase-id-token':idToken,
-                'x-firebase-appcheck':appCheckToken
-              },
-              body: JSON.stringify(Object.assign({ action, idToken }, payload||{}))
-            });"""
-          if old.startswith('const '):
-              new=new.replace('          ','')
-          n=s.count(old)
-          if n!=1: raise SystemExit(f'expected one citizen bridge block, found {n}')
-          s=s.replace(old,new,1)
+          start=s.find('async function callBridge(action, payload){')
+          end=s.find('// ════════════════ PRIVATE ATTACHMENTS', start)
+          if start < 0 or end < 0 or end <= start:
+              raise SystemExit('citizen bridge markers not found')
+          seg=s[start:end]
+          if "'x-firebase-appcheck':appCheckToken" in seg:
+              raise SystemExit('bridge already patched')
+          needle="  if(!idToken) return { ok:false, noAuth:true };\n"
+          if seg.count(needle)!=1:
+              raise SystemExit(f'idToken guard expected once, found {seg.count(needle)}')
+          seg=seg.replace(needle, needle+"  let appCheckToken='';\n  try{ appCheckToken = window._getAppCheckToken ? await window._getAppCheckToken() : ''; }catch(_){ appCheckToken=''; }\n  if(!appCheckToken) return { ok:false, status:401, error:'Η ασφαλής επαλήθευση της εφαρμογής δεν είναι διαθέσιμη.' };\n",1)
+          old="headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY },"
+          new="headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY, 'x-firebase-id-token':idToken, 'x-firebase-appcheck':appCheckToken },"
+          if seg.count(old)!=1:
+              raise SystemExit(f'bridge header expected once, found {seg.count(old)}')
+          seg=seg.replace(old,new,1)
           for required in ["'x-firebase-id-token':idToken","'x-firebase-appcheck':appCheckToken","if(!appCheckToken)"]:
-              if required not in s: raise SystemExit('missing invariant: '+required)
+              if required not in seg: raise SystemExit('missing invariant: '+required)
+          s=s[:start]+seg+s[end:]
           p.write_text(s,encoding='utf-8')
           PY
       - name: Commit patched citizen client
