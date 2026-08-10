@@ -685,9 +685,9 @@ function hideDisclaimerModal(){
         <p style="font-size:10px;color:var(--muted);margin-bottom:12px;">Ορίστε τα 3 μέλη της επιτροπής παραλαβής. Το username χρησιμοποιείται ως υπόμνηση στη διαδικασία υπογραφής.</p>
         <div id="committeeMembersList"></div>
         <div style="margin-top:12px;">
-          <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Edge Function URL (προαιρετικό — για αυτόματο έλεγχο ονομάτων)</label>
-          <input type="url" id="sEdgeFnUrl" onchange="saveSett()" placeholder="https://xxx.supabase.co/functions/v1/verify-pdf-signatures" style="font-family:monospace;font-size:10px;width:100%;">
-          <p style="font-size:10px;color:var(--muted);margin:4px 0 0;">Αναπτύξτε την Edge Function από το αρχείο edge_function.zip</p>
+          <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">Edge Function ψηφιακής επαλήθευσης — κλειδωμένο περιβάλλον</label>
+          <input type="url" id="sEdgeFnUrl" readonly aria-readonly="true" style="font-family:monospace;font-size:10px;width:100%;background:var(--sec);">
+          <p style="font-size:10px;color:var(--muted);margin:4px 0 0;">Η κρυπτογραφική επαλήθευση εκτελείται αποκλειστικά από το verify-pdf-signatures του ίδιου Supabase project.</p>
         </div>
       </div>
 
@@ -2961,9 +2961,12 @@ async function _resolveShortLink(url){
   try{
     var k=String(SUPABASE_KEY||'').trim();
     var b=String(SUPABASE_URL||'').replace(/\/+$/,'');
+    var _mapSessionRes=await getSupabase().auth.getSession();
+    var _mapAccessToken=_mapSessionRes&&_mapSessionRes.data&&_mapSessionRes.data.session&&_mapSessionRes.data.session.access_token;
+    if(!_mapAccessToken) return '';
     var r=await fetch(b+'/functions/v1/resolve-maps-link',{
       method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+k,'apikey':k},
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+_mapAccessToken,'apikey':k},
       body:JSON.stringify({url:url})
     });
     var d=await r.json();
@@ -4001,8 +4004,8 @@ function renderSigModal(){
   const pdfName = 'ΠρωτοκολλοΤμηματικηςΠαραλαβης_' + wo.orderNum + '.pdf';
 
   // Edge/local verification results.
-  // IMPORTANT: Do not require Edge Function success to unlock the workflow.
-  // If the Edge Function is unavailable/slow, the UI falls back to the locally detected PDF signature count.
+  // Gate E/G: only explicit server-side cryptographic verified=true can unlock the workflow.
+  // Local PDF markers/signature counts are informational only and never authorize acceptance.
   const _edgeResult = wo._edgeResult || null;
   const _edgeSigners = _edgeResult ? (_edgeResult.signers || _edgeResult.names || _edgeResult.signerNames || []) : [];
   const _edgeOk = _edgeResult
@@ -4333,20 +4336,22 @@ async function importSignedPdf(input){
   toast('🔍 Έλεγχος ψηφιακών υπογραφών...');
   let _extractedNames = [];
   try{
-    const _edgeUrl = (settings.edgeFnUrl||'https://nzrdcgmrsfdmocyhfrod.supabase.co/functions/v1/verify-pdf-signatures').trim();
+    const _edgeUrl = String(SUPABASE_URL||'').replace(/\/+$/,'') + '/functions/v1/verify-pdf-signatures';
     if(!_edgeUrl){
       // No Edge Function configured — fallback
       _extractedNames = extractPdfSignerNames(wo.signedPdfData||'');
       wo._sigExtractedNames = _extractedNames;
     } else {
-      const _anonKey = (window._sb_key_override||SUPABASE_KEY||SUPABASE_KEY||'').trim();
-      if(!_anonKey){ alert('Δεν βρέθηκε Supabase Anon Key. Ελέγξτε τις Ρυθμίσεις → Supabase.'); _sigImportInProgress=false; return; }
+      const _anonKey = String(SUPABASE_KEY||'').trim();
+      const _sigSessionRes = await getSupabase().auth.getSession();
+      const _sigAccessToken = _sigSessionRes && _sigSessionRes.data && _sigSessionRes.data.session && _sigSessionRes.data.session.access_token;
+      if(!_anonKey || !_sigAccessToken){ alert('Απαιτείται ενεργή σύνδεση Supabase για κρυπτογραφική επαλήθευση.'); _sigImportInProgress=false; return; }
       toast('📡 Επικοινωνία με Edge Function...');
       const _resp = await fetch(_edgeUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer '+_anonKey,
+          'Authorization': 'Bearer '+_sigAccessToken,
           'apikey': _anonKey
         },
         body: JSON.stringify({ pdfBase64: wo.signedPdfData||'' })
@@ -6325,10 +6330,14 @@ async function munLoadFile(input){
     var b64=ev.target.result.split(',')[1];
     var mtype=file.type.includes('pdf')?'application/pdf':file.type;
     try{
-      var resp=await fetch('https://nzrdcgmrsfdmocyhfrod.supabase.co/functions/v1/parse-municipal-pdf',{
+      var _parseSessionRes=await getSupabase().auth.getSession();
+      var _parseAccessToken=_parseSessionRes&&_parseSessionRes.data&&_parseSessionRes.data.session&&_parseSessionRes.data.session.access_token;
+      if(!_parseAccessToken) throw new Error('Απαιτείται ενεργή σύνδεση Supabase για ανάγνωση δημοτικού εγγράφου.');
+      var _parseBase=String(SUPABASE_URL||'').replace(/\/+$/,'');
+      var _parseAnon=String(SUPABASE_KEY||'').trim();
+      var resp=await fetch(_parseBase+'/functions/v1/parse-municipal-pdf',{
         method:'POST',
-        // v9.19.7: Authorization header — η function πλέον απαιτεί verify_jwt
-        headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPABASE_KEY,'apikey':'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56cmRjZ21yc2ZkbW9jeWhmcm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MTg5MDMsImV4cCI6MjA4OTQ5NDkwM30.irU9tlBluAeTGcI0i3cc080OY7_nqR5js4ZPW8MC7b4'},
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+_parseAccessToken,'apikey':_parseAnon},
         body:JSON.stringify({fileData:b64,mediaType:mtype})
       });
       var result=await resp.json();
@@ -8131,7 +8140,7 @@ function loadSettings(){
   document.getElementById('sContractor').value=settings.contractor||'';
   updateSupabaseStatus();
   if(document.getElementById('sESignUrl')) document.getElementById('sESignUrl').value=settings.eSignUrl||'';
-  if(document.getElementById('sEdgeFnUrl')) document.getElementById('sEdgeFnUrl').value=settings.edgeFnUrl||'';
+  if(document.getElementById('sEdgeFnUrl')) document.getElementById('sEdgeFnUrl').value=String(SUPABASE_URL||'').replace(/\/+$/,'')+'/functions/v1/verify-pdf-signatures';
   renderESignUsersSettings();
   document.getElementById('sEmail').value=settings.contractorEmail||'';
   document.getElementById('sPhone').value=settings.contractorPhone||'';
@@ -8220,7 +8229,7 @@ function saveSett(){
   settings.contractor=document.getElementById('sContractor').value;
   // v9.19.8: μόνο αν υπάρχει το πεδίο — αλλιώς σβηνόταν η ρύθμιση σε κάθε αποθήκευση
   if(document.getElementById('sESignUrl')) settings.eSignUrl=document.getElementById('sESignUrl').value||'';
-  settings.edgeFnUrl=(document.getElementById('sEdgeFnUrl')?.value||'');
+  try{ delete settings.edgeFnUrl; }catch(_){ settings.edgeFnUrl=''; } // Gate G: verifier endpoint is build-locked
   settings.contractorEmail=document.getElementById('sEmail').value;
   settings.contractorPhone=document.getElementById('sPhone').value;
   settings.contractorContact=document.getElementById('sContact').value;
@@ -8393,9 +8402,11 @@ async function importBulkSignedPdf(input){
   if(!window._bulkWo) window._bulkWo={};
   window._bulkWo.signedPdfData=b64; window._bulkWo.signedPdfName=file.name; window._bulkWo.signedAt=new Date().toISOString();
   let edgeResult=null;
-  const edgeUrl=(settings.edgeFnUrl||'').trim(), anonKey=(SUPABASE_KEY||'').trim();
-  if(edgeUrl&&anonKey){
-    try{const resp=await fetch(edgeUrl,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+anonKey,'apikey':anonKey},body:JSON.stringify({pdfBase64:b64})});
+  const edgeUrl=String(SUPABASE_URL||'').replace(/\/+$/,'')+'/functions/v1/verify-pdf-signatures', anonKey=String(SUPABASE_KEY||'').trim();
+  const _bulkSessionRes=await getSupabase().auth.getSession();
+  const _bulkAccessToken=_bulkSessionRes&&_bulkSessionRes.data&&_bulkSessionRes.data.session&&_bulkSessionRes.data.session.access_token;
+  if(edgeUrl&&anonKey&&_bulkAccessToken){
+    try{const resp=await fetch(edgeUrl,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+_bulkAccessToken,'apikey':anonKey},body:JSON.stringify({pdfBase64:b64})});
       if(resp.ok)edgeResult=await resp.json();}catch(e){}
   }
   window._bulkWo._edgeResult=edgeResult;
