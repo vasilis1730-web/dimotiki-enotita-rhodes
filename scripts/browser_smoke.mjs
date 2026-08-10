@@ -13,7 +13,7 @@ async function smoke(path, checks=[], allowedPageErrors=[]) {
   const productionRequests=[];
   const blocked=[];
 
-  page.on('pageerror', err=>pageErrors.push(String(err?.message||err)));
+  page.on('pageerror', err=>pageErrors.push(String(err?.stack||err?.message||err)));
   page.on('request', req=>{
     if(req.url().includes(PROD_SUPABASE_REF)) productionRequests.push(req.url());
   });
