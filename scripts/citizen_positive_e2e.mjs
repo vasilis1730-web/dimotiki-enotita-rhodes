@@ -33,9 +33,9 @@ try{
   await page.goto('http://localhost:4174/citizen-positive.html',{waitUntil:'domcontentloaded'});
   const tokens=await page.evaluate(async({phone,code,debugToken})=>{
     self.FIREBASE_APPCHECK_DEBUG_TOKEN=debugToken;
-    const {initializeApp}=await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js');
-    const {getAuth,RecaptchaVerifier,signInWithPhoneNumber}=await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js');
-    const {initializeAppCheck,ReCaptchaV3Provider,getToken}=await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-check.js');
+    const {initializeApp}=await import('https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js');
+    const {getAuth,RecaptchaVerifier,signInWithPhoneNumber}=await import('https://www.gstatic.com/firebasejs/12.17.1/firebase-auth.js');
+    const {initializeAppCheck,ReCaptchaV3Provider,getToken}=await import('https://www.gstatic.com/firebasejs/12.17.1/firebase-app-check.js');
     const app=initializeApp({apiKey:'AIzaSyATvkHqSyyVxVD8UujQQnj_wdR2Kc306wA',authDomain:'dimosrodou-otp.firebaseapp.com',projectId:'dimosrodou-otp',appId:'1:315292350668:web:8288883847d24ac33e2a69'},'rodios-ci-positive');
     const appCheck=initializeAppCheck(app,{provider:new ReCaptchaV3Provider('6LcF_HctAAAAAJwwZPbh_BFMDwoQ5AgX0CocYqFB'),isTokenAutoRefreshEnabled:false});
     const auth=getAuth(app); auth.settings.appVerificationDisabledForTesting=true;

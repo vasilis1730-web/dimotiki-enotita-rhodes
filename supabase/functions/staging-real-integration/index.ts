@@ -72,6 +72,7 @@ Deno.serve(async (req: Request) => {
     const issueIds: string[] = [];
     const workOrderIds: string[] = [];
     const ackIds: string[] = [];
+    const realtimeChannels: Array<{ client: SupabaseClient; channel: any }> = [];
     const seqYear = new Date().getUTCFullYear() + 1;
 
     const emails = {
@@ -142,8 +143,9 @@ Deno.serve(async (req: Request) => {
       await addResult("real_postgrest_rls_operational", async () => {
         assert(clients.admin && clients.manager && clients.user && clients.orphan, "signed-in clients unavailable");
         const issueData = { id: issueId, issueNum: `ΑΙΤ-2099-${run.slice(-6).toUpperCase()}`, status: "Εκκρεμεί", title: "REAL INTEGRATION TEST", source: "integration" };
-        const insert = await clients.admin.from("rodios_issues").insert({ id: issueId, data: issueData }).select("id").single();
+        const insert = await clients.admin.rpc("rodios_save_bundle", { p_bundle: { issues: { upserts: [{ id: issueId, data: issueData, expectedUpdatedAt: null }], deletes: [] } } });
         if (insert.error) throw insert.error;
+        assert(insert.data?.ok === true && insert.data?.versions?.issues?.[issueId], "atomic issue insert did not return a server version");
 
         for (const role of ["admin", "manager", "user"] as const) {
           const q = await clients[role].from("rodios_issues").select("id").eq("id", issueId);
@@ -154,31 +156,118 @@ Deno.serve(async (req: Request) => {
         if (orphanRead.error) throw orphanRead.error;
         assert((orphanRead.data || []).length === 0, "orphan Auth user can read protected issue");
 
-        const managerData = { ...issueData, title: "REAL INTEGRATION MANAGER UPDATE" };
-        const mgrUpdate = await clients.manager.from("rodios_issues").update({ data: managerData }).eq("id", issueId).select("data");
+        const beforeManager = await admin.from("rodios_issues").select("data,updated_at").eq("id", issueId).single();
+        if (beforeManager.error) throw beforeManager.error;
+        const managerData = { ...beforeManager.data.data, title: "REAL INTEGRATION MANAGER UPDATE" };
+        const mgrUpdate = await clients.manager.rpc("rodios_save_bundle", { p_bundle: { issues: { upserts: [{ id: issueId, data: managerData, expectedUpdatedAt: beforeManager.data.updated_at }], deletes: [] } } });
         if (mgrUpdate.error) throw mgrUpdate.error;
-        assert(mgrUpdate.data?.[0]?.data?.title === "REAL INTEGRATION MANAGER UPDATE", "manager operational data update failed");
+        const afterManager = await admin.from("rodios_issues").select("data").eq("id", issueId).single();
+        if (afterManager.error) throw afterManager.error;
+        assert(afterManager.data.data?.title === "REAL INTEGRATION MANAGER UPDATE", "manager atomic operational update failed");
 
         const forbiddenColumnWrite = await clients.manager.from("rodios_issues").update({ title: "MUST BE DENIED" }).eq("id", issueId);
         assert(!!forbiddenColumnWrite.error, "manager could write denormalized title column despite column guard");
-        return { activeReads: 3, orphanRows: orphanRead.data?.length || 0, managerDataUpdate: true, denormalizedColumnDenied: true };
+        const forbiddenDirectData = await clients.manager.from("rodios_issues").update({ data: { ...managerData, title: "DIRECT MUST BE DENIED" } }).eq("id", issueId);
+        assert(!!forbiddenDirectData.error, "manager retained a direct operational update path outside rodios_save_bundle");
+        const directProbeId = `it_direct_${run}`; issueIds.push(directProbeId);
+        const forbiddenDirectInsert = await clients.manager.from("rodios_issues").insert({ id: directProbeId, data: { id: directProbeId } });
+        assert(!!forbiddenDirectInsert.error, "manager retained a direct operational insert path outside rodios_save_bundle");
+        return { activeReads: 3, orphanRows: orphanRead.data?.length || 0, managerAtomicUpdate: true, directWritesDenied: true, denormalizedColumnDenied: true };
+      });
+
+      await addResult("real_two_session_atomic_concurrency_realtime", async () => {
+        assert(clients.manager && clients.user, "manager/user clients unavailable for concurrency test");
+        const subscribe = async (client: SupabaseClient, label: string) => {
+          const events: any[] = [];
+          let channel: any;
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error(`${label} Realtime subscription timeout`)), 12_000);
+            channel = client.channel(`rodios_${label}_${run}`)
+              .on("postgres_changes", { event: "UPDATE", schema: "public", table: "rodios_issues", filter: `id=eq.${issueId}` }, (payload: any) => events.push(payload))
+              .subscribe((status: string) => {
+                if (status === "SUBSCRIBED") { clearTimeout(timer); resolve(); }
+                if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") { clearTimeout(timer); reject(new Error(`${label} Realtime status ${status}`)); }
+              });
+          });
+          realtimeChannels.push({ client, channel });
+          return events;
+        };
+
+        const managerEvents = await subscribe(clients.manager, "manager");
+        const userEvents = await subscribe(clients.user, "user");
+        const before = await admin.from("rodios_issues").select("data,updated_at").eq("id", issueId).single();
+        if (before.error) throw before.error;
+        const managerData = { ...before.data.data, title: `CONCURRENT MANAGER ${run}` };
+        const userData = { ...before.data.data, title: `CONCURRENT USER ${run}` };
+        const args = (data: any) => ({ p_bundle: { issues: { upserts: [{ id: issueId, data, expectedUpdatedAt: before.data.updated_at }], deletes: [] } } });
+        const [managerWrite, userWrite] = await Promise.all([
+          clients.manager.rpc("rodios_save_bundle", args(managerData)),
+          clients.user.rpc("rodios_save_bundle", args(userData)),
+        ]);
+        const writes = [managerWrite, userWrite];
+        assert(writes.filter((x) => !x.error && x.data?.ok === true).length === 1, "concurrent same-version writes did not produce exactly one winner");
+        const loser = writes.find((x) => !!x.error);
+        assert(loser?.error?.code === "40001" && String(loser.error.message || "").includes("RODIOS_SYNC_CONFLICT"), "concurrent loser was not rejected as an atomic sync conflict");
+
+        const deadline = Date.now() + 10_000;
+        while ((managerEvents.length < 1 || userEvents.length < 1) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
+        assert(managerEvents.length >= 1, "manager session did not receive the concurrent Realtime update");
+        assert(userEvents.length >= 1, "user session did not receive the concurrent Realtime update");
+        const finalRow = await admin.from("rodios_issues").select("data,updated_at").eq("id", issueId).single();
+        if (finalRow.error) throw finalRow.error;
+        assert([managerData.title, userData.title].includes(finalRow.data.data?.title), "concurrent winner was not the final stored row");
+        return { oneWinner: true, staleLoserDenied: true, managerRealtimeEvents: managerEvents.length, userRealtimeEvents: userEvents.length, finalTitle: finalRow.data.data.title };
+      });
+
+      await addResult("real_atomic_bundle_rollback", async () => {
+        assert(clients.admin && clients.manager && clients.user, "clients unavailable for atomic rollback test");
+        const a = `it_rollback_a_${run}`;
+        const b = `it_rollback_b_${run}`;
+        issueIds.push(a, b);
+        const create = await clients.admin.rpc("rodios_save_bundle", { p_bundle: { issues: { upserts: [
+          { id: a, data: { id: a, title: "ROLLBACK A ORIGINAL", source: "integration" }, expectedUpdatedAt: null },
+          { id: b, data: { id: b, title: "ROLLBACK B ORIGINAL", source: "integration" }, expectedUpdatedAt: null },
+        ], deletes: [] } } });
+        if (create.error) throw create.error;
+        const baseline = await admin.from("rodios_issues").select("id,data,updated_at").in("id", [a,b]);
+        if (baseline.error) throw baseline.error;
+        const rowA = baseline.data.find((x: any) => x.id === a);
+        const rowB = baseline.data.find((x: any) => x.id === b);
+        assert(rowA?.updated_at && rowB?.updated_at, "rollback baselines missing");
+
+        const advanceB = await clients.manager.rpc("rodios_save_bundle", { p_bundle: { issues: { upserts: [{ id: b, data: { ...rowB.data, title: "ROLLBACK B ADVANCED" }, expectedUpdatedAt: rowB.updated_at }], deletes: [] } } });
+        if (advanceB.error) throw advanceB.error;
+        const staleBundle = await clients.user.rpc("rodios_save_bundle", { p_bundle: { issues: { upserts: [
+          { id: a, data: { ...rowA.data, title: "ROLLBACK A MUST NOT PERSIST" }, expectedUpdatedAt: rowA.updated_at },
+          { id: b, data: { ...rowB.data, title: "ROLLBACK B STALE MUST NOT PERSIST" }, expectedUpdatedAt: rowB.updated_at },
+        ], deletes: [] } } });
+        assert(staleBundle.error?.code === "40001", "stale multi-row bundle did not fail");
+        const after = await admin.from("rodios_issues").select("id,data").in("id", [a,b]);
+        if (after.error) throw after.error;
+        const afterA = after.data.find((x: any) => x.id === a);
+        const afterB = after.data.find((x: any) => x.id === b);
+        assert(afterA?.data?.title === "ROLLBACK A ORIGINAL", "first write in failed bundle was not rolled back");
+        assert(afterB?.data?.title === "ROLLBACK B ADVANCED", "pre-existing winner was changed by failed stale bundle");
+        return { staleBundleDenied: true, entireTransactionRolledBack: true };
       });
 
       await addResult("real_settings_admin_boundary", async () => {
         assert(clients.admin && clients.manager, "admin/manager clients unavailable");
-        const before = await admin.from("rodios_settings").select("value").eq("key", "main").single();
+        const before = await admin.from("rodios_settings").select("value,updated_at").eq("key", "main").single();
         if (before.error) throw before.error;
         const original = before.data.value || {};
 
-        const managerAttempt = await clients.manager.from("rodios_settings").update({ value: { ...original, integration_manager_must_not_write: run } }).eq("key", "main").select("value");
-        if (managerAttempt.error && !String(managerAttempt.error.message || "").match(/permission|policy|row/i)) throw managerAttempt.error;
+        const managerAttempt = await clients.manager.rpc("rodios_save_bundle", { p_bundle: { settings: { upserts: [{ key: "main", value: { ...original, integration_manager_must_not_write: run }, expectedUpdatedAt: before.data.updated_at }], deletes: [] } } });
+        assert(!!managerAttempt.error, "manager changed settings through atomic save RPC");
         const verifyManager = await admin.from("rodios_settings").select("value").eq("key", "main").single();
         if (verifyManager.error) throw verifyManager.error;
         assert(verifyManager.data.value?.integration_manager_must_not_write !== run, "manager changed settings through real RLS");
 
-        const adminWrite = await clients.admin.from("rodios_settings").update({ value: { ...original, integration_admin_write: run } }).eq("key", "main").select("value");
+        const adminWrite = await clients.admin.rpc("rodios_save_bundle", { p_bundle: { settings: { upserts: [{ key: "main", value: { ...original, integration_admin_write: run }, expectedUpdatedAt: before.data.updated_at }], deletes: [] } } });
         if (adminWrite.error) throw adminWrite.error;
-        assert(adminWrite.data?.[0]?.value?.integration_admin_write === run, "admin could not update settings");
+        const verifyAdmin = await admin.from("rodios_settings").select("value").eq("key", "main").single();
+        if (verifyAdmin.error) throw verifyAdmin.error;
+        assert(verifyAdmin.data.value?.integration_admin_write === run, "admin could not update settings through atomic save RPC");
         const restore = await admin.from("rodios_settings").update({ value: original }).eq("key", "main");
         if (restore.error) throw restore.error;
         return { managerDenied: true, adminAllowed: true };
@@ -257,7 +346,9 @@ Deno.serve(async (req: Request) => {
         const woData = { id: woId, orderNum: `ΕΝΤ-2099-${run.slice(-6).toUpperCase()}`, status: "Σε εξέλιξη", orderType: "contractor", items: [{ qty: 1, unitPrice: 10 }] };
         const { error: woError } = await admin.from("rodios_work_orders").insert({ id: woId, issue_id: issueId, data: woData });
         if (woError) throw woError;
-        const bypass = await clients.admin.from("rodios_work_orders").update({ data: { ...woData, status: "Παραλήφθηκε" } }).eq("id", woId).select("id");
+        const woVersion = await admin.from("rodios_work_orders").select("updated_at").eq("id", woId).single();
+        if (woVersion.error) throw woVersion.error;
+        const bypass = await clients.admin.rpc("rodios_save_bundle", { p_bundle: { workOrders: { upserts: [{ id: woId, issue_id: issueId, data: { ...woData, status: "Παραλήφθηκε" }, expectedUpdatedAt: woVersion.data.updated_at }], deletes: [] } } });
         assert(!!bypass.error, "authenticated admin bypassed proof-only accepted-state trigger");
         const verify = await admin.from("rodios_work_orders").select("status,data").eq("id", woId).single();
         if (verify.error) throw verify.error;
@@ -291,6 +382,7 @@ Deno.serve(async (req: Request) => {
       for (const id of issueIds) { try { await admin.from("rodios_issues").delete().eq("id", id); } catch (_) {} }
       for (const id of profileIds) { try { await admin.from("rodios_app_users").delete().eq("id", id); } catch (_) {} }
       for (const id of createdUserIds) { try { await admin.auth.admin.deleteUser(id); } catch (_) {} }
+      for (const entry of realtimeChannels) { try { await entry.client.removeChannel(entry.channel); } catch (_) {} }
       try { await admin.from("rodios_sequences").delete().eq("kind", "issue").eq("year", seqYear); } catch (_) {}
     }
   } catch (e) {
