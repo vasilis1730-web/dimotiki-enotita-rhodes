@@ -1,0 +1,80 @@
+name: Real Supabase integration (disposable preview only)
+
+on:
+  push:
+    branches:
+      - staging-real-integration
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  real-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Resolve fully deployed Supabase Preview from PR 6
+        id: preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          api='https://api.github.com/repos/${{ github.repository }}/issues/6/comments'
+          ref=''
+          for i in $(seq 1 120); do
+            body=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$api" \
+              | jq -r '[.[] | select(.user.login=="supabase[bot]") | .body] | last // ""')
+            ref=$(printf '%s\n' "$body" | sed -n 's/^\[supa\]:\([a-z]*\)$/\1/p' | head -n1)
+            if [ -n "$ref" ] \
+              && printf '%s' "$body" | grep -Eq 'Database[[:space:]]*\|[[:space:]]*✅' \
+              && printf '%s' "$body" | grep -Eq 'Migrations[[:space:]]*\|[[:space:]]*✅' \
+              && printf '%s' "$body" | grep -Eq 'Seeding[[:space:]]*\|[[:space:]]*✅' \
+              && printf '%s' "$body" | grep -Eq 'Edge Functions[[:space:]]*\|[[:space:]]*✅'; then
+              echo "preview_ref=$ref" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'Supabase Preview did not reach a fully green state.' >&2
+          exit 1
+
+      - name: Verify disposable test runner guard is live
+        env:
+          PREVIEW_REF: ${{ steps.preview.outputs.preview_ref }}
+        run: |
+          set -euo pipefail
+          url="https://${PREVIEW_REF}.supabase.co/functions/v1/staging-real-integration"
+          for i in $(seq 1 40); do
+            code=$(curl -sS -o /tmp/ready.json -w '%{http_code}' "$url" || true)
+            if [ "$code" = '200' ] && jq -e '.ok==true and .ready==true' /tmp/ready.json >/dev/null 2>&1; then
+              jq . /tmp/ready.json
+              exit 0
+            fi
+            sleep 3
+          done
+          cat /tmp/ready.json 2>/dev/null || true
+          echo 'Disposable integration runner did not become ready.' >&2
+          exit 1
+
+      - name: Run real Auth / RLS / Storage / Edge / ACK integration suite once
+        env:
+          PREVIEW_REF: ${{ steps.preview.outputs.preview_ref }}
+        run: |
+          set -euo pipefail
+          url="https://${PREVIEW_REF}.supabase.co/functions/v1/staging-real-integration"
+          code=$(curl -sS -o real-integration-result.json -w '%{http_code}' -X POST "$url")
+          cat real-integration-result.json | jq .
+          test "$code" = '200'
+          jq -e '.ok==true and .realNetwork==true and ((.results | length) >= 8) and all(.results[]; .ok==true)' real-integration-result.json >/dev/null
+
+      - name: Upload sanitized integration result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-supabase-integration-result
+          path: real-integration-result.json
+          if-no-files-found: ignore
+          retention-days: 7
