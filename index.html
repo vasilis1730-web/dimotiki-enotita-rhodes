@@ -363,10 +363,13 @@ async function getIdToken(){
 async function callBridge(action, payload){
   const idToken = await getIdToken();
   if(!idToken) return { ok:false, noAuth:true };
+  let appCheckToken='';
+  try{ appCheckToken = window._getAppCheckToken ? await window._getAppCheckToken() : ''; }catch(_){ appCheckToken=''; }
+  if(!appCheckToken) return { ok:false, status:401, error:'Η ασφαλής επαλήθευση της εφαρμογής δεν είναι διαθέσιμη.' };
   try{
     const res = await fetch(BRIDGE_URL, {
       method:'POST',
-      headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY },
+      headers:{ 'Content-Type':'application/json', 'apikey':SUPABASE_KEY, 'x-firebase-id-token':idToken, 'x-firebase-appcheck':appCheckToken },
       body: JSON.stringify(Object.assign({ action, idToken }, payload||{}))
     });
     let data=null; try{ data=await res.json(); }catch(_){}
