@@ -22,7 +22,8 @@ Preview initialization is version-controlled under:
 2. `supabase/migrations/20260809232000_authz_sequences_integrity.sql`
 3. `supabase/migrations/20260810003000_private_attachments_storage.sql`
 4. `supabase/migrations/20260810050000_citizen_upload_quota.sql`
-5. `supabase/seed.sql`
+5. `supabase/migrations/20260810094500_edge_ack_hardening.sql`
+6. `supabase/seed.sql`
 
 The canonical seed creates synthetic Auth identities without passwords and executes authorization/integrity assertions automatically. Production citizen data is not copied into Preview.
 
@@ -34,22 +35,12 @@ The canonical seed creates synthetic Auth identities without passwords and execu
 | B | Atomic numbering / UNIQUE / FK integrity | ✅ PASS in Supabase Preview |
 | C | Private citizen/staff attachments | ✅ DEPLOYABLE / Preview PASS; browser E2E still required |
 | D | Durable upload state / retry / no silent Base64 loss | ✅ Static hardening complete; browser network-failure E2E pending |
-| E | Digital signatures fail closed | ✅ Static hardening complete; real verifier E2E pending |
+| E | Digital signatures fail closed | ✅ Client fail-closed complete; real CMS verifier now staged; known-good/tampered PDF E2E pending |
 | F | Settings admin-only / locked Supabase config / logout cache purge | ✅ Static hardening complete |
-| G | Edge Functions + public ACK security review | 🟡 PARTIAL PASS — `citizen-attachments` hardened + Preview PASS; legacy function source and ACK server audit still blockers |
+| G | Edge Functions + public ACK security review | 🟡 REMEDIATION STAGED — all 6 production exports + ACK audit reviewed; final Supabase Preview deployment and E2E pending |
 | H | Full regression / concurrency / offline / rollback | ⏳ NOT STARTED |
 
-Latest verified Supabase Preview run after the Gate G `citizen-attachments` hardening reported:
-
-- Database ✅
-- Services ✅
-- APIs ✅
-- Configurations ✅
-- Migrations ✅
-- Seeding ✅
-- Edge Functions ✅
-
-A permanent GitHub Action, `.github/workflows/edge-function-check.yml`, also runs `deno check` and dependency analysis for version-controlled Edge Functions before deployment.
+A permanent GitHub Action, `.github/workflows/edge-function-check.yml`, runs `deno check` and dependency analysis across all version-controlled Edge Functions. The full seven-function tree passed Deno CI before the final citizen-client-only App Check patch.
 
 ## Gate A — authorization contract
 
@@ -102,11 +93,22 @@ Production migration must include compatibility validation for the existing lega
 
 ## Gate E — digital signature contract
 
-- acceptance requires explicit server-side cryptographic `verified === true`;
-- local `/ByteRange` / signature-count detection is informational only;
+Production audit finding: the deployed `verify-pdf-signatures` function did **not** cryptographically verify the PDF. It counted `/ByteRange` markers and could return `verified: true` solely because at least one marker was present. This was a launch blocker.
+
+Staging replacement:
+
+- acceptance still requires explicit server-side `verified === true`;
+- verifier authenticates an active staff profile and is rate-limited;
+- PDF size/base64/header are validated;
+- `/ByteRange` entries are parsed and validated against actual file bounds;
+- CMS `SignedData` is extracted from `/Contents` and cryptographically verified against the detached bytes defined by the PDF byte ranges;
+- every detected signature must verify cryptographically;
+- the final signed revision must cover the final file byte, preventing acceptance of unsigned trailing modifications;
+- local `/ByteRange` / signature-count detection remains informational only;
 - `valid`, `certificatesOk`, missing verifier response and admin override cannot authorize acceptance;
-- verifier endpoint is build-locked to `/functions/v1/verify-pdf-signatures` on the same Supabase project;
-- staff verifier requests use the authenticated employee access token, not the anon token as bearer identity.
+- verifier endpoint remains build-locked to the same Supabase project.
+
+**Trust limitation:** the staged verifier currently proves CMS signature integrity and signed-byte coverage, but does not yet assert a qualified/eIDAS trust chain (`trustedChainConfigured=false`). Known-good municipal signed PDFs, tampered PDFs and trust-policy requirements must be validated during Gate H before production approval.
 
 ## Gate F — browser/session contract
 
@@ -115,47 +117,119 @@ Production migration must include compatibility validation for the existing lega
 - legacy `sb_url` / `sb_key` browser overrides are removed and ignored;
 - logout signs out from Supabase and purges operational localStorage/IndexedDB/in-memory state.
 
-## Gate G — Edge Functions / ACK
+## Gate G — production Edge Function + ACK audit
 
-### Version-controlled and reviewed
+The six production Edge Function exports and the production ACK read-only CSV were reviewed on 2026-08-10. All six functions are now version-controlled in staging together with the already hardened `citizen-attachments`.
 
-- `supabase/functions/citizen-attachments/index.ts`
-  - Firebase Auth ID token verification;
-  - Firebase App Check verification;
-  - private path ownership;
-  - strict upload type/signature validation;
-  - atomic server-side upload quota;
-  - generic public errors / detailed server logs;
-  - Supabase Preview deploy PASS;
-  - Deno CI type/dependency check PASS.
+### Production findings and staged remediation
 
-`supabase/config.toml` intentionally declares **only functions whose source exists in this repository**. The earlier attempt to declare missing legacy functions caused the Preview deployer to fail during the Edge Function bundle phase. Keeping orphan function declarations out of the deployment config restored a fully green Preview run.
+#### `citizen-bridge`
 
-### Referenced by the application but not yet version-controlled
+Production findings:
+- service-role reads/writes with fuzzy phone ownership matching (`endsWith` style matching);
+- client-supplied issue IDs combined with upsert semantics;
+- no App Check requirement;
+- no server quota and insufficient field/path allowlisting.
 
-- `citizen-bridge`
-- `manage-app-user`
-- `send-order-email`
-- `verify-pdf-signatures`
-- `parse-municipal-pdf`
-- `resolve-maps-link`
+Staging remediation:
+- Firebase phone-auth ID token + Firebase App Check cryptographic validation;
+- citizen client sends both tokens to bridge and attachment endpoints;
+- new issues receive server-generated UUID-based IDs;
+- new records are bound to immutable Firebase UID (`citizenAuthUid`);
+- legacy records use exact normalized phone compatibility only, never suffix matching;
+- field lengths/system fields are server controlled;
+- attachment paths must belong to the verified citizen phone namespace;
+- per-action server quota.
 
-These deployed sources must be downloaded from the current Supabase project, committed to the staging branch and reviewed before production release. Required review areas: authentication, authorization, CORS, input/file-size validation, rate limiting/abuse controls, SSRF where outbound URLs are fetched, service-role scope, secret/error leakage and fail-closed behavior.
+#### `manage-app-user`
 
-Current client hardening while those server sources remain unavailable:
+Production finding: Auth operations were not bound to the new top-level `auth_user_id`, so newly created profiles could become unusable under the hardened RLS model. Authorization also depended too heavily on gateway/client assumptions.
 
-- staff-only calls use the real Supabase Auth access token;
-- signature verifier URL is fixed to the same Supabase project;
-- `manageAppUser()` now has an additional Administrator-only client guard;
-- this client guard is defense-in-depth only and **does not replace** mandatory server-side Administrator authorization.
+Staging remediation:
+- real Supabase Auth token validation plus active-profile lookup;
+- Administrator authorization enforced server-side;
+- client-supplied Auth UUID ignored;
+- top-level `auth_user_id` written consistently with the Auth user UUID;
+- role/tier preserved;
+- primary Administrator deletion blocked;
+- rate limiting and generic public errors.
 
-### Public ACK flow
+#### `send-order-email`
 
-- `ack.html` intentionally calls `complete_work_order_ack(p_token)` anonymously;
-- anonymous EXECUTE must **not** be revoked blindly;
-- public page uses `no-referrer`, scrubs the token from the visible URL/history and does not expose raw RPC errors;
-- server function must enforce cryptographically strong token matching, one-time use/replay protection, expiry, exact row scope and safe return data;
-- run `supabase/audits/20260810_gate_g_ack_server_read_only.sql` against production and review the exported result before any ACK migration.
+Production findings:
+- optional authentication mode;
+- JWT payload could be decoded without cryptographic validation in function code;
+- arbitrary recipient and arbitrary HTTPS attachment fetching created mail-relay/SSRF risk;
+- insufficient streamed size/timeout controls.
+
+Staging remediation:
+- gateway JWT required plus active staff/work-order authorization in handler;
+- recipient must exactly match the configured contractor email from server-side settings;
+- attachment URLs must be same-project Supabase Storage URLs for `attachments` or `protocols`;
+- redirects rejected;
+- streamed total attachment cap and timeouts;
+- hourly quota and generic SMTP/server errors.
+
+#### `resolve-maps-link`
+
+Production finding: initial hostname validation was followed by automatic redirects, so a redirect could leave the trusted Google Maps host set.
+
+Staging remediation:
+- active staff authorization;
+- explicit Google Maps host/path allowlist;
+- manual redirect handling with validation at every hop;
+- redirect limit, timeout and quota.
+
+#### `parse-municipal-pdf`
+
+Production finding: no active-application-profile authorization in the handler and weak request-size/media controls before external AI processing.
+
+Staging remediation:
+- active staff authorization;
+- strict supported media list and decoded size cap;
+- base64 validation, timeout, quota and output sanitization;
+- generic provider errors.
+
+**Governance blocker:** this workflow sends municipal document content that can contain citizen personal data to Anthropic. Production use requires explicit municipal privacy/data-processing/legal approval and an approved processor/data-transfer basis. Technical hardening alone does not authorize this processing.
+
+#### `verify-pdf-signatures`
+
+See Gate E. The marker-count implementation was replaced in staging by cryptographic CMS verification.
+
+### Shared staff authorization
+
+All staff functions use `supabase/functions/_shared/rodios-staff-auth.ts`:
+
+- bearer token is validated through Supabase Auth;
+- authenticated UUID must map to an active `rodios_app_users.auth_user_id`;
+- optional Administrator/work-order permission checks are enforced server-side;
+- CORS is restricted to the official application origin plus explicitly configured staging origins;
+- generic client errors / detailed server logs;
+- shared service-role-only hourly quota RPC.
+
+### Production ACK audit findings
+
+The production CSV confirmed:
+
+- `work_order_acknowledgments` had RLS enabled but authenticated INSERT/SELECT/UPDATE policies were effectively unrestricted;
+- `ack_token` was unique and generated from 24 cryptographically random bytes;
+- public `complete_work_order_ack` was intentionally executable by `anon`;
+- ACK tokens had no expiry;
+- public completion did not provide an atomic one-time/replay-prevention condition;
+- `SECURITY DEFINER` functions used a broad `public` search path.
+
+Staging migration `20260810094500_edge_ack_hardening.sql`:
+
+- adds `expires_at` and a 30-day default;
+- backfills legacy rows conservatively;
+- public completion is atomic and succeeds only for unacknowledged, unexpired tokens;
+- invalid, expired or replayed tokens return failure without leaking row data;
+- direct `anon` table access is revoked while anonymous RPC execute is intentionally retained;
+- staff ACK table policies now require an active application user;
+- `SECURITY DEFINER` functions use an empty fixed search path with qualified objects;
+- service-role-only generic Edge rate-limit storage/RPC is introduced.
+
+`ack.html` additionally uses `no-referrer`, removes the token from browser history after reading it and never displays raw database errors.
 
 ## Gate H — mandatory final validation
 
@@ -163,21 +237,24 @@ Before release, run at minimum:
 
 1. Admin / Manager / User / orphan authorization matrix.
 2. Concurrent issue numbering and duplicate rejection.
-3. Citizen OTP submit/list/update and attachment upload on the isolated backend.
-4. Staff attachment upload, signed-URL reload, retry after forced network failure and logout purge.
-5. Work-order creation, email delivery and acknowledgment lifecycle.
-6. Signed protocol with valid signatures, invalid signatures and verifier unavailable.
-7. Realtime refresh / conflict behavior from two staff sessions.
-8. Offline/reconnect, slow network and interrupted request tests.
-9. Mobile + desktop browser smoke tests.
-10. Rollback rehearsal from the exact release commit/migrations.
+3. Citizen OTP + App Check list/submit/update and attachment upload on the isolated backend.
+4. Legacy citizen issue ownership compatibility using exact phone matching.
+5. Staff attachment upload, signed-URL reload, retry after forced network failure and logout purge.
+6. Work-order creation, safe email delivery and acknowledgment lifecycle including replay/expiry tests.
+7. Signed protocol with known-good real municipal signatures, tampered bytes, marker-only fake PDFs and verifier unavailable.
+8. Realtime refresh / conflict behavior from two staff sessions.
+9. Offline/reconnect, slow network and interrupted request tests.
+10. Mobile + desktop browser smoke tests.
+11. Rollback rehearsal from the exact release commit/migrations.
 
 ## Production merge rule
 
 No frontend, migration, Storage or Edge Function change reaches `main` / production until:
 
 - all mandatory Gates A–H pass on isolated staging;
-- all deployed legacy Edge Function source is version-controlled and reviewed;
-- ACK server audit has no unresolved P0 blocker;
+- the full Gate G package deploys successfully in Supabase Preview;
+- known-good/tampered PDF cryptographic tests pass and the required certificate trust policy is decided;
+- privacy/data-processing approval exists for any external AI parsing feature that remains enabled;
+- compatibility of existing production attachments is validated;
 - a final read-only production preflight reports no P0 blocker;
 - production rollback steps are documented and tested.
