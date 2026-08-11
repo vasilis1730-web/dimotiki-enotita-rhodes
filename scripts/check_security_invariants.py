@@ -35,6 +35,10 @@ required = {
     "server-only attachment URL allowlist": "function _safeServerAttachmentUrl(value)" in staff and "sameProjectStorageUrl" in send_email,
     "patched Nodemailer release": 'npm:nodemailer@9.0.5' in send_email,
     "email header and external-content hardening": "cleanHeader(body?.subject" in send_email and "disableFileAccess:true,disableUrlAccess:true" in send_email,
+    "email settings use canonical key/value schema": (
+        '.from("rodios_settings").select("value").eq("key","main")' in send_email
+        and "settingsRow?.value?.contractorEmail" in send_email
+    ),
     "dependency audit pins match runtime": (
         audit_dependencies.get("nodemailer") == "9.0.5"
         and audit_dependencies.get("firebase") == "12.17.1"
@@ -100,6 +104,7 @@ forbidden = {
     "silent 500-row citizen list truncation": '.limit(500)' in bridge,
     "silent 1000-row legacy list truncation": '.limit(1000)' in bridge,
     "vulnerable Nodemailer 6.x pin": 'npm:nodemailer@6.' in send_email,
+    "legacy email settings id/data lookup": '.from("rodios_settings").select("data").eq("id","main")' in send_email,
     "legacy direct operational upsert helper": "async function _v9UpsertChunks" in staff,
     "non-atomic preflight conflict window": "function _v9AssertNoConflicts" in staff or "+ 1000" in staff,
     "legacy browser soft-delete RPC": "sb.rpc('rodios_soft_delete'" in staff,
