@@ -3,8 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co; img-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'">
+<meta name="theme-color" content="#1a3a5c">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
   <title>Δήλωση Ολοκλήρωσης Εργασίας</title>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.110.9"></script>
   <style>
     body{font-family:system-ui,'Segoe UI',sans-serif;background:#f3f1ec;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;color:#1a1a1a;padding:18px}
     .card{max-width:520px;width:100%;background:white;border:1px solid #d8d4cc;border-radius:14px;box-shadow:0 10px 35px rgba(0,0,0,.12);padding:26px;text-align:center}
@@ -24,6 +29,11 @@ const SUPABASE_URL = 'https://nzrdcgmrsfdmocyhfrod.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56cmRjZ21yc2ZkbW9jeWhmcm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5MTg5MDMsImV4cCI6MjA4OTQ5NDkwM30.irU9tlBluAeTGcI0i3cc080OY7_nqR5js4ZPW8MC7b4';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const token = new URLSearchParams(location.search).get('token');
+const tokenLooksValid = !!token && /^[A-Za-z0-9_-]{32,128}$/.test(token);
+try {
+  if (token) history.replaceState(null, document.title, location.pathname);
+} catch (_) {}
+
 const msgContainer = document.getElementById('msg');
 const btn = document.getElementById('btn');
 
@@ -42,8 +52,8 @@ function setMessage(type, mainText, detailText = '') {
   }
 }
 
-if (!token) {
-  setMessage('error', 'Μη έγκυρος σύνδεσμος.', 'Δεν βρέθηκε κωδικός επιβεβαίωσης.');
+if (!tokenLooksValid) {
+  setMessage('error', 'Μη έγκυρος σύνδεσμος.', 'Ο κωδικός επιβεβαίωσης λείπει ή δεν έχει έγκυρη μορφή.');
 } else {
   msgContainer.textContent = 'Πατήστε επιβεβαίωση μόνο εφόσον η εργασία της εντολής έχει ολοκληρωθεί.';
   btn.style.display = 'inline-block';
@@ -57,7 +67,8 @@ btn.addEventListener('click', async () => {
     const {data, error} = await sb.rpc('complete_work_order_ack', {p_token: token});
 
     if (error) {
-      setMessage('error', 'Δεν έγινε η καταχώριση.', error.message || 'Άγνωστο σφάλμα.');
+      console.error('ACK RPC error:', error);
+      setMessage('error', 'Δεν έγινε η καταχώριση.', 'Ο σύνδεσμος δεν μπορεί να χρησιμοποιηθεί αυτή τη στιγμή. Δοκιμάστε ξανά ή επικοινωνήστε με την υπηρεσία.');
       btn.disabled = false;
       btn.textContent = 'Προσπαθήστε ξανά';
       return;
