@@ -2,7 +2,7 @@
 
 **Status: STAGING ONLY — DO NOT MERGE TO `main`.**
 
-Last updated: 2026-08-10.
+Last updated: 2026-08-11.
 
 ## 1. Final architecture
 
@@ -20,6 +20,8 @@ Production `main`, official GitHub Pages and production Supabase remain unchange
 
 - Working hardening branch: `staging-production-hardening` — Draft PR #2.
 - Supabase Preview trigger branch: `staging-supabase-gates-ab` — PR #5.
+- Completed disposable real-integration branch: `staging-real-integration` — closed Draft PR #6; branch and evidence retained.
+- Completed disposable rollback branch: `staging-rollback-rehearsal` — closed Draft PR #7; branch and evidence retained.
 - Historical browser test-only branch: `staging-browser-e2e` — **never merge to `main`**; its four production-network-guarded suites are now included in the local hardening batch.
 - Production branch: `main`.
 
@@ -32,7 +34,7 @@ The additional hardening batch described below is restricted to the `staging-pro
 |---|---|---|
 | A | Backend RLS / active-user authorization | ✅ PASS — clean Supabase Preview |
 | B | Atomic numbering / UNIQUE / FK integrity | ✅ PASS — clean Supabase Preview |
-| C | Private attachments / Firebase Auth + App Check / quotas | ✅ Backend PASS; real authenticated upload E2E pending |
+| C | Private attachments / Firebase Auth + App Check / quotas | ✅ Staff/private Storage PASS; positive citizen E2E blocked by missing Firebase CI secrets |
 | D | Durable upload / Retry / no silent Base64 loss | ✅ Client fail-closed PASS; real interrupted-upload E2E pending |
 | E | Digital signature authorization | ✅ Client positive/negative browser paths PASS; cryptographic backend deployed in Preview; real municipal signed/tampered PDF E2E pending |
 | F | Settings admin-only / locked config / logout purge | ✅ PASS, including full Chromium `doLogout()` |
@@ -41,9 +43,9 @@ The additional hardening batch described below is restricted to the `staging-pro
 | H.2 | Mobile + offline/reconnect | ✅ Chromium PASS |
 | H.3 | Fail-closed functional paths | ✅ Chromium PASS |
 | H.4 | Positive PDF client path + full logout | ✅ Chromium PASS |
-| H.5 | Real-network authenticated backend security matrix | ✅ PASS — run `31389744331`, job `93458363885`, 10/10 |
-| H.6 | Real citizen OTP/upload, email and signed-PDF artifact E2E | ⏳ PENDING — requires authorized test artifacts/side effects |
-| H.7 | Two-session concurrency and rollback rehearsal | ⏳ PENDING |
+| H.5 | Real-network authenticated backend security matrix | ✅ PASS — run `31460310987`, job `93682352033`, 22/22 |
+| H.6 | Real citizen OTP/upload, email and signed-PDF artifact E2E | ⏳ PARTIAL/BLOCKED — Firebase secrets, authorized email side effect and municipal PDFs required |
+| H.7 | Two-session concurrency and rollback rehearsal | ✅ PASS — atomic conflict/Realtime/rollback matrix plus disposable rollback Preview |
 
 ## 4. Clean Supabase Preview result
 
@@ -60,7 +62,9 @@ Latest complete isolated rebuild used Preview project `enymhfhequixpquhiecg` and
 
 The clean rebuild validated active-profile RLS, role assertions, sequences, canonical-number uniqueness, foreign keys, private Storage foundations, quotas, ACK expiry/replay behavior, server timestamps, audited admin-only soft deletion, precise upsert permissions and all seven version-controlled Edge Functions.
 
-The real-network Gate H matrix subsequently passed all 10 assertions, including real password sessions, active-profile RLS, settings deny/allow behavior, sequence RPC authorization, private Storage, Administrator/Manager user-management authorization, acceptance-bypass denial and ACK first-use/replay behavior.
+The real-network Gate H matrix subsequently passed **22/22** assertions: 12 real Auth/RLS/Storage/Edge/ACK/concurrency/rollback checks and 10 citizen negative-security HTTP checks. The same tree passed twice, including run `31460310987`, job `93682352033`.
+
+The concurrency test proved exactly one winner from two authenticated sessions, immediate stale-write rejection as `PT409`, one Realtime event in each session and preservation of the winner. The multi-row stale bundle proved full transaction rollback.
 
 ## 5. Backend authorization contract
 
@@ -203,13 +207,14 @@ Implemented on staging:
 - permanent inline JavaScript syntax CI;
 - permanent source-level security-invariant CI for the release boundaries above;
 - permanent browser/Edge parity check for citizen municipalities, categories and titles;
-- permanent moderate-or-higher dependency-audit CI covering browser CDN and Deno npm release packages.
+- permanent moderate-or-higher dependency-audit CI covering browser CDN and Deno npm release packages;
+- non-retryable application conflict responses: optimistic synchronization and stale verified-PDF conflicts use PostgREST `PT409` instead of retryable PostgreSQL serialization code `40001`.
 
 ## 11. Chromium Gate H results
 
 The test-only branch `staging-browser-e2e` and the ported hardening workflow run Playwright/Chromium against an ephemeral `127.0.0.1` server. A network guard fails the test if any request targets production Supabase project `nzrdcgmrsfdmocyhfrod`.
 
-The complete ported suite was rerun locally from the `staging-production-hardening` worktree after the Firebase 12 upgrade. It passed Firebase Auth, Phone Auth and App Check browser initialization, desktop/staff/ACK shells, both relative PWA manifests, mobile/offline paths, fail-closed attachment/email/PDF paths, the authoritative PDF transaction success path and full logout purge. No production Supabase request was made. The same suite must still pass in GitHub Actions after staging publication.
+The complete ported suite was rerun locally and in GitHub Actions after the Firebase 12 upgrade. It passed Firebase Auth, Phone Auth and App Check browser initialization, desktop/staff/ACK shells, both relative PWA manifests, mobile/offline paths, fail-closed attachment/email/PDF paths, the authoritative PDF transaction success path and full logout purge. No production Supabase request was made.
 
 Latest complete Chromium suite reported:
 
@@ -250,21 +255,17 @@ The first Chromium run exposed a real JavaScript syntax regression in Gate E: a 
 
 The following must **not** be represented as validated by mocks or localhost shell tests:
 
-1. Real citizen OTP + Firebase App Check against an isolated backend.
-2. Real citizen submit/list/update authorization.
-3. Exact legacy-phone ownership compatibility on representative migrated data.
-4. Real private attachment upload/download and signed-URL reload.
-5. Real interrupted upload / Retry / reload durability against Storage.
-6. Work-order creation + real email delivery + real ACK link lifecycle.
-7. Known-good municipal signed PDF, tampered PDF, marker-only fake and verifier-unavailable tests.
-8. Required certificate/eIDAS trust policy decision.
-9. Two authenticated staff sessions for realtime/concurrency behavior.
-10. Legacy production attachment metadata compatibility review, including the existing 565 objects and any pathless records.
-11. Production rollback rehearsal.
-12. Final read-only production preflight immediately before release, including counts and credential-key presence checks without exposing values or PII. This requires separate explicit approval before any production read.
-13. Convert PR #5 to Draft or otherwise remove its accidental-merge risk before further staging publication.
-14. Restrict the public Geoapify browser key by allowed origin and quota in the provider dashboard.
-15. Repeat the already-passing ported Chromium suite in GitHub Actions after staging publication, including Firebase 12 runtime initialization.
+1. Real citizen OTP + Firebase App Check against an isolated backend. The guarded workflow is ready but `RODIOS_FIREBASE_TEST_PHONE`, `RODIOS_FIREBASE_TEST_CODE` and `RODIOS_FIREBASE_APPCHECK_DEBUG_TOKEN` are not configured.
+2. Real citizen submit/list/update authorization, legacy-phone claim/isolation and citizen attachment upload/sign/download/remove. These run in the same positive Firebase workflow after the three secrets are configured.
+3. Real interrupted upload / Retry / reload durability against Storage.
+4. Work-order creation + real email delivery + real ACK link lifecycle; no external email is sent without explicit authorization.
+5. Known-good municipal signed PDF, tampered PDF, marker-only fake and verifier-unavailable tests.
+6. Required certificate/eIDAS trust policy decision.
+7. Legacy production attachment metadata compatibility review, including the existing 565 objects and any pathless records.
+8. Final read-only production preflight immediately before release, including counts and credential-key presence checks without exposing values or PII. This requires separate explicit approval before any production read.
+9. Restrict the public Geoapify browser key by allowed origin and quota in the provider dashboard.
+
+Completed since the previous record: two-session concurrency/Realtime, atomic multi-row rollback, full rollback rehearsal, PR #5 Draft protection and the published GitHub Actions Chromium/Firebase 12 runtime rerun.
 
 Residual technical risk: the legacy single-file frontend still requires CSP `'unsafe-inline'`. Removing it safely requires a separate HTML/JavaScript extraction and event-handler refactor, not a last-minute release patch.
 
@@ -276,5 +277,4 @@ Residual technical risk: the legacy single-file frontend still requires CSP `'un
 - real PDF/trust-policy validation is completed;
 - existing attachment compatibility is established;
 - any external AI processing that remains enabled has municipal legal/privacy/data-processing approval;
-- rollback is rehearsed;
 - final production read-only preflight reports no P0 blocker.
