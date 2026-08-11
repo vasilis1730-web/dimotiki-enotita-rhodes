@@ -162,6 +162,9 @@ Deno.serve(async (req: Request) => {
     });
   } catch (error) {
     console.error("[preview-static-publisher]", error);
-    return json({ error: "Preview publishing failed" }, 500);
+    const detail = (error instanceof Error ? error.message : String(error || "Unknown error"))
+      .replace(/[\r\n\t]+/g, " ")
+      .slice(0, 240);
+    return json({ error: "Preview publishing failed", detail }, 500);
   }
 });
