@@ -5,10 +5,13 @@ const FUNCTION_NAME = "staging-real-integration";
 
 type TestResult = { name: string; ok: boolean; durationMs?: number; detail?: unknown };
 
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string | (() => string)): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+    timer = setTimeout(() => {
+      const currentLabel = typeof label === "function" ? label() : label;
+      reject(new Error(`${currentLabel} timeout after ${ms}ms`));
+    }, ms);
   });
   return Promise.race([promise, timeout]).finally(() => {
     if (timer !== undefined) clearTimeout(timer);
@@ -93,15 +96,17 @@ Deno.serve(async (req: Request) => {
       orphan: `it-orphan-${run}@example.invalid`,
     };
 
-    async function addResult(name: string, fn: () => Promise<unknown>) {
+    async function addResult(name: string, fn: (mark: (stage: string) => void) => Promise<unknown>) {
       const started = Date.now();
       const remaining = suiteDeadline - started;
+      let stage = "start";
+      const mark = (nextStage: string) => { stage = nextStage; };
       if (remaining <= 0) {
         results.push({ name, ok: false, durationMs: 0, detail: { message: "Integration suite time budget exhausted" } });
         return undefined;
       }
       try {
-        const detail = await withTimeout(fn(), Math.min(30_000, remaining), name);
+        const detail = await withTimeout(fn(mark), Math.min(30_000, remaining), () => `${name} [${stage}]`);
         results.push({ name, ok: true, durationMs: Date.now() - started, detail });
         return detail;
       }
@@ -196,7 +201,7 @@ Deno.serve(async (req: Request) => {
         return { activeReads: 3, orphanRows: orphanRead.data?.length || 0, managerAtomicUpdate: true, directWritesDenied: true, denormalizedColumnDenied: true };
       });
 
-      await addResult("real_two_session_atomic_concurrency_realtime", async () => {
+      await addResult("real_two_session_atomic_concurrency_realtime", async (mark) => {
         assert(clients.manager && clients.user, "manager/user clients unavailable for concurrency test");
         const subscribe = async (client: SupabaseClient, label: string) => {
           const events: any[] = [];
@@ -213,13 +218,18 @@ Deno.serve(async (req: Request) => {
           return events;
         };
 
-        const managerEvents = await subscribe(clients.manager, "manager");
-        const userEvents = await subscribe(clients.user, "user");
+        mark("subscribe-realtime");
+        const [managerEvents, userEvents] = await Promise.all([
+          subscribe(clients.manager, "manager"),
+          subscribe(clients.user, "user"),
+        ]);
+        mark("read-baseline");
         const before = await admin.from("rodios_issues").select("data,updated_at").eq("id", issueId).single();
         if (before.error) throw before.error;
         const managerData = { ...before.data.data, title: `CONCURRENT MANAGER ${run}` };
         const userData = { ...before.data.data, title: `CONCURRENT USER ${run}` };
         const args = (data: any) => ({ p_bundle: { issues: { upserts: [{ id: issueId, data, expectedUpdatedAt: before.data.updated_at }], deletes: [] } } });
+        mark("invoke-concurrent-rpcs");
         const [managerWrite, userWrite] = await Promise.all([
           clients.manager.rpc("rodios_save_bundle", args(managerData)),
           clients.user.rpc("rodios_save_bundle", args(userData)),
@@ -229,39 +239,46 @@ Deno.serve(async (req: Request) => {
         const loser = writes.find((x) => !!x.error);
         assert(loser?.error?.code === "40001" && String(loser.error.message || "").includes("RODIOS_SYNC_CONFLICT"), "concurrent loser was not rejected as an atomic sync conflict");
 
+        mark("await-realtime-events");
         const deadline = Date.now() + 10_000;
         while ((managerEvents.length < 1 || userEvents.length < 1) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
         assert(managerEvents.length >= 1, "manager session did not receive the concurrent Realtime update");
         assert(userEvents.length >= 1, "user session did not receive the concurrent Realtime update");
+        mark("read-final-row");
         const finalRow = await admin.from("rodios_issues").select("data,updated_at").eq("id", issueId).single();
         if (finalRow.error) throw finalRow.error;
         assert([managerData.title, userData.title].includes(finalRow.data.data?.title), "concurrent winner was not the final stored row");
         return { oneWinner: true, staleLoserDenied: true, managerRealtimeEvents: managerEvents.length, userRealtimeEvents: userEvents.length, finalTitle: finalRow.data.data.title };
       });
 
-      await addResult("real_atomic_bundle_rollback", async () => {
+      await addResult("real_atomic_bundle_rollback", async (mark) => {
         assert(clients.admin && clients.manager && clients.user, "clients unavailable for atomic rollback test");
         const a = `it_rollback_a_${run}`;
         const b = `it_rollback_b_${run}`;
         issueIds.push(a, b);
+        mark("create-baseline");
         const create = await clients.admin.rpc("rodios_save_bundle", { p_bundle: { issues: { upserts: [
           { id: a, data: { id: a, title: "ROLLBACK A ORIGINAL", source: "integration" }, expectedUpdatedAt: null },
           { id: b, data: { id: b, title: "ROLLBACK B ORIGINAL", source: "integration" }, expectedUpdatedAt: null },
         ], deletes: [] } } });
         if (create.error) throw create.error;
+        mark("read-baseline");
         const baseline = await admin.from("rodios_issues").select("id,data,updated_at").in("id", [a,b]);
         if (baseline.error) throw baseline.error;
         const rowA = baseline.data.find((x: any) => x.id === a);
         const rowB = baseline.data.find((x: any) => x.id === b);
         assert(rowA?.updated_at && rowB?.updated_at, "rollback baselines missing");
 
+        mark("advance-second-row");
         const advanceB = await clients.manager.rpc("rodios_save_bundle", { p_bundle: { issues: { upserts: [{ id: b, data: { ...rowB.data, title: "ROLLBACK B ADVANCED" }, expectedUpdatedAt: rowB.updated_at }], deletes: [] } } });
         if (advanceB.error) throw advanceB.error;
+        mark("invoke-stale-bundle");
         const staleBundle = await clients.user.rpc("rodios_save_bundle", { p_bundle: { issues: { upserts: [
           { id: a, data: { ...rowA.data, title: "ROLLBACK A MUST NOT PERSIST" }, expectedUpdatedAt: rowA.updated_at },
           { id: b, data: { ...rowB.data, title: "ROLLBACK B STALE MUST NOT PERSIST" }, expectedUpdatedAt: rowB.updated_at },
         ], deletes: [] } } });
         assert(staleBundle.error?.code === "40001", "stale multi-row bundle did not fail");
+        mark("read-after-rollback");
         const after = await admin.from("rodios_issues").select("id,data").in("id", [a,b]);
         if (after.error) throw after.error;
         const afterA = after.data.find((x: any) => x.id === a);
