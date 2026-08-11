@@ -54,7 +54,7 @@ required = {
     "citizen production auth fails closed": "function isLocalCitizenTestMode()" in citizen and "Η ασφαλής υπηρεσία ταυτοποίησης δεν είναι διαθέσιμη" in citizen,
     "patched Firebase browser SDK": "firebasejs/12.17.1/firebase-auth.js" in citizen and "firebasejs/12.17.1/firebase-app-check.js" in citizen,
     "citizen attachment URL allowlist": "function safeCitizenAttachmentUrl(value)" in citizen,
-    "citizen response allowlist": "function publicIssue(issue:any)" in bridge and ").map(publicIssue)" in bridge,
+    "citizen response allowlist": "function publicIssue(issue:any" in bridge and "publicIssue(issue,phoneDigits)" in bridge,
     "server-generated citizen reference": "citizenRef:newCitizenRef()" in bridge,
     "Firebase token accepted via header only": 'req.headers.get("x-firebase-id-token")||""' in bridge,
     "Greek mobile enforced end-to-end": "/^3069\\d{8}$/" in bridge and "/^3069\\d{8}$/" in citizen_attachments,
@@ -66,6 +66,15 @@ required = {
     "citizen classification server allowlist": "assertCitizenClassification(municipality,category,title)" in bridge,
     "citizen update required fields": "if(!citizenName||!municipality||!category||!title||!location||!description)throw new HttpError(400" in bridge,
     "legacy pathless attachments preserved safely": "mergeUpdatedAttachments(orig.attachments" in bridge and "cleanLegacyAttachmentUrl" in bridge,
+    "legacy citizen attachment phone-path compatibility": (
+        "legacyPhoneDigits = phoneDigits.startsWith('30') ? phoneDigits.slice(2) : phoneDigits" in citizen_attachments
+        and "function cleanCitizenAttachmentPath" in bridge
+        and 'legacyPhoneDigits=phoneDigits.startsWith("30")?phoneDigits.slice(2):phoneDigits' in bridge
+    ),
+    "staff legacy attachment URL canonicalization": (
+        "function _v920AttachmentPathFromLegacyUrl(value)" in staff
+        and "p=_v920AttachmentPathFromLegacyUrl(value.url)" in staff
+    ),
     "referenced citizen attachments cannot be deleted": "assertAttachmentIsUnreferenced(admin, path)" in citizen_attachments,
     "existing attachment cleanup follows accepted update": "const cleanup=[...new Set(removedExistingPaths)]" in citizen,
     "fail-closed user deactivation": "deactivateError" in manage and "authDeleteError" in manage,

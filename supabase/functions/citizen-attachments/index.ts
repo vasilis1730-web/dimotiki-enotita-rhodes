@@ -216,7 +216,9 @@ function assertFileSignature(bytes: Uint8Array, ext: string) {
 
 function pathBelongsToPhone(path: string, phoneDigits: string): boolean {
   const normalized = String(path || '').replace(/^\/+/, '')
-  return normalized.startsWith(`citizen/${phoneDigits}/`) && !normalized.includes('..')
+  if (!normalized || normalized.split('/').some((part) => part === '.' || part === '..')) return false
+  const legacyPhoneDigits = phoneDigits.startsWith('30') ? phoneDigits.slice(2) : phoneDigits
+  return normalized.startsWith(`citizen/${phoneDigits}/`) || normalized.startsWith(`citizen/${legacyPhoneDigits}/`)
 }
 
 async function sha256Hex(value: string): Promise<string> {

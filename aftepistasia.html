@@ -1394,6 +1394,22 @@ function _safeCloneForDb(value){
 
 
 // v9.20 staging: private Storage attachments — URL is runtime-only, path is canonical.
+function _v920AttachmentPathFromLegacyUrl(value){
+  const raw=String(value||'').trim();
+  if(!raw) return '';
+  try{
+    const u=new URL(raw);
+    const project=new URL(String(SUPABASE_URL||''));
+    if(u.protocol!=='https:' || u.host!==project.host) return '';
+    let pathname='';
+    try{ pathname=decodeURIComponent(u.pathname); }catch(_){ return ''; }
+    const match=pathname.match(/^\/storage\/v1\/object\/(?:sign|authenticated|public)\/attachments\/(.+)$/);
+    const path=match ? String(match[1]||'').replace(/^\/+/, '') : '';
+    if(!path || path.split('/').some(part=>part==='.'||part==='..')) return '';
+    return path;
+  }catch(_){ return ''; }
+}
+
 function _v920CollectAttachmentRefs(value, out, seen){
   if(value===null || value===undefined) return;
   if(!out) out=[];
@@ -1405,8 +1421,16 @@ function _v920CollectAttachmentRefs(value, out, seen){
     value.forEach(v=>_v920CollectAttachmentRefs(v,out,seen));
     return out;
   }
-  const p=typeof value.path==='string'?value.path.trim():'';
-  if(p && (value.stored==='supabase' || 'name' in value || 'type' in value || 'size' in value)) out.push(value);
+  let p=typeof value.path==='string'?value.path.trim():'';
+  const attachmentLike=value.stored==='supabase' || 'name' in value || 'type' in value || 'size' in value;
+  if(!p && attachmentLike){
+    p=_v920AttachmentPathFromLegacyUrl(value.url);
+    if(p){
+      value.path=p;
+      value.stored='supabase';
+    }
+  }
+  if(p && attachmentLike) out.push(value);
   Object.keys(value).forEach(k=>_v920CollectAttachmentRefs(value[k],out,seen));
   return out;
 }
