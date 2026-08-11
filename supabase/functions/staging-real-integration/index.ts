@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.1
 
 const PROD_REF = "nzrdcgmrsfdmocyhfrod";
 const FUNCTION_NAME = "staging-real-integration";
-const EMAIL_TEST_NONCE_SHA256 = "14e516bf027296394e22c880abb54f3ca469f8ba52fa6221ac737bb949b008bd";
+const EMAIL_TEST_NONCE_SHA256 = "a6e1438b5011ec0b61102c31381ea495df0648957cc2882a1a721aa6994aa700";
 
 type TestResult = { name: string; ok: boolean; durationMs?: number; detail?: unknown };
 
