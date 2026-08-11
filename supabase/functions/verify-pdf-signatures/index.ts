@@ -1,4 +1,3 @@
-import { ContentInfo, SignedData, type Certificate } from "npm:pkijs@3.4.0";
 import {
   assertAllowedOrigin,
   consumeHourlyQuota,
@@ -14,6 +13,28 @@ const MAX_BASE64_CHARS = Math.ceil(MAX_PDF_BYTES / 3) * 4 + 4096;
 const MAX_SIGNATURES = 20;
 const MAX_ORDER_IDS = 100;
 const PROOF_TTL_MS = 15 * 60 * 1000;
+
+type PkijsModule = {
+  ContentInfo: {
+    SIGNED_DATA: string;
+    fromBER(data: ArrayBuffer): any;
+  };
+  SignedData: new (parameters: { schema: any }) => any;
+};
+
+let pkijsModulePromise: Promise<PkijsModule> | null = null;
+
+function loadPkijs(): Promise<PkijsModule> {
+  if (!pkijsModulePromise) {
+    pkijsModulePromise = import("npm:pkijs@3.4.0")
+      .then(({ ContentInfo, SignedData }) => ({ ContentInfo, SignedData }))
+      .catch((error) => {
+        pkijsModulePromise = null;
+        throw error;
+      });
+  }
+  return pkijsModulePromise;
+}
 
 type ByteRange = { a: number; b: number; c: number; d: number; end1: number; end2: number };
 type SignatureDetail = {
@@ -126,6 +147,7 @@ function ownedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 async function verifyOne(bytes: Uint8Array, r: ByteRange, index: number): Promise<SignatureDetail> {
   const coversFinalRevision = r.end2 === bytes.length;
   try {
+    const { ContentInfo, SignedData } = await loadPkijs();
     const cmsBytes = extractCms(bytes, r);
     const contentInfo = ContentInfo.fromBER(ownedArrayBuffer(cmsBytes));
     if (contentInfo.contentType !== ContentInfo.SIGNED_DATA) throw new Error("Contents is not CMS SignedData");
@@ -138,7 +160,7 @@ async function verifyOne(bytes: Uint8Array, r: ByteRange, index: number): Promis
       const result: any = await signedData.verify({ signer: signerIndex, data: detached, checkChain: false, extendedMode: true });
       const ok = result === true || result?.signatureVerified === true;
       if (!ok) allValid = false;
-      const cert = result?.signerCertificate as Certificate | null | undefined;
+      const cert = result?.signerCertificate;
       if (cert) { certificatePresent = true; if (!signer) signer = certCommonName(cert); }
     }
     return { index, cryptographicValid: allValid, coversFinalRevision, signer, certificatePresent, ...(!allValid ? { reason: "CMS signature verification failed" } : {}) };
