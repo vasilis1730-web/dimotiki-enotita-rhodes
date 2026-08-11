@@ -23,6 +23,3 @@ verify_jwt = true
 
 [functions.resolve-maps-link]
 verify_jwt = true
-
-[functions.preview-static-publisher]
-verify_jwt = false
