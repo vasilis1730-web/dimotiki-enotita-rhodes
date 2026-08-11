@@ -226,7 +226,7 @@ begin
     end if;
     v_snapshot:=public.rodios_acceptance_snapshot(v_wo.id,v_wo.issue_id,v_wo.data);
     if not (v_proof.order_snapshot ? v_wo.id) or v_proof.order_snapshot->v_wo.id <> v_snapshot then
-      raise exception using errcode='40001', message='Work order changed after PDF verification; verify again';
+      raise exception using errcode='PT409', message='Work order changed after PDF verification; verify again';
     end if;
   end loop;
 
