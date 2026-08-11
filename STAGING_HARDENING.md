@@ -35,7 +35,7 @@ The additional hardening batch described below is restricted to the `staging-pro
 | A | Backend RLS / active-user authorization | ✅ PASS — clean Supabase Preview |
 | B | Atomic numbering / UNIQUE / FK integrity | ✅ PASS — clean Supabase Preview |
 | C | Private attachments / Firebase Auth + App Check / quotas | ✅ Staff/private Storage PASS; positive citizen E2E blocked by missing Firebase CI secrets |
-| D | Durable upload / Retry / no silent Base64 loss | ✅ Client fail-closed PASS; real interrupted-upload E2E pending |
+| D | Durable upload / Retry / no silent Base64 loss | ✅ PASS — client fail-closed plus real interrupted-upload / Retry / fresh-session reload |
 | E | Digital signature authorization | ✅ Client positive/negative browser paths PASS; cryptographic backend deployed in Preview; real municipal signed/tampered PDF E2E pending |
 | F | Settings admin-only / locked config / logout purge | ✅ PASS, including full Chromium `doLogout()` |
 | G | Edge Functions + public ACK backend | ✅ PASS — clean Preview and ACK replay/expiry assertions |
@@ -43,7 +43,7 @@ The additional hardening batch described below is restricted to the `staging-pro
 | H.2 | Mobile + offline/reconnect | ✅ Chromium PASS |
 | H.3 | Fail-closed functional paths | ✅ Chromium PASS |
 | H.4 | Positive PDF client path + full logout | ✅ Chromium PASS |
-| H.5 | Real-network authenticated backend security matrix | ✅ PASS — run `31460310987`, job `93682352033`, 22/22 |
+| H.5 | Real-network authenticated backend security matrix | ✅ PASS — run `31462153851`, attempt 2, job `93688379070`, 23/23 |
 | H.6 | Real citizen OTP/upload, email and signed-PDF artifact E2E | ⏳ PARTIAL/BLOCKED — Firebase secrets, authorized email side effect and municipal PDFs required |
 | H.7 | Two-session concurrency and rollback rehearsal | ✅ PASS — atomic conflict/Realtime/rollback matrix plus disposable rollback Preview |
 
@@ -62,7 +62,11 @@ Latest complete isolated rebuild used Preview project `enymhfhequixpquhiecg` and
 
 The clean rebuild validated active-profile RLS, role assertions, sequences, canonical-number uniqueness, foreign keys, private Storage foundations, quotas, ACK expiry/replay behavior, server timestamps, audited admin-only soft deletion, precise upsert permissions and all seven version-controlled Edge Functions.
 
-The real-network Gate H matrix subsequently passed **22/22** assertions: 12 real Auth/RLS/Storage/Edge/ACK/concurrency/rollback checks and 10 citizen negative-security HTTP checks. The same tree passed twice, including run `31460310987`, job `93682352033`.
+The expanded real-network Gate H matrix passed **23/23** assertions: 13 real Auth/RLS/Storage/Edge/ACK/concurrency/rollback/interrupted-upload checks and 10 citizen negative-security HTTP checks. The latest complete result is run `31462153851`, attempt 2, job `93688379070`.
+
+The real interrupted-upload test aborted an 8,388,608-byte streaming upload after 6,488,064 bytes had been produced, verified that no readable partial object remained, retried 1,048,576 bytes at the same path, signed in through a fresh authenticated session and downloaded byte-identical content with SHA-256 `4331f6fd59299bea143d32f6cd62fad04cda8571f354179a88e380835fcf94e2`.
+
+Attempt 1 of the same run passed the interrupted-upload test but one Realtime subscriber did not receive the concurrency event inside the 10-second observation window. The unchanged attempt-2 rerun received one event in each session and completed the concurrency check in 1,118 ms. This is retained as a transient Realtime monitoring signal rather than concealed by the green rerun.
 
 The concurrency test proved exactly one winner from two authenticated sessions, immediate stale-write rejection as `PT409`, one Realtime event in each session and preservation of the winner. The multi-row stale bundle proved full transaction rollback.
 
@@ -257,15 +261,14 @@ The following must **not** be represented as validated by mocks or localhost she
 
 1. Real citizen OTP + Firebase App Check against an isolated backend. The guarded workflow is ready but `RODIOS_FIREBASE_TEST_PHONE`, `RODIOS_FIREBASE_TEST_CODE` and `RODIOS_FIREBASE_APPCHECK_DEBUG_TOKEN` are not configured.
 2. Real citizen submit/list/update authorization, legacy-phone claim/isolation and citizen attachment upload/sign/download/remove. These run in the same positive Firebase workflow after the three secrets are configured.
-3. Real interrupted upload / Retry / reload durability against Storage.
-4. Work-order creation + real email delivery + real ACK link lifecycle; no external email is sent without explicit authorization.
-5. Known-good municipal signed PDF, tampered PDF, marker-only fake and verifier-unavailable tests.
-6. Required certificate/eIDAS trust policy decision.
-7. Legacy production attachment metadata compatibility review, including the existing 565 objects and any pathless records.
-8. Final read-only production preflight immediately before release, including counts and credential-key presence checks without exposing values or PII. This requires separate explicit approval before any production read.
-9. Restrict the public Geoapify browser key by allowed origin and quota in the provider dashboard.
+3. Work-order creation + real email delivery + real ACK link lifecycle; no external email is sent without explicit authorization.
+4. Known-good municipal signed PDF, tampered PDF, marker-only fake and verifier-unavailable tests.
+5. Required certificate/eIDAS trust policy decision.
+6. Legacy production attachment metadata compatibility review, including the existing 565 objects and any pathless records.
+7. Final read-only production preflight immediately before release, including counts and credential-key presence checks without exposing values or PII. This requires separate explicit approval before any production read.
+8. Restrict the public Geoapify browser key by allowed origin and quota in the provider dashboard.
 
-Completed since the previous record: two-session concurrency/Realtime, atomic multi-row rollback, full rollback rehearsal, PR #5 Draft protection and the published GitHub Actions Chromium/Firebase 12 runtime rerun.
+Completed since the previous record: two-session concurrency/Realtime, atomic multi-row rollback, full rollback rehearsal, real interrupted-upload / Retry / fresh-session reload durability, PR #5 Draft protection and the published GitHub Actions Chromium/Firebase 12 runtime rerun.
 
 Residual technical risk: the legacy single-file frontend still requires CSP `'unsafe-inline'`. Removing it safely requires a separate HTML/JavaScript extraction and event-handler refactor, not a last-minute release patch.
 
