@@ -367,6 +367,103 @@ Deno.serve(async (req: Request) => {
         };
       });
 
+      const interruptedPath = `integration/${run}/interrupted-retry.bin`;
+      storagePaths.push(interruptedPath);
+      await addResult("real_interrupted_upload_retry_reload", async (mark) => {
+        assert(clients.user, "active user client unavailable for interrupted upload test");
+        const { data: sessionData, error: sessionError } = await clients.user.auth.getSession();
+        if (sessionError) throw sessionError;
+        const accessToken = sessionData.session?.access_token;
+        assert(accessToken, "active user access token missing for raw Storage upload");
+
+        const totalBytes = 8 * 1024 * 1024;
+        const chunkBytes = 64 * 1024;
+        let producedBytes = 0;
+        let streamCancelled = false;
+        const slowBody = new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            await new Promise((resolve) => setTimeout(resolve, 35));
+            if (streamCancelled) return;
+            const remaining = totalBytes - producedBytes;
+            if (remaining <= 0) { controller.close(); return; }
+            const size = Math.min(chunkBytes, remaining);
+            const chunk = new Uint8Array(size);
+            chunk.fill((producedBytes / chunkBytes) % 251);
+            producedBytes += size;
+            controller.enqueue(chunk);
+          },
+          cancel() { streamCancelled = true; },
+        });
+        const encodedPath = interruptedPath.split("/").map(encodeURIComponent).join("/");
+        const controller = new AbortController();
+        const abortTimer = setTimeout(() => controller.abort(), 220);
+        let interrupted = false;
+        let interruptionDetail = "";
+        mark("interrupt-streaming-upload");
+        try {
+          const response = await fetch(`${supabaseUrl}/storage/v1/object/attachments/${encodedPath}`, {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${accessToken}`,
+              apikey: anonKey,
+              "cache-control": "3600",
+              "content-type": "application/octet-stream",
+              "x-upsert": "false",
+            },
+            body: slowBody,
+            signal: controller.signal,
+          });
+          interruptionDetail = `unexpected HTTP ${response.status}`;
+        } catch (e) {
+          interruptionDetail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+          interrupted = e instanceof DOMException
+            ? e.name === "AbortError"
+            : /abort/i.test(interruptionDetail);
+        } finally {
+          clearTimeout(abortTimer);
+        }
+        assert(interrupted, `streaming upload was not interrupted: ${interruptionDetail}`);
+        assert(producedBytes > 0 && producedBytes < totalBytes, `interruption did not occur mid-stream: produced=${producedBytes}`);
+
+        mark("verify-no-partial-object");
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        const partial = await admin.storage.from("attachments").download(interruptedPath);
+        assert(!!partial.error, "interrupted upload left a readable partial Storage object");
+
+        mark("retry-complete-upload");
+        const retryBytes = new Uint8Array(1024 * 1024);
+        for (let i = 0; i < retryBytes.length; i++) retryBytes[i] = (i * 31 + 17) % 251;
+        const retry = await clients.user.storage.from("attachments").upload(
+          interruptedPath,
+          new Blob([retryBytes], { type: "application/octet-stream" }),
+          { cacheControl: "3600", upsert: false },
+        );
+        if (retry.error) throw retry.error;
+
+        mark("fresh-session-signed-reload");
+        const reloadClient = await signIn(emails.user);
+        const signed = await reloadClient.storage.from("attachments").createSignedUrl(interruptedPath, 60);
+        if (signed.error) throw signed.error;
+        assert(signed.data?.signedUrl, "fresh session did not receive a signed retry URL");
+        const downloaded = await fetch(signed.data.signedUrl, { cache: "no-store" });
+        assert(downloaded.ok, `fresh-session signed reload failed: HTTP ${downloaded.status}`);
+        const downloadedBytes = new Uint8Array(await downloaded.arrayBuffer());
+        assert(downloadedBytes.length === retryBytes.length, "retry object length changed after signed reload");
+        const expectedHash = new Uint8Array(await crypto.subtle.digest("SHA-256", retryBytes));
+        const actualHash = new Uint8Array(await crypto.subtle.digest("SHA-256", downloadedBytes));
+        const hashHex = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+        assert(hashHex(actualHash) === hashHex(expectedHash), "retry object bytes changed after signed reload");
+
+        return {
+          interruptionObserved: true,
+          producedBeforeAbort: producedBytes,
+          partialObjectAbsent: true,
+          retryBytes: retryBytes.length,
+          freshSessionSignedReload: true,
+          sha256: hashHex(actualHash),
+        };
+      });
+
       await addResult("real_manage_app_user_edge_auth", async () => {
         assert(clients.admin && clients.manager, "admin/manager clients unavailable");
         const adminPing = await clients.admin.functions.invoke("manage-app-user", { body: { action: "ping" } });
