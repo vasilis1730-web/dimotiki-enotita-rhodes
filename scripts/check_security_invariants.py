@@ -11,6 +11,8 @@ ack = (ROOT / "ack.html").read_text(encoding="utf-8")
 manage = (ROOT / "supabase/functions/manage-app-user/index.ts").read_text(encoding="utf-8")
 migration = (ROOT / "supabase/migrations/20260810150000_remove_legacy_profile_credentials.sql").read_text(encoding="utf-8")
 atomic_sync = (ROOT / "supabase/migrations/20260810170000_atomic_optimistic_sync.sql").read_text(encoding="utf-8")
+acceptance_sync = (ROOT / "supabase/migrations/20260810114000_verified_pdf_acceptance_transaction.sql").read_text(encoding="utf-8")
+conflict_correction = (ROOT / "supabase/migrations/20260811050000_nonretryable_conflict_codes.sql").read_text(encoding="utf-8")
 citizen = (ROOT / "index.html").read_text(encoding="utf-8")
 bridge = (ROOT / "supabase/functions/citizen-bridge/index.ts").read_text(encoding="utf-8")
 citizen_attachments = (ROOT / "supabase/functions/citizen-attachments/index.ts").read_text(encoding="utf-8")
@@ -68,6 +70,13 @@ required = {
     "existing attachment cleanup follows accepted update": "const cleanup=[...new Set(removedExistingPaths)]" in citizen,
     "fail-closed user deactivation": "deactivateError" in manage and "authDeleteError" in manage,
     "atomic optimistic browser sync": "sb.rpc('rodios_save_bundle'" in staff and "expectedUpdatedAt" in staff,
+    "non-retryable HTTP 409 conflict code": (
+        "errcode = 'PT409'" in atomic_sync
+        and "errcode='PT409'" in acceptance_sync
+        and "pg_get_functiondef" in conflict_correction
+        and "'PT409'" in conflict_correction
+        and "RODIOS_SYNC_CONFLICT" in staff
+    ),
     "related deletes use one atomic bundle": "async function _v9DeleteBundle(tableIds)" in staff and "rodios_payments:payIds" in staff,
     "exact server versions retained after save": "_v9RememberBaselineFromCurrent(committed.versions||{})" in staff,
     "direct operational writes revoked": "revoke insert, update on table" in atomic_sync and "has_any_column_privilege" in atomic_sync,
@@ -94,6 +103,9 @@ forbidden = {
     "legacy direct operational upsert helper": "async function _v9UpsertChunks" in staff,
     "non-atomic preflight conflict window": "function _v9AssertNoConflicts" in staff or "+ 1000" in staff,
     "legacy browser soft-delete RPC": "sb.rpc('rodios_soft_delete'" in staff,
+    "retryable SQLSTATE used for application conflict": (
+        "errcode = '40001'" in atomic_sync or "errcode='40001'" in acceptance_sync
+    ),
 }
 
 failures = [name for name, ok in required.items() if not ok]

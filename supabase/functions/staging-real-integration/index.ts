@@ -237,7 +237,7 @@ Deno.serve(async (req: Request) => {
         const writes = [managerWrite, userWrite];
         assert(writes.filter((x) => !x.error && x.data?.ok === true).length === 1, "concurrent same-version writes did not produce exactly one winner");
         const loser = writes.find((x) => !!x.error);
-        assert(loser?.error?.code === "40001" && String(loser.error.message || "").includes("RODIOS_SYNC_CONFLICT"), "concurrent loser was not rejected as an atomic sync conflict");
+        assert(loser?.error?.code === "PT409" && String(loser.error.message || "").includes("RODIOS_SYNC_CONFLICT"), "concurrent loser was not rejected as an HTTP 409 atomic sync conflict");
 
         mark("await-realtime-events");
         const deadline = Date.now() + 10_000;
@@ -277,7 +277,7 @@ Deno.serve(async (req: Request) => {
           { id: a, data: { ...rowA.data, title: "ROLLBACK A MUST NOT PERSIST" }, expectedUpdatedAt: rowA.updated_at },
           { id: b, data: { ...rowB.data, title: "ROLLBACK B STALE MUST NOT PERSIST" }, expectedUpdatedAt: rowB.updated_at },
         ], deletes: [] } } });
-        assert(staleBundle.error?.code === "40001", "stale multi-row bundle did not fail");
+        assert(staleBundle.error?.code === "PT409" && String(staleBundle.error.message || "").includes("RODIOS_SYNC_CONFLICT"), "stale multi-row bundle was not rejected as an HTTP 409 atomic sync conflict");
         mark("read-after-rollback");
         const after = await admin.from("rodios_issues").select("id,data").in("id", [a,b]);
         if (after.error) throw after.error;

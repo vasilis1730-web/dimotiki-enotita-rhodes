@@ -134,7 +134,7 @@ begin
       ) into v_updated using v_id, v_expected;
       if v_updated is null then
         raise exception 'RODIOS_SYNC_CONFLICT'
-          using errcode = '40001', detail = v_entity || ':' || v_id;
+          using errcode = 'PT409', detail = v_entity || ':' || v_id;
       end if;
       v_deleted := jsonb_set(
         v_deleted,
@@ -213,7 +213,7 @@ begin
           end case;
         exception when unique_violation then
           raise exception 'RODIOS_SYNC_CONFLICT'
-            using errcode = '40001', detail = v_entity || ':' || v_id;
+            using errcode = 'PT409', detail = v_entity || ':' || v_id;
         end;
       else
         begin
@@ -240,7 +240,7 @@ begin
         end case;
         if v_updated is null then
           raise exception 'RODIOS_SYNC_CONFLICT'
-            using errcode = '40001', detail = v_entity || ':' || v_id;
+            using errcode = 'PT409', detail = v_entity || ':' || v_id;
         end if;
       end if;
 

@@ -94,7 +94,7 @@ const result=await page.evaluate(async()=>{
   }});
   const committed=await _v9CommitBundle({issues:{upserts:[versioned],deletes:[]}});
   let conflict=null;
-  window.getSupabase=()=>({rpc:async()=>({data:null,error:{code:'40001',message:'RODIOS_SYNC_CONFLICT',details:'issues:sync_contract_row'}})});
+  window.getSupabase=()=>({rpc:async()=>({data:null,error:{code:'PT409',message:'RODIOS_SYNC_CONFLICT',details:'issues:sync_contract_row'}})});
   try{ await _v9CommitBundle({issues:{upserts:[versioned],deletes:[]}}); }
   catch(e){ conflict={message:String(e?.message||e),ids:e?.conflictIds||[],code:e?.code||''}; }
   _v9Baseline.issues=new Map([['sync_delete_issue','x']]);
