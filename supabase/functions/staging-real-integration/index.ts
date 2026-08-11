@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.1
 
 const PROD_REF = "nzrdcgmrsfdmocyhfrod";
 const FUNCTION_NAME = "staging-real-integration";
+const EMAIL_TEST_NONCE_SHA256 = "6319cd0cb8bf501f771d6a0aeece0fb1c2e7bd1d4c85bd8334f85b149f991e67";
 
 type TestResult = { name: string; ok: boolean; durationMs?: number; detail?: unknown };
 
@@ -29,6 +30,58 @@ function projectRef(url: string): string {
 function randomText(bytes = 12): string {
   const a = new Uint8Array(bytes); crypto.getRandomValues(a);
   return [...a].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function decodeOptionalPdfFixture(value: unknown): Uint8Array | null {
+  const raw = String(value || "").replace(/\s+/g, "");
+  if (!raw) return null;
+  if (raw.length > 5_000_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(raw)) {
+    throw new Error("Invalid or oversized PDF fixture");
+  }
+  const bin = atob(raw);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  assert(bytes.length > 128 && String.fromCharCode(...bytes.slice(0, 5)) === "%PDF-", "PDF fixture is not a PDF");
+  return bytes;
+}
+
+function tamperSignedPdfByte(bytes: Uint8Array): Uint8Array {
+  const copy = bytes.slice();
+  const text = new TextDecoder("windows-1252").decode(copy);
+  const match = /\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/.exec(text);
+  assert(match, "PDF fixture has no ByteRange");
+  const firstStart = Number(match[1]), firstLength = Number(match[2]);
+  const secondStart = Number(match[3]), secondLength = Number(match[4]);
+  const candidates = [Math.max(firstStart + 16, 128), secondStart + Math.min(32, Math.max(0, secondLength - 1))];
+  const offset = candidates.find((x) => Number.isSafeInteger(x) && x >= firstStart && x < firstStart + firstLength && x < copy.length)
+    ?? candidates.find((x) => Number.isSafeInteger(x) && x >= secondStart && x < secondStart + secondLength && x < copy.length);
+  assert(offset !== undefined, "No safe signed byte available for tampering");
+  copy[offset] ^= 0x01;
+  return copy;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let out = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    out += String.fromCharCode(...bytes.subarray(i, Math.min(bytes.length, i + chunk)));
+  }
+  return btoa(out);
+}
+
+async function sha256Text(value: string): Promise<string> {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function decodeOptionalEmailFixture(value: unknown): Promise<{ to: string } | null> {
+  if (!value || typeof value !== "object") return null;
+  const input = value as Record<string, unknown>;
+  const nonce = String(input.nonce || "");
+  assert(nonce.length === 64 && await sha256Text(nonce) === EMAIL_TEST_NONCE_SHA256, "Email fixture authorization failed");
+  const to = String(input.to || "").trim().toLowerCase();
+  assert(/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to) && to.length <= 254, "Email fixture recipient is invalid");
+  return { to };
 }
 
 function errorDetail(e: unknown) {
@@ -76,6 +129,16 @@ Deno.serve(async (req: Request) => {
     if (req.method === "GET") return json(req, { ok: true, ready: true, function: FUNCTION_NAME, previewRef: ref });
     if (req.method !== "POST") return json(req, { ok: false, error: "Method not allowed" }, 405);
 
+    const requestText = await req.text();
+    if (requestText.length > 5_100_000) return json(req, { ok: false, error: "Request fixture is too large" }, 413);
+    let requestBody: Record<string, unknown> = {};
+    if (requestText.trim()) {
+      try { requestBody = JSON.parse(requestText); }
+      catch { return json(req, { ok: false, error: "Invalid JSON" }, 400); }
+    }
+    const pdfFixture = decodeOptionalPdfFixture(requestBody.pdfBase64);
+    const emailFixture = await decodeOptionalEmailFixture(requestBody.emailTest);
+
     const run = `${Date.now().toString(36)}_${randomText(5)}`;
     const password = `R0dios-${randomText(12)}!Aa1`;
     const results = diagnostics;
@@ -85,6 +148,9 @@ Deno.serve(async (req: Request) => {
     const issueIds: string[] = [];
     const workOrderIds: string[] = [];
     const ackIds: string[] = [];
+    const pdfProofIds: string[] = [];
+    const protocolPaths: string[] = [];
+    let emailSettingsOriginal: Record<string, unknown> | null = null;
     const realtimeChannels: Array<{ client: SupabaseClient; channel: any }> = [];
     const seqYear = new Date().getUTCFullYear() + 1;
     const suiteDeadline = Date.now() + 90_000;
@@ -490,6 +556,98 @@ Deno.serve(async (req: Request) => {
         return { denied: true };
       });
 
+      if (pdfFixture) {
+        await addResult("real_municipal_signed_and_tampered_pdf", async (mark) => {
+          assert(clients.admin, "admin client unavailable for PDF verification test");
+          mark("verify-known-good-municipal-pdf");
+          const valid = await clients.admin.functions.invoke("verify-pdf-signatures", {
+            body: {
+              workOrderIds: [woId],
+              pdfName: "municipal-signed-e2e.pdf",
+              pdfBase64: bytesToBase64(pdfFixture),
+            },
+          });
+          if (valid.error) throw valid.error;
+          assert(valid.data?.verified === true && valid.data?.integrityOk === true, "known-good municipal signed PDF was rejected");
+          assert(valid.data?.detectedCount >= 1 && valid.data?.count === valid.data?.detectedCount, "known-good signature count mismatch");
+          assert(valid.data?.verificationProofId && valid.data?.protocolPath, "known-good PDF did not create a verification proof");
+          pdfProofIds.push(String(valid.data.verificationProofId));
+          protocolPaths.push(String(valid.data.protocolPath));
+
+          mark("verify-tampered-municipal-pdf");
+          const tampered = tamperSignedPdfByte(pdfFixture);
+          const invalid = await clients.admin.functions.invoke("verify-pdf-signatures", {
+            body: {
+              workOrderIds: [woId],
+              pdfName: "municipal-tampered-e2e.pdf",
+              pdfBase64: bytesToBase64(tampered),
+            },
+          });
+          if (invalid.error) throw invalid.error;
+          assert(invalid.data?.verified === false && invalid.data?.integrityOk === false, "tampered municipal PDF was accepted");
+          assert(!invalid.data?.verificationProofId && !invalid.data?.protocolPath, "tampered PDF created a proof or protocol object");
+          return {
+            validAccepted: true,
+            detectedSignatures: valid.data.detectedCount,
+            cryptographicSignatures: valid.data.count,
+            finalRevisionCovered: valid.data.details?.every((x: any) => x?.coversFinalRevision === true) === true,
+            tamperedRejected: true,
+            trustMode: valid.data.trustMode,
+          };
+        });
+      }
+
+      if (emailFixture) {
+        await addResult("real_email_delivery_and_ack_lifecycle", async (mark) => {
+          assert(clients.admin, "admin client unavailable for email/ACK test");
+          mark("configure-preview-recipient");
+          const settings = await admin.from("rodios_settings").select("value").eq("key", "main").single();
+          if (settings.error) throw settings.error;
+          emailSettingsOriginal = settings.data.value || {};
+          const configure = await admin.from("rodios_settings").update({ value: { ...emailSettingsOriginal, contractorEmail: emailFixture.to } }).eq("key", "main");
+          if (configure.error) throw configure.error;
+
+          const token = randomText(24);
+          const ack = await admin.from("work_order_acknowledgments").insert({
+            work_order_id: woId,
+            order_num: `ΕΝΤ-PREVIEW-${run}`,
+            ack_token: token,
+            expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+          }).select("id").single();
+          if (ack.error) throw ack.error;
+          ackIds.push(ack.data.id);
+
+          mark("send-real-preview-email");
+          const sent = await clients.admin.functions.invoke("send-order-email", {
+            body: {
+              to: emailFixture.to,
+              subject: "RODIOS PRE-PRODUCTION TEST — EMAIL / ACK",
+              body: `ΑΥΤΟΜΑΤΗ ΔΟΚΙΜΗ PRE-PRODUCTION — ΔΕΝ ΑΠΑΙΤΕΙΤΑΙ ΚΑΜΙΑ ΕΝΕΡΓΕΙΑ.\nACK-PREVIEW-TOKEN:${token}\nΗ επιβεβαίωση εκτελείται αυτόματα μόνο στο προσωρινό Preview.`,
+              attachments: [],
+            },
+          });
+          if (sent.error) throw sent.error;
+          assert(sent.data?.ok === true && Array.isArray(sent.data?.accepted) && sent.data.accepted.length === 1 && sent.data?.rejected?.length === 0, "SMTP did not accept exactly one preview recipient");
+
+          mark("complete-and-replay-preview-ack");
+          const anon = createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+          const first = await anon.rpc("complete_work_order_ack", { p_token: token });
+          if (first.error) throw first.error;
+          const firstRow = Array.isArray(first.data) ? first.data[0] : first.data;
+          assert(firstRow?.success === true && firstRow?.work_order_id === woId, "email-linked ACK first use failed");
+          const replay = await anon.rpc("complete_work_order_ack", { p_token: token });
+          if (replay.error) throw replay.error;
+          const replayRow = Array.isArray(replay.data) ? replay.data[0] : replay.data;
+          assert(replayRow?.success === false, "email-linked ACK replay succeeded");
+
+          mark("restore-preview-recipient");
+          const restore = await admin.from("rodios_settings").update({ value: emailSettingsOriginal }).eq("key", "main");
+          if (restore.error) throw restore.error;
+          emailSettingsOriginal = null;
+          return { smtpAccepted: true, acknowledgedOnce: true, replayDenied: true, settingsRestored: true };
+        });
+      }
+
       await addResult("real_public_ack_one_time_rpc", async () => {
         const token = randomText(24);
         const ack = await admin.from("work_order_acknowledgments").insert({ work_order_id: woId, order_num: `ΕΝΤ-IT-${run}`, ack_token: token, expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString() }).select("id").single();
@@ -521,6 +679,15 @@ Deno.serve(async (req: Request) => {
       }
       if (ackIds.length) {
         try { await withTimeout(Promise.resolve(admin.from("work_order_acknowledgments").delete().in("id", [...new Set(ackIds)])), 5_000, "ACK cleanup"); } catch (_) {}
+      }
+      if (pdfProofIds.length) {
+        try { await withTimeout(Promise.resolve(admin.from("rodios_pdf_verification_proofs").delete().in("id", [...new Set(pdfProofIds)])), 5_000, "PDF proof cleanup"); } catch (_) {}
+      }
+      if (protocolPaths.length) {
+        try { await withTimeout(admin.storage.from("protocols").remove([...new Set(protocolPaths)]), 5_000, "Protocol cleanup"); } catch (_) {}
+      }
+      if (emailSettingsOriginal) {
+        try { await withTimeout(Promise.resolve(admin.from("rodios_settings").update({ value: emailSettingsOriginal }).eq("key", "main")), 5_000, "Email settings cleanup"); } catch (_) {}
       }
       if (workOrderIds.length) {
         try { await withTimeout(Promise.resolve(admin.from("rodios_work_orders").delete().in("id", [...new Set(workOrderIds)])), 5_000, "Work-order cleanup"); } catch (_) {}
