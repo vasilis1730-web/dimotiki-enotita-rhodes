@@ -6,7 +6,7 @@ const FUNCTION_NAME = "staging-real-integration";
 type TestResult = { name: string; ok: boolean; durationMs?: number; detail?: unknown };
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  let timer: number | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
   });
