@@ -58,7 +58,12 @@ function secretKey(): string {
 function browserKey(): string {
   const legacy = String(Deno.env.get("SUPABASE_ANON_KEY") || "").trim();
   if (legacy.startsWith("eyJ")) return legacy;
-  throw new Error("Preview legacy anon key is unavailable");
+  try {
+    const keys = JSON.parse(Deno.env.get("SUPABASE_PUBLISHABLE_KEYS") || "{}");
+    const publishable = String(keys.default || Object.values(keys)[0] || "").trim();
+    if (/^sb_publishable_[A-Za-z0-9_-]+$/.test(publishable)) return publishable;
+  } catch (_) {}
+  throw new Error("Preview browser-safe API key is unavailable");
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -84,6 +89,14 @@ function patchHtml(path: string, source: string, anonKey: string, patchSupabase:
     }
     html = html.split(PRODUCTION_PROJECT_URL).join(EXPECTED_PROJECT_URL);
     html = html.split(keyMatch[1]).join(anonKey);
+    if (path === "aftepistasia.html") {
+      const oldKeyCheck = "  const looksJwt = /^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$/.test(anonKey);";
+      const oldFailure = "  if(!looksJwt){\n    throw new Error('Το SUPABASE_KEY της εφαρμογής δεν μοιάζει με anon JWT key. Δεν καλώ την Edge Function για λόγους ασφαλείας.');\n  }";
+      const newKeyCheck = "  const looksBrowserKey = /^eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$/.test(anonKey) || /^sb_publishable_[A-Za-z0-9_-]+$/.test(anonKey);";
+      const newFailure = "  if(!looksBrowserKey){\n    throw new Error('Το SUPABASE_KEY της εφαρμογής δεν είναι έγκυρο browser-safe anon/publishable key. Δεν καλώ την Edge Function για λόγους ασφαλείας.');\n  }";
+      if (!html.includes(oldKeyCheck) || !html.includes(oldFailure)) throw new Error("Unexpected staff API-key guard");
+      html = html.replace(oldKeyCheck, newKeyCheck).replace(oldFailure, newFailure);
+    }
   }
   html = html.split(PRODUCTION_PAGES_BASE).join(PUBLIC_BASE);
   html = html.replace(/<head([^>]*)>/i, '<head$1>\n<meta name="robots" content="noindex,nofollow">\n<meta name="rodios-environment" content="preview-v9.20">');
