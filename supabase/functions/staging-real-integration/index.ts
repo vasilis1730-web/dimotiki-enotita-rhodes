@@ -3,7 +3,17 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.1
 const PROD_REF = "nzrdcgmrsfdmocyhfrod";
 const FUNCTION_NAME = "staging-real-integration";
 
-type TestResult = { name: string; ok: boolean; detail?: unknown };
+type TestResult = { name: string; ok: boolean; durationMs?: number; detail?: unknown };
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -74,6 +84,7 @@ Deno.serve(async (req: Request) => {
     const ackIds: string[] = [];
     const realtimeChannels: Array<{ client: SupabaseClient; channel: any }> = [];
     const seqYear = new Date().getUTCFullYear() + 1;
+    const suiteDeadline = Date.now() + 90_000;
 
     const emails = {
       admin: `it-admin-${run}@example.invalid`,
@@ -83,8 +94,18 @@ Deno.serve(async (req: Request) => {
     };
 
     async function addResult(name: string, fn: () => Promise<unknown>) {
-      try { const detail = await fn(); results.push({ name, ok: true, detail }); return detail; }
-      catch (e) { results.push({ name, ok: false, detail: errorDetail(e) }); return undefined; }
+      const started = Date.now();
+      const remaining = suiteDeadline - started;
+      if (remaining <= 0) {
+        results.push({ name, ok: false, durationMs: 0, detail: { message: "Integration suite time budget exhausted" } });
+        return undefined;
+      }
+      try {
+        const detail = await withTimeout(fn(), Math.min(30_000, remaining), name);
+        results.push({ name, ok: true, durationMs: Date.now() - started, detail });
+        return detail;
+      }
+      catch (e) { results.push({ name, ok: false, durationMs: Date.now() - started, detail: errorDetail(e) }); return undefined; }
     }
 
     async function createAuthUser(email: string) {
@@ -179,17 +200,16 @@ Deno.serve(async (req: Request) => {
         assert(clients.manager && clients.user, "manager/user clients unavailable for concurrency test");
         const subscribe = async (client: SupabaseClient, label: string) => {
           const events: any[] = [];
-          let channel: any;
+          const channel = client.channel(`rodios_${label}_${run}`)
+            .on("postgres_changes", { event: "UPDATE", schema: "public", table: "rodios_issues", filter: `id=eq.${issueId}` }, (payload: any) => events.push(payload));
+          realtimeChannels.push({ client, channel });
           await new Promise<void>((resolve, reject) => {
             const timer = setTimeout(() => reject(new Error(`${label} Realtime subscription timeout`)), 12_000);
-            channel = client.channel(`rodios_${label}_${run}`)
-              .on("postgres_changes", { event: "UPDATE", schema: "public", table: "rodios_issues", filter: `id=eq.${issueId}` }, (payload: any) => events.push(payload))
-              .subscribe((status: string) => {
+            channel.subscribe((status: string) => {
                 if (status === "SUBSCRIBED") { clearTimeout(timer); resolve(); }
                 if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") { clearTimeout(timer); reject(new Error(`${label} Realtime status ${status}`)); }
               });
           });
-          realtimeChannels.push({ client, channel });
           return events;
         };
 
@@ -376,14 +396,37 @@ Deno.serve(async (req: Request) => {
       const allOk = results.length >= 9 && results.every((x) => x.ok);
       return json(req, { ok: allOk, previewRef: ref, run, realNetwork: true, results }, allOk ? 200 : 500);
     } finally {
-      for (const p of storagePaths) { try { await admin.storage.from("attachments").remove([p]); } catch (_) {} }
-      for (const id of ackIds) { try { await admin.from("work_order_acknowledgments").delete().eq("id", id); } catch (_) {} }
-      for (const id of workOrderIds) { try { await admin.from("rodios_work_orders").delete().eq("id", id); } catch (_) {} }
-      for (const id of issueIds) { try { await admin.from("rodios_issues").delete().eq("id", id); } catch (_) {} }
-      for (const id of profileIds) { try { await admin.from("rodios_app_users").delete().eq("id", id); } catch (_) {} }
-      for (const id of createdUserIds) { try { await admin.auth.admin.deleteUser(id); } catch (_) {} }
-      for (const entry of realtimeChannels) { try { await entry.client.removeChannel(entry.channel); } catch (_) {} }
-      try { await admin.from("rodios_sequences").delete().eq("kind", "issue").eq("year", seqYear); } catch (_) {}
+      // Close Realtime while the corresponding Auth sessions still exist. Every
+      // cleanup phase is bounded so test teardown can never consume the Edge
+      // runtime's 150-second idle budget and hide the actual assertion results.
+      await Promise.allSettled(realtimeChannels.map((entry) =>
+        withTimeout(entry.client.removeChannel(entry.channel), 3_000, "Realtime cleanup")
+      ));
+      if (storagePaths.length) {
+        try { await withTimeout(admin.storage.from("attachments").remove([...new Set(storagePaths)]), 5_000, "Storage cleanup"); } catch (_) {}
+      }
+      if (ackIds.length) {
+        try { await withTimeout(Promise.resolve(admin.from("work_order_acknowledgments").delete().in("id", [...new Set(ackIds)])), 5_000, "ACK cleanup"); } catch (_) {}
+      }
+      if (workOrderIds.length) {
+        try { await withTimeout(Promise.resolve(admin.from("rodios_work_orders").delete().in("id", [...new Set(workOrderIds)])), 5_000, "Work-order cleanup"); } catch (_) {}
+      }
+      if (issueIds.length) {
+        try { await withTimeout(Promise.resolve(admin.from("rodios_issues").delete().in("id", [...new Set(issueIds)])), 5_000, "Issue cleanup"); } catch (_) {}
+      }
+      if (profileIds.length) {
+        try { await withTimeout(Promise.resolve(admin.from("rodios_app_users").delete().in("id", [...new Set(profileIds)])), 5_000, "Profile cleanup"); } catch (_) {}
+      }
+      await Promise.allSettled(createdUserIds.map((id) =>
+        withTimeout(admin.auth.admin.deleteUser(id), 5_000, "Auth cleanup")
+      ));
+      try {
+        await withTimeout(
+          Promise.resolve(admin.from("rodios_sequences").delete().eq("kind", "issue").eq("year", seqYear)),
+          5_000,
+          "Sequence cleanup",
+        );
+      } catch (_) {}
     }
   } catch (e) {
     return json(req, { ok: false, function: FUNCTION_NAME, error: errorDetail(e), results: diagnostics }, 500);
