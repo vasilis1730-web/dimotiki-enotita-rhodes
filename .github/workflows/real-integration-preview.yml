@@ -1,0 +1,108 @@
+name: Real Supabase integration (disposable preview only)
+
+on:
+  push:
+    branches:
+      - staging-real-integration
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  real-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Resolve fully deployed Supabase Preview from PR 6 for this commit
+        id: preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          comments_api='https://api.github.com/repos/${{ github.repository }}/issues/6/comments'
+          commit_api='https://api.github.com/repos/${{ github.repository }}/commits/${{ github.sha }}'
+          commit_date=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$commit_api" | jq -r '.commit.committer.date')
+          commit_epoch=$(date -u -d "$commit_date" +%s)
+          ref=''
+          for i in $(seq 1 120); do
+            comments=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' "$comments_api")
+            entry=$(printf '%s' "$comments" | jq -c '[.[] | select(.user.login=="supabase[bot]")] | last // {}')
+            body=$(printf '%s' "$entry" | jq -r '.body // ""')
+            updated_at=$(printf '%s' "$entry" | jq -r '.updated_at // ""')
+            updated_epoch=0
+            if [ -n "$updated_at" ]; then updated_epoch=$(date -u -d "$updated_at" +%s); fi
+            ref=$(printf '%s\n' "$body" | sed -n 's/^\[supa\]:\([a-z]*\)$/\1/p' | head -n1)
+            if [ -n "$ref" ] \
+              && [ "$updated_epoch" -ge "$commit_epoch" ] \
+              && printf '%s' "$body" | grep -Eq 'Database[[:space:]]*\|[[:space:]]*✅' \
+              && printf '%s' "$body" | grep -Eq 'Migrations[[:space:]]*\|[[:space:]]*✅' \
+              && printf '%s' "$body" | grep -Eq 'Seeding[[:space:]]*\|[[:space:]]*✅' \
+              && printf '%s' "$body" | grep -Eq 'Edge Functions[[:space:]]*\|[[:space:]]*✅'; then
+              echo "preview_ref=$ref" >> "$GITHUB_OUTPUT"
+              echo "Supabase Preview $ref is green for commit ${{ github.sha }} (bot updated $updated_at)."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'Supabase Preview did not reach a fully green state for the current commit.' >&2
+          exit 1
+
+      - name: Verify disposable test runners are live
+        env:
+          PREVIEW_REF: ${{ steps.preview.outputs.preview_ref }}
+        run: |
+          set -euo pipefail
+          for fn in staging-real-integration staging-citizen-security-probe; do
+            url="https://${PREVIEW_REF}.supabase.co/functions/v1/${fn}"
+            ready=0
+            for i in $(seq 1 40); do
+              code=$(curl -sS -o "/tmp/${fn}.json" -w '%{http_code}' "$url" || true)
+              if [ "$code" = '200' ] && jq -e '.ok==true and .ready==true' "/tmp/${fn}.json" >/dev/null 2>&1; then
+                jq . "/tmp/${fn}.json"
+                ready=1
+                break
+              fi
+              sleep 3
+            done
+            if [ "$ready" != '1' ]; then
+              cat "/tmp/${fn}.json" 2>/dev/null || true
+              echo "Disposable runner ${fn} did not become ready." >&2
+              exit 1
+            fi
+          done
+
+      - name: Run real Auth / RLS / Storage / Edge / ACK integration suite once
+        env:
+          PREVIEW_REF: ${{ steps.preview.outputs.preview_ref }}
+        run: |
+          set -euo pipefail
+          url="https://${PREVIEW_REF}.supabase.co/functions/v1/staging-real-integration"
+          code=$(curl -sS -o real-integration-result.json -w '%{http_code}' -X POST "$url")
+          cat real-integration-result.json | jq .
+          test "$code" = '200'
+          jq -e '.ok==true and .realNetwork==true and ((.results | length) >= 10) and all(.results[]; .ok==true)' real-integration-result.json >/dev/null
+
+      - name: Run real citizen negative-security HTTP suite
+        env:
+          PREVIEW_REF: ${{ steps.preview.outputs.preview_ref }}
+        run: |
+          set -euo pipefail
+          url="https://${PREVIEW_REF}.supabase.co/functions/v1/staging-citizen-security-probe"
+          code=$(curl -sS -o citizen-security-result.json -w '%{http_code}' -X POST "$url")
+          cat citizen-security-result.json | jq .
+          test "$code" = '200'
+          jq -e '.ok==true and .realNetwork==true and (.results|length)==10 and all(.results[]; .ok==true)' citizen-security-result.json >/dev/null
+
+      - name: Upload sanitized integration results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-supabase-integration-results
+          path: |
+            real-integration-result.json
+            citizen-security-result.json
+          if-no-files-found: ignore
+          retention-days: 7
